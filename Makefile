@@ -1,5 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
-
+CONFIG_RTW88_CORE=m
+CONFIG_RTW88_SDIO=m
+CONFIG_RTW88_8723X=m
+CONFIG_RTW88_8723B=m
+CONFIG_RTW88_8723BS=m
 obj-$(CONFIG_RTW88_CORE)	+= rtw88_core.o
 rtw88_core-y += main.o \
 	   mac80211.o \
@@ -117,3 +121,11 @@ rtw88_sdio-objs			:= sdio.o
 
 obj-$(CONFIG_RTW88_USB)		+= rtw88_usb.o
 rtw88_usb-objs			:= usb.o
+
+KDIR ?= /lib/modules/$(shell uname -r)/build
+
+all:
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
+clean:
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
