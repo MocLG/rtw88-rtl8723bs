@@ -865,6 +865,179 @@ static void rtw8723b_coex_cfg_wl_rx_gain(struct rtw_dev *rtwdev, bool low_gain)
 	}
 }
 
+static void rtw8723b_set_iqk_matrix_by_result(struct rtw_dev *rtwdev,
+					      u32 ofdm_swing, u8 rf_path)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	s32 ele_A, ele_D, ele_C;
+	s32 ele_A_ext, ele_C_ext, ele_D_ext;
+	s32 iqk_result_x;
+	s32 iqk_result_y;
+	s32 value32;
+
+	/* 8723B is single-path, only Path A / S1 */
+	iqk_result_x = dm_info->iqk.result.s1_x;
+	iqk_result_y = dm_info->iqk.result.s1_y;
+
+	/* new element D */
+	ele_D = OFDM_SWING_D(ofdm_swing);
+	iqk_mult(iqk_result_x, ele_D, &ele_D_ext);
+	/* new element A */
+	iqk_result_x = iqkxy_to_s32(iqk_result_x);
+	ele_A = iqk_mult(iqk_result_x, ele_D, &ele_A_ext);
+	/* new element C */
+	iqk_result_y = iqkxy_to_s32(iqk_result_y);
+	ele_C = iqk_mult(iqk_result_y, ele_D, &ele_C_ext);
+
+	/* write new elements A, C, D; element B is always 0 */
+	value32 = BIT_SET_TXIQ_ELM_ACD(ele_A, ele_C, ele_D);
+	rtw_write32(rtwdev, REG_OFDM_0_XA_TX_IQ_IMBALANCE, value32);
+	value32 = BIT_SET_TXIQ_ELM_C1(ele_C);
+	rtw_write32_mask(rtwdev, REG_TXIQK_MATRIXA_LSB2_11N, MASKH4BITS,
+			 value32);
+	value32 = rtw_read32(rtwdev, REG_OFDM_0_ECCA_THRESHOLD);
+	value32 &= ~BIT_MASK_OFDM0_EXTS;
+	value32 |= BIT_SET_OFDM0_EXTS(ele_A_ext, ele_C_ext, ele_D_ext);
+	rtw_write32(rtwdev, REG_OFDM_0_ECCA_THRESHOLD, value32);
+}
+
+static void rtw8723b_set_iqk_matrix(struct rtw_dev *rtwdev, s8 ofdm_index,
+				    u8 rf_path)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	s32 value32;
+	u32 ofdm_swing;
+
+	ofdm_index = clamp_t(s8, ofdm_index, 0,
+			     RTW_OFDM_SWING_TABLE_SIZE - 1);
+
+	ofdm_swing = rtw8723b_ofdm_swing_table[ofdm_index];
+
+	if (dm_info->iqk.done) {
+		rtw8723b_set_iqk_matrix_by_result(rtwdev, ofdm_swing, rf_path);
+		return;
+	}
+
+	rtw_write32(rtwdev, REG_OFDM_0_XA_TX_IQ_IMBALANCE, ofdm_swing);
+	rtw_write32_mask(rtwdev, REG_TXIQK_MATRIXA_LSB2_11N, MASKH4BITS,
+			 0x00);
+	value32 = rtw_read32(rtwdev, REG_OFDM_0_ECCA_THRESHOLD);
+	value32 &= ~BIT_MASK_OFDM0_EXTS;
+	rtw_write32(rtwdev, REG_OFDM_0_ECCA_THRESHOLD, value32);
+}
+
+static void rtw8723b_pwrtrack_set_ofdm_pwr(struct rtw_dev *rtwdev,
+					   s8 swing_idx, s8 txagc_idx)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+
+	dm_info->txagc_remnant_ofdm[RF_PATH_A] = txagc_idx;
+
+	/* 8723B is single-path: only Path A */
+	rtw8723b_set_iqk_matrix(rtwdev, swing_idx, RF_PATH_A);
+}
+
+static void rtw8723b_pwrtrack_set_cck_pwr(struct rtw_dev *rtwdev,
+					  s8 swing_idx, s8 txagc_idx)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+
+	dm_info->txagc_remnant_cck = txagc_idx;
+
+	swing_idx = clamp_t(s8, swing_idx, 0, RTW_CCK_SWING_TABLE_SIZE - 1);
+
+	rtw_write32_mask(rtwdev, 0xab4, 0x000007FF,
+			 rtw8723b_cck_swing_table[swing_idx]);
+}
+
+static void rtw8723b_pwrtrack_set(struct rtw_dev *rtwdev, u8 path)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	struct rtw_hal *hal = &rtwdev->hal;
+	u8 limit_ofdm;
+	u8 limit_cck = 40;
+	s8 final_ofdm_swing_index;
+	s8 final_cck_swing_index;
+
+	limit_ofdm = rtw8723x_pwrtrack_get_limit_ofdm(rtwdev);
+
+	final_ofdm_swing_index = RTW8723B_DEF_OFDM_SWING_INDEX +
+				 dm_info->delta_power_index[path];
+	final_cck_swing_index = RTW8723B_DEF_CCK_SWING_INDEX +
+				dm_info->delta_power_index[path];
+
+	if (final_ofdm_swing_index > limit_ofdm)
+		rtw8723b_pwrtrack_set_ofdm_pwr(rtwdev, limit_ofdm,
+					       final_ofdm_swing_index - limit_ofdm);
+	else if (final_ofdm_swing_index < 0)
+		rtw8723b_pwrtrack_set_ofdm_pwr(rtwdev, 0,
+					       final_ofdm_swing_index);
+	else
+		rtw8723b_pwrtrack_set_ofdm_pwr(rtwdev, final_ofdm_swing_index, 0);
+
+	if (final_cck_swing_index > limit_cck)
+		rtw8723b_pwrtrack_set_cck_pwr(rtwdev, limit_cck,
+					      final_cck_swing_index - limit_cck);
+	else if (final_cck_swing_index < 0)
+		rtw8723b_pwrtrack_set_cck_pwr(rtwdev, 0,
+					      final_cck_swing_index);
+	else
+		rtw8723b_pwrtrack_set_cck_pwr(rtwdev, final_cck_swing_index, 0);
+
+	rtw_phy_set_tx_power_level(rtwdev, hal->current_channel);
+}
+
+static void rtw8723b_phy_pwrtrack(struct rtw_dev *rtwdev)
+{
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	struct rtw_swing_table swing_table;
+	u8 thermal_value, delta, path;
+	bool do_iqk = false;
+
+	rtw_phy_config_swing_table(rtwdev, &swing_table);
+
+	if (rtwdev->efuse.thermal_meter[0] == 0xff)
+		return;
+
+	thermal_value = rtw_read_rf(rtwdev, RF_PATH_A, RF_T_METER, 0xfc00);
+
+	rtw_phy_pwrtrack_avg(rtwdev, thermal_value, RF_PATH_A);
+
+	do_iqk = rtw_phy_pwrtrack_need_iqk(rtwdev);
+
+	if (do_iqk)
+		rtw8723x_lck(rtwdev);
+
+	if (dm_info->pwr_trk_init_trigger)
+		dm_info->pwr_trk_init_trigger = false;
+	else if (!rtw_phy_pwrtrack_thermal_changed(rtwdev, thermal_value,
+						   RF_PATH_A))
+		goto iqk;
+
+	delta = rtw_phy_pwrtrack_get_delta(rtwdev, RF_PATH_A);
+
+	delta = min_t(u8, delta, RTW_PWR_TRK_TBL_SZ - 1);
+
+	for (path = 0; path < rtwdev->hal.rf_path_num; path++) {
+		s8 delta_cur, delta_last;
+
+		delta_last = dm_info->delta_power_index[path];
+		delta_cur = rtw_phy_pwrtrack_get_pwridx(rtwdev, &swing_table,
+							path, RF_PATH_A, delta);
+		if (delta_last == delta_cur)
+			continue;
+
+		dm_info->delta_power_index[path] = delta_cur;
+		rtw8723b_pwrtrack_set(rtwdev, path);
+	}
+
+	rtw8723x_pwrtrack_set_xtal(rtwdev, RF_PATH_A, delta);
+
+iqk:
+	if (do_iqk)
+		rtw8723b_phy_calibration(rtwdev);
+}
+
 static void rtw8723b_pwr_track(struct rtw_dev *rtwdev)
 {
 	struct rtw_efuse *efuse = &rtwdev->efuse;
@@ -880,6 +1053,7 @@ static void rtw8723b_pwr_track(struct rtw_dev *rtwdev)
 		return;
 	}
 
+	rtw8723b_phy_pwrtrack(rtwdev);
 	dm_info->pwr_trk_triggered = false;
 }
 
