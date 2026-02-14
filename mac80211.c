@@ -797,6 +797,35 @@ static void rtw_ops_sta_statistics(struct ieee80211_hw *hw,
 	sinfo->filled |= BIT_ULL(NL80211_STA_INFO_TX_BITRATE);
 }
 
+
+#define BIT_RW_RELEASE_EN	BIT(18)
+#define BIT_RXDMA_IDLE		BIT(17)
+static void rtw8723b_flush_fifo(struct rtw_dev *rtwdev)
+{
+	u32 val32;
+	int retry;
+
+	rtw_write8(rtwdev, REG_TXPAUSE, 0xff);
+	rtw_write32_set(rtwdev, REG_RXPKT_NUM, BIT_RW_RELEASE_EN);
+
+	retry = 100;
+	// retval = -EBUSY;
+
+	do {
+		val32 = rtw_read32(rtwdev, REG_RXPKT_NUM);
+		if (val32 & BIT_RXDMA_IDLE) {
+			break;
+		}
+	} while (retry--);
+
+	rtw_write16(rtwdev, REG_RQPN_NPQ, 0);
+	rtw_write32(rtwdev, REG_RQPN, 0x80000000);
+	mdelay(2);
+
+	if (!retry)
+		printk("Failed to flush FIFO\n");
+}
+
 static void rtw_ops_flush(struct ieee80211_hw *hw,
 			  struct ieee80211_vif *vif,
 			  u32 queues, bool drop)
@@ -806,8 +835,12 @@ static void rtw_ops_flush(struct ieee80211_hw *hw,
 	mutex_lock(&rtwdev->mutex);
 	rtw_leave_lps_deep(rtwdev);
 
-	rtw_hci_flush_queues(rtwdev, queues, drop);
-	rtw_mac_flush_queues(rtwdev, queues, drop);
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		rtw8723b_flush_fifo(rtwdev);
+	} else {
+		rtw_hci_flush_queues(rtwdev, queues, drop);
+		rtw_mac_flush_queues(rtwdev, queues, drop);
+	}
 	mutex_unlock(&rtwdev->mutex);
 }
 

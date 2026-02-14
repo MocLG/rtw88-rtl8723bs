@@ -396,6 +396,8 @@ EXPORT_SYMBOL(rtw_fw_c2h_cmd_isr);
 static void rtw_fw_send_h2c_command_register(struct rtw_dev *rtwdev,
 					     struct rtw_h2c_register *h2c)
 {
+	printk("%s: begin\n", __func__);
+
 	u32 box_reg, box_ex_reg;
 	u8 box_state, box;
 	int ret;
@@ -448,6 +450,8 @@ static void rtw_fw_send_h2c_command_register(struct rtw_dev *rtwdev,
 static void rtw_fw_send_h2c_command(struct rtw_dev *rtwdev,
 				    u8 *h2c)
 {
+	printk("%s: begin\n", __func__);
+
 	struct rtw_h2c_cmd *h2c_cmd = (struct rtw_h2c_cmd *)h2c;
 	u8 box;
 	u8 box_state;
@@ -2027,12 +2031,16 @@ void rtw_fw_adaptivity(struct rtw_dev *rtwdev)
 
 void rtw_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 {
+	printk("%s: begin\n", __func__);
+
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_SCAN);
 	SET_SCAN_START(h2c_pkt, start);
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+
+	printk("%s: end\n", __func__);
 }
 
 static int rtw_append_probe_req_ie(struct rtw_dev *rtwdev, struct sk_buff *skb,

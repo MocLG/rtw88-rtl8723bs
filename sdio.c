@@ -688,6 +688,7 @@ static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
 	case RTW_CHIP_TYPE_8703B:
 	case RTW_CHIP_TYPE_8821A:
 	case RTW_CHIP_TYPE_8812A:
+	case RTW_CHIP_TYPE_8723B:
 		size = 0x6;
 		timeout = 0x6;
 		break;
@@ -965,7 +966,12 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
 
+	rtw_dbg(rtwdev, RTW_DBG_RFK, "RX: before ieee80211_rx_irqsafe skb=%p data=%p len=%u hw=%p\n",
+		skb, skb->data, skb->len, rtwdev->hw);
+
 	ieee80211_rx_irqsafe(rtwdev->hw, skb);
+
+	rtw_dbg(rtwdev, RTW_DBG_RFK, "RX: returned from ieee80211_rx_irqsafe skb=%p\n", skb);
 }
 
 static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)

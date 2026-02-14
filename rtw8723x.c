@@ -698,6 +698,9 @@ void __rtw8723x_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 }
 
+
+/* seems to be taken from halbtc8703b1ant_init_hw_config
+ */
 static void __rtw8723x_coex_cfg_init(struct rtw_dev *rtwdev)
 {
 	/* enable TBTT nterrupt */
@@ -719,12 +722,16 @@ static void __rtw8723x_coex_cfg_init(struct rtw_dev *rtwdev)
 }
 
 const struct rtw8723x_common rtw8723x_common = {
+	/* NOTE: applies to 8723bs */
 	.iqk_adda_regs = {
 		0x85c, 0xe6c, 0xe70, 0xe74, 0xe78, 0xe7c, 0xe80, 0xe84,
 		0xe88, 0xe8c, 0xed0, 0xed4, 0xed8, 0xedc, 0xee0, 0xeec
 	},
+	/* NOTE: applies to 8723bs */
 	.iqk_mac8_regs = {0x522, 0x550, 0x551},
+	/* NOTE: applies to 8723bs */
 	.iqk_mac32_regs = {0x40},
+	/* NOTE: applies to 8723bs */
 	.iqk_bb_regs = {
 		0xc04, 0xc08, 0x874, 0xb68, 0xb6c, 0x870, 0x860, 0x864, 0xa04
 	},
@@ -734,6 +741,23 @@ const struct rtw8723x_common rtw8723x_common = {
 		.wdata = REG_LTECOEX_WRITE_DATA,
 		.rdata = REG_LTECOEX_READ_DATA,
 	},
+
+
+// 	include/Hal8723BPhyReg.h:81:#define             rFPGA0_XA_HSSIParameter1                0x820   /* RF 3 wire register */
+// 	include/Hal8723BPhyReg.h:82:#define             rFPGA0_XA_HSSIParameter2                0x824
+// 	include/Hal8723BPhyReg.h:83:#define             rFPGA0_XB_HSSIParameter1                0x828
+// 	include/Hal8723BPhyReg.h:84:#define             rFPGA0_XB_HSSIParameter2                0x82c
+
+// 	hal/rtl8723b/rtl8723b_phycfg.c:526:     pHalData->PHYRegDef[RF_PATH_A].rfLSSIReadBack = rFPGA0_XA_LSSIReadBack;			// accessed in phy_RFSerialRead_8723B for example
+// 	hal/rtl8723b/rtl8723b_phycfg.c:527:     pHalData->PHYRegDef[RF_PATH_B].rfLSSIReadBack = rFPGA0_XB_LSSIReadBack;
+// 	hal/rtl8723b/rtl8723b_phycfg.c:528:     pHalData->PHYRegDef[RF_PATH_A].rfLSSIReadBackPi = TransceiverA_HSPI_Readback;
+// 	hal/rtl8723b/rtl8723b_phycfg.c:529:     pHalData->PHYRegDef[RF_PATH_B].rfLSSIReadBackPi = TransceiverB_HSPI_Readback;
+
+// 	include/Hal8723BPhyReg.h:119:#define            rFPGA0_XA_LSSIReadBack          0x8a0   /* Tranceiver LSSI Readback */
+// 	include/Hal8723BPhyReg.h:120:#define            rFPGA0_XB_LSSIReadBack          0x8a4
+// 	include/Hal8723BPhyReg.h:125:#define            TransceiverA_HSPI_Readback      0x8b8   /* Transceiver A HSPI Readback */
+// 	include/Hal8723BPhyReg.h:126:#define            TransceiverB_HSPI_Readback      0x8bc   /* Transceiver B HSPI Readback */
+
 	.rf_sipi_addr = {
 		[RF_PATH_A] = { .hssi_1 = 0x820, .lssi_read    = 0x8a0,
 				.hssi_2 = 0x824, .lssi_read_pi = 0x8b8},
@@ -747,6 +771,25 @@ const struct rtw8723x_common rtw8723x_common = {
 	.dig_cck = {
 		[0] = { .addr = 0xa0c, .mask = 0x3f00 },
 	},
+
+
+
+	// rtl8723bs
+	// REG_RQPN_NPQ          0x0214
+	// REG_RQPN              0x0200
+	// REG_FIFOPAGE          0x0204
+
+	// REG_TXPKT_EMPTY                               0x041A
+
+
+	// rtw88
+	// REG_RQPN_NPQ          0x0214
+	// REG_RQPN              0x0200
+	// REG_FIFOPAGE_CTRL_2   0x0204
+
+	// REG_TXPKT_EMPTY               0x041A
+
+
 	.prioq_addrs = {
 		.prio[RTW_DMA_MAPPING_EXTRA] = {
 			.rsvd = REG_RQPN_NPQ + 2, .avail = REG_RQPN_NPQ + 3,

@@ -1468,6 +1468,8 @@ static enum rtw_lps_deep_mode rtw_update_lps_deep_mode(struct rtw_dev *rtwdev,
 
 int rtw_power_on(struct rtw_dev *rtwdev)
 {
+	printk("%s begin", __func__);
+
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	struct rtw_fw_state *fw = &rtwdev->fw;
 	bool wifi_only;
@@ -1519,11 +1521,14 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		goto err_off;
 	}
 
+	printk("before send H2C in rtw_poweron()\n");
+
 	/* send H2C after HCI has started */
 	rtw_fw_send_general_info(rtwdev);
 	rtw_fw_send_phydm_info(rtwdev);
 
 	wifi_only = !rtwdev->efuse.btcoex;
+
 	rtw_coex_power_on_setting(rtwdev);
 	rtw_coex_init_hw_config(rtwdev, wifi_only);
 
@@ -1556,6 +1561,8 @@ void rtw_core_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 			 const u8 *mac_addr, bool hw_scan)
 {
+	printk("%s begin", __func__);
+
 	u32 config = 0;
 	int ret = 0;
 
@@ -2069,7 +2076,17 @@ static int rtw_dump_hw_feature(struct rtw_dev *rtwdev)
 	if (!rtwdev->chip->hw_feature_report)
 		return 0;
 
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		// rtl8723bs vendor driver
+		/* inform FW mac hidden rpt from reg is needed */
+		rtw_write8(rtwdev, REG_C2HEVT, C2H_HW_FEATURE_DUMP);
+		// rtw_write8(adapter, REG_C2HEVT_MSG_NORMAL, C2H_DEFEATURE_RSVD);
+	}
+
 	id = rtw_read8(rtwdev, REG_C2HEVT);
+
+	printk("%s:%s:%d id=0x%x", __func__, __FILE__, __LINE__, id);
+
 	if (id != C2H_HW_FEATURE_REPORT) {
 		rtw_err(rtwdev, "failed to read hw feature report\n");
 		return -EBUSY;
@@ -2194,6 +2211,8 @@ static int rtw_chip_board_info_setup(struct rtw_dev *rtwdev)
 
 int rtw_chip_info_setup(struct rtw_dev *rtwdev)
 {
+	printk("%s:%s begin", __func__, __FILE__);
+
 	int ret;
 
 	ret = rtw_chip_parameter_setup(rtwdev);
@@ -2214,9 +2233,11 @@ int rtw_chip_info_setup(struct rtw_dev *rtwdev)
 		goto err_out;
 	}
 
+	printk("%s:%s end success", __func__, __FILE__);
 	return 0;
 
 err_out:
+	printk("%s:%s end error", __func__, __FILE__);
 	return ret;
 }
 EXPORT_SYMBOL(rtw_chip_info_setup);
