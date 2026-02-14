@@ -34,11 +34,16 @@ Load modules in this order to satisfy symbol dependencies:
 
 ```bash
 sudo insmod rtw88_core.ko
+sudo insmod rtw88_88xxa.ko   # helper module that provides shared PHY helpers
 sudo insmod rtw88_8723x.ko
 sudo insmod rtw88_8723b.ko
 sudo insmod rtw88_sdio.ko
 sudo insmod rtw88_8723bs.ko
 ```
+ Load the modules in this order so helper symbols are available. When
+ unloading, reverse the order (unload `rtw88_8723bs`/`rtw88_sdio`
+ first, then `rtw88_8723b`, `rtw88_8723x`, `rtw88_88xxa`, and finally
+ `rtw88_core`) to avoid unresolved-symbol or "module in use" errors.
 
 Alternatively, use `modprobe` after installing the modules into the kernel module path.
 

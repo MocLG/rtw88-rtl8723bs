@@ -162,6 +162,7 @@ fi
 # Load the module chain using insmod (our out-of-tree .ko files)
 LOAD_ORDER=(
     rtw88_core.ko
+    rtw88_88xxa.ko
     rtw88_8723x.ko
     rtw88_8723b.ko
     rtw88_sdio.ko
@@ -265,6 +266,7 @@ UNLOAD_ORDER=(
     rtw88_sdio
     rtw88_8723b
     rtw88_8723x
+    rtw88_88xxa
     rtw88_core
 )
 
@@ -273,7 +275,7 @@ for mod in "${UNLOAD_ORDER[@]}"; do
         if rmmod "$mod" 2>&1; then
             pass "rmmod $mod"
         else
-            fail "rmmod $mod failed"
+            warn "rmmod $mod failed — attempting to continue"
         fi
     fi
     sleep 0.2

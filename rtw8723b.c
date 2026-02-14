@@ -15,11 +15,30 @@
 #include "rtw8723x.h"
 #include "rtw8723b.h"
 #include "rtw8723b_table.h"
+#include "rtw8703b.h"
 #include "mac.h"
 #include "reg.h"
 #include "debug.h"
 
+/* Some vendor helper macros expected by power-sequence tables and
+ * local lookup tables are defined in other vendor C files. Provide
+ * local fallbacks here so this translation unit compiles standalone.
+ */
+#ifndef LNA_IDX_INVALID
+#define LNA_IDX_INVALID 0x7f
+#endif
+
+#ifndef TRANS_SEQ_END
+#define TRANS_SEQ_END \
+	0xFFFF, \
+	RTW_PWR_CUT_ALL_MSK, \
+	RTW_PWR_INTF_ALL_MSK, \
+	0, \
+	RTW_PWR_CMD_END, 0, 0
+#endif
+
 #define WLAN_SLOT_TIME		0x09
+#include "rtw88xxa.h"
 #define WLAN_RL_VAL		0x3030
 #define WLAN_BAR_VAL		0x0201ffff
 #define BIT_MASK_TBTT_HOLD	0x00000fff
@@ -87,171 +106,143 @@ static void rtw8723b_pwrtrack_init(struct rtw_dev *rtwdev)
 
 static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 {
-	u8 xtal_cap;
-	u32 val32;
+	u8 xtal_cap = 0;
+	/* Generation-A PHY initialization: follow rtw8703b-style sequence
+	 * and avoid Generation-B specific register accesses. Keep init
+	 * minimal and defer platform specific tweaks to shared helpers.
+	 */
 
-	/* power on BB/RF domain */
-	rtw_write16_set(rtwdev, REG_SYS_FUNC_EN,
-			BIT_FEN_EN_25_1 | BIT_FEN_BB_GLB_RST | BIT_FEN_BB_RSTB);
-	rtw_write8_set(rtwdev, REG_RF_CTRL,
-		       BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-	rtw_write8(rtwdev, REG_AFE_CTRL1 + 1, 0x80);
-
+	/* Load PHY tables prepared for 8723B */
 	rtw_phy_load_tables(rtwdev);
 
-	/* post init after header files config */
-	rtw_write32_clr(rtwdev, REG_RCR, BIT_RCR_ADF);
-	rtw_write8_set(rtwdev, REG_HIQ_NO_LMT_EN, BIT_HIQ_NO_LMT_EN_ROOT);
-	rtw_write16_set(rtwdev, REG_AFE_CTRL_4, BIT_CK320M_AFE_EN | BIT_EN_SYN);
-
-	xtal_cap = rtwdev->efuse.crystal_cap & 0x3F;
-	rtw_write32_mask(rtwdev, REG_AFE_CTRL3, BIT_MASK_XTAL,
-			 xtal_cap | (xtal_cap << 6));
-	rtw_write32_set(rtwdev, REG_FPGA0_RFMOD, BIT_CCKEN | BIT_OFDMEN);
-	if ((rtwdev->efuse.afe >> 4) == 14) {
-		rtw_write32_set(rtwdev, REG_AFE_CTRL3, BIT_XTAL_GMP_BIT4);
-		rtw_write32_clr(rtwdev, REG_AFE_CTRL1, BITS_PLL);
-		rtw_write32_set(rtwdev, REG_LDO_SWR_CTRL, BIT_XTA1);
-		rtw_write32_clr(rtwdev, REG_LDO_SWR_CTRL, BIT_XTA0);
+	/* Apply crystal cap from efuse when available */
+	if (rtwdev->efuse.crystal_cap != 0xff) {
+		xtal_cap = rtwdev->efuse.crystal_cap & 0x3f;
+		rtw_write32_mask(rtwdev, REG_AFE_CTRL3, BIT_MASK_XTAL,
+				 xtal_cap | (xtal_cap << 6));
 	}
 
-	rtw_write8(rtwdev, REG_SLOT, WLAN_SLOT_TIME);
-	rtw_write8(rtwdev, REG_FWHW_TXQ_CTRL + 1, WLAN_TXQ_RPT_EN);
-	rtw_write16(rtwdev, REG_RETRY_LIMIT, WLAN_RL_VAL);
-	rtw_write32(rtwdev, REG_BAR_MODE_CTRL, WLAN_BAR_VAL);
-	rtw_write8(rtwdev, REG_ATIMWND, 0x2);
-	rtw_write8(rtwdev, REG_BCN_CTRL,
-		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_EN_TXBCN_RPT);
-	val32 = rtw_read32(rtwdev, REG_TBTT_PROHIBIT);
-	val32 &= ~BIT_MASK_TBTT_MASK;
-	val32 |= WLAN_TBTT_TIME_STOP_BCN;
-	rtw_write8(rtwdev, REG_TBTT_PROHIBIT, val32);
-	rtw_write8(rtwdev, REG_PIFS, WLAN_PIFS_VAL);
-	rtw_write8(rtwdev, REG_AGGR_BREAK_TIME, WLAN_AGG_BRK_TIME);
-	rtw_write16(rtwdev, REG_NAV_PROT_LEN, WLAN_NAV_PROT_LEN);
-	rtw_write16(rtwdev, REG_MAC_SPEC_SIFS, WLAN_SPEC_SIFS);
-	rtw_write16(rtwdev, REG_SIFS, WLAN_SPEC_SIFS);
-	rtw_write16(rtwdev, REG_SIFS + 2, WLAN_SPEC_SIFS);
-	rtw_write8(rtwdev, REG_SINGLE_AMPDU_CTRL, BIT_EN_SINGLE_APMDU);
-	rtw_write8(rtwdev, REG_RX_PKT_LIMIT, WLAN_RX_PKT_LIMIT);
-	rtw_write8(rtwdev, REG_MAX_AGGR_NUM, WLAN_MAX_AGG_NR);
-	rtw_write8(rtwdev, REG_AMPDU_MAX_TIME, WLAN_AMPDU_MAX_TIME);
-	rtw_write8(rtwdev, REG_LEDCFG2, WLAN_ANT_SEL);
-
-	rtw_write32(rtwdev, REG_LTR_IDLE_LATENCY, WLAN_LTR_IDLE_LAT);
-	rtw_write32(rtwdev, REG_LTR_ACTIVE_LATENCY, WLAN_LTR_ACT_LAT);
-	rtw_write32(rtwdev, REG_LTR_CTRL_BASIC, WLAN_LTR_CTRL1);
-	rtw_write32(rtwdev, REG_LTR_CTRL_BASIC + 4, WLAN_LTR_CTRL2);
-
+	/* Common PHY initialization */
 	rtw_phy_init(rtwdev);
+
+	/* Read CCK PD default from CSRATIO (vendor flow) */
 	rtwdev->dm_info.cck_pd_default = rtw_read8(rtwdev, REG_CSRATIO) & 0x1f;
 
+	/* Enable TX DMA offset check (vendor Gen-A behavior) */
 	rtw_write16_set(rtwdev, REG_TXDMA_OFFSET_CHK, BIT_DROP_DATA_EN);
 
-	rtw8723x_lck(rtwdev);
-
-	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x50);
-	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x20);
-
+	/* Initialize power tracking */
 	rtw8723b_pwrtrack_init(rtwdev);
 }
 
-static void query_phy_status_page0(struct rtw_dev *rtwdev, u8 *phy_status,
-				   struct rtw_rx_pkt_stat *pkt_stat)
-{
-	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
-	s8 min_rx_power = -120;
-	u8 pwdb = GET_PHY_STAT_P0_PWDB(phy_status);
+static const s8 lna_gain_table_local[16] = {
+	-2, LNA_IDX_INVALID, LNA_IDX_INVALID, LNA_IDX_INVALID,
+	-6, LNA_IDX_INVALID, LNA_IDX_INVALID, -19,
+	-32, LNA_IDX_INVALID, -36, -42,
+	LNA_IDX_INVALID, LNA_IDX_INVALID, LNA_IDX_INVALID, -48,
+};
 
-	pkt_stat->rx_power[RF_PATH_A] = pwdb - 97;
-	pkt_stat->rssi = rtw_phy_rf_power_2_rssi(pkt_stat->rx_power, 1);
-	pkt_stat->bw = RTW_CHANNEL_WIDTH_20;
-	pkt_stat->signal_power = max(pkt_stat->rx_power[RF_PATH_A],
-				     min_rx_power);
-	dm_info->rssi[RF_PATH_A] = pkt_stat->rssi;
+static s8 get_cck_rx_pwr_local(struct rtw_dev *rtwdev, u8 lna_idx, u8 vga_idx)
+{
+	s8 lna_gain = 0;
+
+	if (lna_idx < ARRAY_SIZE(lna_gain_table_local))
+		lna_gain = lna_gain_table_local[lna_idx];
+
+	if (lna_gain >= 0) {
+		rtw_warn(rtwdev, "incorrect lna index (%d)\n", lna_idx);
+		return -120;
+	}
+
+	return lna_gain - 2 * vga_idx;
 }
 
-static void query_phy_status_page1(struct rtw_dev *rtwdev, u8 *phy_status,
-				   struct rtw_rx_pkt_stat *pkt_stat)
+static void query_phy_status_cck(struct rtw_dev *rtwdev, u8 *phy_raw,
+				 struct rtw_rx_pkt_stat *pkt_stat)
 {
-	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
-	u8 rxsc, bw;
-	s8 min_rx_power = -120;
-	s8 rx_evm;
+	struct phy_status_8703b *phy_status = (struct phy_status_8703b *)phy_raw;
+	u8 vga_idx = phy_status->cck_agc_rpt_ofdm_cfosho_a & VGA_BITS;
+	u8 lna_idx = phy_status->cck_agc_rpt_ofdm_cfosho_a & LNA_L_BITS;
+	s8 rx_power;
 
-	if (pkt_stat->rate > DESC_RATE11M && pkt_stat->rate < DESC_RATEMCS0)
-		rxsc = GET_PHY_STAT_P1_L_RXSC(phy_status);
+	if (rtwdev->dm_info.rx_cck_agc_report_type == 1)
+		lna_idx = FIELD_PREP(BIT_LNA_H_MASK,
+					 phy_status->cck_rpt_b_ofdm_cfosho_b & LNA_H_BIT)
+			| FIELD_PREP(BIT_LNA_L_MASK, lna_idx);
 	else
-		rxsc = GET_PHY_STAT_P1_HT_RXSC(phy_status);
+		lna_idx = FIELD_PREP(BIT_LNA_L_MASK, lna_idx);
+	rx_power = get_cck_rx_pwr_local(rtwdev, lna_idx, vga_idx);
 
-	if (GET_PHY_STAT_P1_RF_MODE(phy_status) == 0)
-		bw = RTW_CHANNEL_WIDTH_20;
-	else if ((rxsc == 1) || (rxsc == 2))
-		bw = RTW_CHANNEL_WIDTH_20;
-	else
-		bw = RTW_CHANNEL_WIDTH_40;
-
-	pkt_stat->rx_power[RF_PATH_A] = GET_PHY_STAT_P1_PWDB_A(phy_status) - 110;
+	pkt_stat->rx_power[RF_PATH_A] = rx_power;
 	pkt_stat->rssi = rtw_phy_rf_power_2_rssi(pkt_stat->rx_power, 1);
-	pkt_stat->bw = bw;
-	pkt_stat->signal_power = max(pkt_stat->rx_power[RF_PATH_A],
-				     min_rx_power);
-	pkt_stat->rx_evm[RF_PATH_A] = GET_PHY_STAT_P1_RXEVM_A(phy_status);
-	pkt_stat->rx_snr[RF_PATH_A] = GET_PHY_STAT_P1_RXSNR_A(phy_status);
-	pkt_stat->cfo_tail[RF_PATH_A] = GET_PHY_STAT_P1_CFO_TAIL_A(phy_status);
+	rtwdev->dm_info.rssi[RF_PATH_A] = pkt_stat->rssi;
+	pkt_stat->signal_power = rx_power;
+}
+
+static void query_phy_status_ofdm(struct rtw_dev *rtwdev, u8 *phy_raw,
+				  struct rtw_rx_pkt_stat *pkt_stat)
+{
+	struct phy_status_8703b *phy_status = (struct phy_status_8703b *)phy_raw;
+	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	s8 val_s8;
+
+	val_s8 = phy_status->path_agc[RF_PATH_A].gain & 0x3F;
+	pkt_stat->rx_power[RF_PATH_A] = (val_s8 * 2) - 110;
+	pkt_stat->rssi = rtw_phy_rf_power_2_rssi(pkt_stat->rx_power, 1);
+	pkt_stat->rx_snr[RF_PATH_A] = (s8)(phy_status->path_rxsnr[RF_PATH_A] / 2);
+
+	/* signal power reported by HW */
+	val_s8 = phy_status->cck_sig_qual_ofdm_pwdb_all >> 1;
+	pkt_stat->signal_power = (val_s8 & 0x7f) - 110;
+
+	pkt_stat->rx_evm[RF_PATH_A] = phy_status->stream_rxevm[RF_PATH_A];
+	pkt_stat->cfo_tail[RF_PATH_A] = phy_status->path_cfotail[RF_PATH_A];
 
 	dm_info->curr_rx_rate = pkt_stat->rate;
 	dm_info->rssi[RF_PATH_A] = pkt_stat->rssi;
 	dm_info->rx_snr[RF_PATH_A] = pkt_stat->rx_snr[RF_PATH_A] >> 1;
+	/* convert to KHz (used only for debugfs) */
 	dm_info->cfo_tail[RF_PATH_A] = (pkt_stat->cfo_tail[RF_PATH_A] * 5) >> 1;
 
-	rx_evm = clamp_t(s8, -pkt_stat->rx_evm[RF_PATH_A] >> 1, 0, 64);
-	rx_evm &= 0x3F;
-	dm_info->rx_evm_dbm[RF_PATH_A] = rx_evm;
+	/* (EVM value as s8 / 2) is dbm, should usually be in -33 to 0
+	 * range. rx_evm_dbm needs the absolute (positive) value.
+	 */
+	val_s8 = (s8)pkt_stat->rx_evm[RF_PATH_A];
+	val_s8 = clamp_t(s8, -val_s8 >> 1, 0, 64);
+	val_s8 &= 0x3F; /* 64->0: second path of 1SS rate is 64 */
+	dm_info->rx_evm_dbm[RF_PATH_A] = val_s8;
 }
 
 static void query_phy_status(struct rtw_dev *rtwdev, u8 *phy_status,
-			     struct rtw_rx_pkt_stat *pkt_stat)
+				 struct rtw_rx_pkt_stat *pkt_stat)
 {
-	u8 page;
-
-	page = *phy_status & 0xf;
-
-	switch (page) {
-	case 0:
-		query_phy_status_page0(rtwdev, phy_status, pkt_stat);
-		break;
-	case 1:
-		query_phy_status_page1(rtwdev, phy_status, pkt_stat);
-		break;
-	default:
-		rtw_warn(rtwdev, "unused phy status page (%d)\n", page);
-		return;
-	}
+	if (pkt_stat->rate <= DESC_RATE11M)
+		query_phy_status_cck(rtwdev, phy_status, pkt_stat);
+	else
+		query_phy_status_ofdm(rtwdev, phy_status, pkt_stat);
 }
 
 static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 {
-	u32 rf_cfgch_a;
+	u8 path;
 
-	rf_cfgch_a = rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK);
-
-	rf_cfgch_a &= ~RFCFGCH_CHANNEL_MASK;
-	rf_cfgch_a |= (channel & RFCFGCH_CHANNEL_MASK);
-
-	rf_cfgch_a &= ~RFCFGCH_BW_MASK;
-	switch (bw) {
-	case RTW_CHANNEL_WIDTH_20:
-		rf_cfgch_a |= RFCFGCH_BW_20M;
-		break;
-	case RTW_CHANNEL_WIDTH_40:
-		rf_cfgch_a |= RFCFGCH_BW_40M;
-		break;
-	default:
-		break;
+	/* Use Generation-A RF BW encoding (rtw88xxa helpers) */
+	for (path = RF_PATH_A; path < rtwdev->hal.rf_path_num; path++) {
+		switch (bw) {
+		case RTW_CHANNEL_WIDTH_5:
+		case RTW_CHANNEL_WIDTH_10:
+		case RTW_CHANNEL_WIDTH_20:
+		default:
+			rtw_write_rf(rtwdev, path, RF_CFGCH, RF18_BW_MASK, 3);
+			break;
+		case RTW_CHANNEL_WIDTH_40:
+			rtw_write_rf(rtwdev, path, RF_CFGCH, RF18_BW_MASK, 1);
+			break;
+		case RTW_CHANNEL_WIDTH_80:
+			rtw_write_rf(rtwdev, path, RF_CFGCH, RF18_BW_MASK, 0);
+			break;
+		}
 	}
-
-	rtw_write_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK, rf_cfgch_a);
 }
 
 static const struct rtw_backup_info cck_dfir_cfg[][3] = {
@@ -738,30 +729,8 @@ out:
 
 static void rtw8723b_phy_cck_pd_set(struct rtw_dev *rtwdev, u8 new_lvl)
 {
-	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
-	u8 pd[CCK_PD_LV_MAX] = {3, 7, 13, 13, 13};
-	u8 cck_n_rx;
-
-	rtw_dbg(rtwdev, RTW_DBG_PHY, "lv: (%d) -> (%d)\n",
-		dm_info->cck_pd_lv[RTW_CHANNEL_WIDTH_20][RF_PATH_A], new_lvl);
-
-	if (dm_info->cck_pd_lv[RTW_CHANNEL_WIDTH_20][RF_PATH_A] == new_lvl)
-		return;
-
-	cck_n_rx = (rtw_read8_mask(rtwdev, REG_CCK0_FAREPORT, BIT_CCK0_2RX) &&
-		    rtw_read8_mask(rtwdev, REG_CCK0_FAREPORT, BIT_CCK0_MRC)) ? 2 : 1;
-	rtw_dbg(rtwdev, RTW_DBG_PHY,
-		"is_linked=%d, lv=%d, n_rx=%d, cs_ratio=0x%x, pd_th=0x%x, cck_fa_avg=%d\n",
-		rtw_is_assoc(rtwdev), new_lvl, cck_n_rx,
-		dm_info->cck_pd_default + new_lvl * 2,
-		pd[new_lvl], dm_info->cck_fa_avg);
-
-	dm_info->cck_fa_avg = CCK_FA_AVG_RESET;
-
-	dm_info->cck_pd_lv[RTW_CHANNEL_WIDTH_20][RF_PATH_A] = new_lvl;
-	rtw_write32_mask(rtwdev, REG_PWRTH, 0x3f0000, pd[new_lvl]);
-	rtw_write32_mask(rtwdev, REG_PWRTH2, 0x1f0000,
-			 dm_info->cck_pd_default + new_lvl * 2);
+	/* Use Gen-A helper behavior for CCK PD thresholds */
+	rtw88xxa_phy_cck_pd_set(rtwdev, new_lvl);
 }
 
 /* BT coexistence functions */
@@ -807,9 +776,10 @@ static void rtw8723b_coex_cfg_rfe_type(struct rtw_dev *rtwdev)
 			rtw_write16(rtwdev, REG_BB_SEL_BTG, 0x0);
 	}
 
-	rtw_coex_write_indirect_reg(rtwdev, LTE_COEX_CTRL, BIT_LTE_COEX_EN, 0x0);
-	rtw_coex_write_indirect_reg(rtwdev, LTE_WL_TRX_CTRL, MASKLWORD, 0xffff);
-	rtw_coex_write_indirect_reg(rtwdev, LTE_BT_TRX_CTRL, MASKLWORD, 0xffff);
+	/* RTL8723B does not implement LTE coex; ensure no indirect
+	 * LTE registers are accessed here. Vendor Gen-A devices omit
+	 * LTE_COEX handling entirely.
+	 */
 }
 
 static void rtw8723b_coex_cfg_wl_tx_power(struct rtw_dev *rtwdev, u8 wl_pwr)
@@ -1058,38 +1028,31 @@ static void rtw8723b_pwr_track(struct rtw_dev *rtwdev)
 }
 
 static const struct rtw_chip_ops rtw8723b_ops = {
-	.power_on		= rtw_power_on,
-	.power_off		= rtw_power_off,
-	.phy_set_param		= rtw8723b_phy_set_param,
-	.read_efuse		= rtw8723x_read_efuse,
-	.query_phy_status	= query_phy_status,
-	.set_channel		= rtw8723b_set_channel,
-	.mac_init		= rtw8723x_mac_init,
-	.mac_postinit		= rtw8723x_mac_postinit,
-	.shutdown		= rtw8723b_shutdown,
-	.read_rf		= rtw_phy_read_rf_sipi,
-	.write_rf		= rtw_phy_write_rf_reg_sipi,
-	.set_tx_power_index	= rtw8723x_set_tx_power_index,
-	.set_antenna		= NULL,
-	.cfg_ldo25		= rtw8723x_cfg_ldo25,
-	.efuse_grant		= rtw8723x_efuse_grant,
-	.set_ampdu_factor	= NULL,
-	.false_alarm_statistics	= rtw8723x_false_alarm_statistics,
-	.phy_calibration	= rtw8723b_phy_calibration,
-	.cck_pd_set		= rtw8723b_phy_cck_pd_set,
-	.pwr_track		= rtw8723b_pwr_track,
-	.config_bfee		= NULL,
-	.set_gid_table		= NULL,
-	.cfg_csi_rate		= NULL,
-	.fill_txdesc_checksum	= rtw8723x_fill_txdesc_checksum,
-
-	.coex_set_init		= rtw8723x_coex_cfg_init,
-	.coex_set_ant_switch	= NULL,
-	.coex_set_gnt_fix	= rtw8723b_coex_cfg_gnt_fix,
-	.coex_set_gnt_debug	= rtw8723b_coex_cfg_gnt_debug,
-	.coex_set_rfe_type	= rtw8723b_coex_cfg_rfe_type,
-	.coex_set_wl_tx_power	= rtw8723b_coex_cfg_wl_tx_power,
-	.coex_set_wl_rx_gain	= rtw8723b_coex_cfg_wl_rx_gain,
+	.power_on        = rtw_power_on,
+	.power_off       = rtw_power_off,
+	.mac_init        = rtw8723x_mac_init,
+	.mac_postinit        = rtw8723x_mac_postinit,
+	.dump_fw_crash       = NULL,
+	.shutdown        = rtw8723b_shutdown,
+	.read_efuse      = rtw8723x_read_efuse,
+	.phy_set_param       = rtw8723b_phy_set_param,
+	.set_channel      = rtw8723b_set_channel,
+	.query_phy_status    = query_phy_status,
+	.read_rf        = rtw_phy_read_rf_sipi,
+	.write_rf        = rtw_phy_write_rf_reg_sipi,
+	.set_tx_power_index    = rtw8723x_set_tx_power_index,
+	.set_antenna        = NULL,
+	.cfg_ldo25        = rtw8723x_cfg_ldo25,
+	.efuse_grant        = rtw8723x_efuse_grant,
+	.set_ampdu_factor    = NULL,
+	.false_alarm_statistics    = rtw8723x_false_alarm_statistics,
+	.phy_calibration    = rtw8723b_phy_calibration,
+	.cck_pd_set        = rtw88xxa_phy_cck_pd_set,
+	.pwr_track        = rtw8723b_pwr_track,
+	.config_bfee        = NULL,
+	.set_gid_table        = NULL,
+	.cfg_csi_rate        = NULL,
+	.fill_txdesc_checksum    = rtw8723x_fill_txdesc_checksum,
 };
 
 /* Shared-Antenna Coex Table */
@@ -1241,194 +1204,336 @@ static const struct coex_rf_para rf_para_rx_8723b[] = {
 	{1, 15, true, 5}
 };
 
-/* Power sequences — reuse the 8723D sequences as the 8723B is
- * register-compatible for power management.
+/* Power sequences — use vendor Gen-A 8703B sequences for RTL8723B.
+ * Following the vendor recipe closely gives the best chance of
+ * correct power-up/power-down behavior on Gen-A hardware.
  */
+static const struct rtw_pwr_seq_cmd trans_pre_enable_8723b[] = {
+	/* set up external crystal (XTAL) */
+	{REG_PAD_CTRL1 + 2,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(7), BIT(7)},
+	/* set CLK_REQ to high active */
+	{0x0069,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(5), BIT(5)},
+	/* unlock ISO/CLK/power control register */
+	{REG_RSV_CTRL,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0},
+	{TRANS_SEQ_END},
+};
+
 static const struct rtw_pwr_seq_cmd trans_carddis_to_cardemu_8723b[] = {
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(3) | BIT(7), 0},
-	{0x0086, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_SDIO, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x0086, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_SDIO, RTW_PWR_CMD_POLLING, BIT(1), BIT(1)},
-	{0x004A, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_USB_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(3) | BIT(4), 0},
-	{0x0023, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(4), 0},
-	{0x0301, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(7), 0},
+	{TRANS_SEQ_END},
+};
+
+static const struct rtw_pwr_seq_cmd trans_cardemu_to_carddis_8723b[] = {
+	{0x0023,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(4), BIT(4)},
+	{0x0007,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK | RTW_PWR_INTF_USB_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xFF, 0x20},
+	{0x0006,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 0},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(7), BIT(7)},
+	{TRANS_SEQ_END},
 };
 
 static const struct rtw_pwr_seq_cmd trans_cardemu_to_act_8723b[] = {
-	{0x0020, RTW_PWR_CUT_ALL_MSK,
+	{0x0020,
+	 RTW_PWR_CUT_ALL_MSK,
 	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0001, RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x0067,
+	 RTW_PWR_CUT_ALL_MSK,
 	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_DELAY, 1, RTW_PWR_DELAY_MS},
-	{0x0000, RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(4), 0},
+	{0x0001,
+	 RTW_PWR_CUT_ALL_MSK,
 	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(5), 0},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, (BIT(4) | BIT(3) | BIT(2)), 0},
-	{0x0075, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0006, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, BIT(1), BIT(1)},
-	{0x0075, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x0006, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, (BIT(1) | BIT(0)), 0},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(7), 0},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, (BIT(4) | BIT(3)), 0},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, BIT(0), 0},
-	{0x0010, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(6), BIT(6)},
-	{0x0049, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
-	{0x0063, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
-	{0x0062, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), 0},
-	{0x0058, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x005A, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
-	{0x0068, RTW_PWR_CUT_TEST_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(3), BIT(3)},
-	{0x0069, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(6), BIT(6)},
-	{0x001f, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x00},
-	{0x0077, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x00},
-	{0x001f, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x07},
-	{0x0077, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x07},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_DELAY, 1, RTW_PWR_DELAY_MS},
+	{0x0000,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(5), 0},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, (BIT(4) | BIT(3) | BIT(2)), 0},
+	{0x0075,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_PCI_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x0004,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_PCI_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(3), BIT(3)},
+	{0x0004,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_PCI_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(3), 0},
+	/* wait for power ready */
+	{0x0006,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, BIT(1), BIT(1)},
+	{0x0075,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_PCI_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 0},
+	{0x0006,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(7), 0},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, (BIT(4) | BIT(3)), 0},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, BIT(0), 0},
+	{0x0010,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(6), BIT(6)},
+	{0x0049,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
+	{0x0063,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
+	{0x0062,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), 0},
+	{0x0058,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x005A,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
+	{0x0068,
+	 RTW_PWR_CUT_TEST_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(3), BIT(3)},
+	{0x0069,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(6), BIT(6)},
+	{TRANS_SEQ_END},
 };
 
-static const struct rtw_pwr_seq_cmd *const card_enable_flow_8723b[] = {
+static const struct rtw_pwr_seq_cmd trans_act_to_cardemu_8723b[] = {
+	{0x001f,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0},
+	{0x0049,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), 0},
+	{0x0006,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
+	{0x0005,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, BIT(1), 0},
+	{0x0010,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(6), 0},
+	{0x0000,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(5), BIT(5)},
+	{0x0020,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 0},
+	{TRANS_SEQ_END},
+};
+
+static const struct rtw_pwr_seq_cmd trans_act_to_reset_mcu_8723b[] = {
+	{REG_SYS_FUNC_EN + 1,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT_FEN_CPUEN, 0},
+	/* reset MCU ready */
+	{REG_MCUFW_CTRL,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0},
+	/* reset MCU IO wrapper */
+	{REG_RSV_CTRL + 1,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 0},
+	{REG_RSV_CTRL + 1,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 1},
+	{TRANS_SEQ_END},
+};
+
+static const struct rtw_pwr_seq_cmd trans_act_to_lps_8723b[] = {
+	{0x0301,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0xff},
+	{0x0522,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0xff},
+	{0x05F8,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, 0xff, 0},
+	{0x05F9,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, 0xff, 0},
+	{0x05FA,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, 0xff, 0},
+	{0x05FB,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_POLLING, 0xff, 0},
+	{0x0002,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(0), 0},
+	{0x0002,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_DELAY, 0, RTW_PWR_DELAY_US},
+	{0x0002,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), 0},
+	{0x0100,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0x03},
+	{0x0101,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(1), 0},
+	{0x0093,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_SDIO_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, 0xff, 0},
+	{0x0553,
+	 RTW_PWR_CUT_ALL_MSK,
+	 RTW_PWR_INTF_ALL_MSK,
+	 RTW_PWR_ADDR_MAC,
+	 RTW_PWR_CMD_WRITE, BIT(5), BIT(5)},
+	{TRANS_SEQ_END},
+};
+
+static const struct rtw_pwr_seq_cmd * const card_enable_flow_8723b[] = {
+	trans_pre_enable_8723b,
 	trans_carddis_to_cardemu_8723b,
 	trans_cardemu_to_act_8723b,
 	NULL
 };
 
-static const struct rtw_pwr_seq_cmd trans_act_to_lps_8723b[] = {
-	{0x0301, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0xFF},
-	{0x0522, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0xFF},
-	{0x05F8, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, 0xFF, 0},
-	{0x05F9, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, 0xFF, 0},
-	{0x05FA, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, 0xFF, 0},
-	{0x05FB, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, 0xFF, 0},
-	{0x0002, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x0002, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_DELAY, 0, RTW_PWR_DELAY_US},
-	{0x0002, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), 0},
-	{0x0100, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x03},
-	{0x0101, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), 0},
-	{0x0093, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x00},
-	{0x0553, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(5), BIT(5)},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
-};
-
-static const struct rtw_pwr_seq_cmd trans_act_to_pre_carddis_8723b[] = {
-	{0x0003, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(2), 0},
-	{0x0080, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
-};
-
-static const struct rtw_pwr_seq_cmd trans_act_to_cardemu_8723b[] = {
-	{0x0002, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x0049, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), 0},
-	{0x0006, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(1), BIT(1)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_POLLING, BIT(1), 0},
-	{0x0010, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(6), 0},
-	{0x0000, RTW_PWR_CUT_ALL_MSK,
-	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(5), BIT(5)},
-	{0x0020, RTW_PWR_CUT_ALL_MSK,
-	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
-};
-
-static const struct rtw_pwr_seq_cmd trans_cardemu_to_carddis_8723b[] = {
-	{0x0007, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x20},
-	{0x0005, RTW_PWR_CUT_ALL_MSK,
-	 RTW_PWR_INTF_USB_MSK | RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(3) | BIT(4), BIT(3)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(2), BIT(2)},
-	{0x0005, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_PCI_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(3) | BIT(4), BIT(3) | BIT(4)},
-	{0x004A, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_USB_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 1},
-	{0x0023, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(4), BIT(4)},
-	{0x0086, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_SDIO, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x0086, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_SDIO_MSK,
-	 RTW_PWR_ADDR_SDIO, RTW_PWR_CMD_POLLING, BIT(1), 0},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
-};
-
-static const struct rtw_pwr_seq_cmd trans_act_to_post_carddis_8723b[] = {
-	{0x001D, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), 0},
-	{0x001D, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, BIT(0), BIT(0)},
-	{0x001C, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 RTW_PWR_ADDR_MAC, RTW_PWR_CMD_WRITE, 0xFF, 0x0E},
-	{0xFFFF, RTW_PWR_CUT_ALL_MSK, RTW_PWR_INTF_ALL_MSK,
-	 0, RTW_PWR_CMD_END, 0, 0},
-};
-
-static const struct rtw_pwr_seq_cmd *const card_disable_flow_8723b[] = {
+static const struct rtw_pwr_seq_cmd * const card_disable_flow_8723b[] = {
 	trans_act_to_lps_8723b,
-	trans_act_to_pre_carddis_8723b,
+	trans_act_to_reset_mcu_8723b,
 	trans_act_to_cardemu_8723b,
 	trans_cardemu_to_carddis_8723b,
-	trans_act_to_post_carddis_8723b,
 	NULL
 };
 
@@ -1458,25 +1563,7 @@ static const struct rtw_rqpn rqpn_table_8723b[] = {
 	 RTW_DMA_MAPPING_EXTRA, RTW_DMA_MAPPING_HIGH},
 };
 
-static const struct rtw_intf_phy_para pcie_gen1_param_8723b[] = {
-	{0x0008, 0x4a22,
-	 RTW_IP_SEL_PHY,
-	 RTW_INTF_PHY_CUT_ALL,
-	 RTW_INTF_PHY_PLATFORM_ALL},
-	{0x0009, 0x1000,
-	 RTW_IP_SEL_PHY,
-	 ~(RTW_INTF_PHY_CUT_A | RTW_INTF_PHY_CUT_B),
-	 RTW_INTF_PHY_PLATFORM_ALL},
-	{0xFFFF, 0x0000,
-	 RTW_IP_SEL_PHY,
-	 RTW_INTF_PHY_CUT_ALL,
-	 RTW_INTF_PHY_PLATFORM_ALL},
-};
-
-static const struct rtw_intf_phy_para_table phy_para_table_8723b = {
-	.gen1_para	= pcie_gen1_param_8723b,
-	.n_gen1_para	= ARRAY_SIZE(pcie_gen1_param_8723b),
-};
+/* Intentionally omitted PCIe Gen1 interface-specific params for Gen-A */
 
 static const u8 rtw8723b_pwrtrk_2gb_n[] = {
 	0, 0, 1, 2, 2, 2, 3, 3, 3, 4, 5, 5, 6, 6, 6,
@@ -1592,7 +1679,7 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 	.page_size = TX_PAGE_SIZE,
 	.dig_min = 0x20,
 	.usb_tx_agg_desc_num = 1,
-	.hw_feature_report = true,
+	.hw_feature_report = false,
 	.c2h_ra_report_size = 7,
 	.old_datarate_fb_limit = true,
 	.ht_supported = true,
@@ -1604,13 +1691,12 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 	.page_table = page_table_8723b,
 	.rqpn_table = rqpn_table_8723b,
 	.prioq_addrs = &rtw8723x_common.prioq_addrs,
-	.intf_table = &phy_para_table_8723b,
+	.intf_table = NULL,
 	.dig = rtw8723x_common.dig,
 	.dig_cck = rtw8723x_common.dig_cck,
 	.rf_sipi_addr = {0x840, 0x844},
 	.rf_sipi_read_addr = rtw8723x_common.rf_sipi_addr,
 	.fix_rf_phy_num = 2,
-	.ltecoex_addr = &rtw8723x_common.ltecoex_addr,
 	.mac_tbl = &rtw8723b_mac_tbl,
 	.agc_tbl = &rtw8723b_agc_tbl,
 	.bb_tbl = &rtw8723b_bb_tbl,
@@ -1620,6 +1706,15 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 	.rx_ldpc = false,
 	.iqk_threshold = 8,
 	.ampdu_density = IEEE80211_HT_MPDU_DENSITY_16,
+	/* Force RF PHY count to 2. `hal->rf_phy_num` is normally derived
+	 * from `rf_path_num` (chip register), but vendor PHY/RF tables and
+	 * the `rf_sipi_addr` layout expect two RF PHYs for this chip.
+	 * Setting `fix_rf_phy_num = 2` prevents out-of-bounds RF/SIPI
+	 * indexing and avoids `rtw_phy_*` rejecting path-B access.
+	 * Remove only after validating detection/tables on all hardware
+	 * variants.
+	 */
+	.fix_rf_phy_num = 2,
 	.max_scan_ie_len = IEEE80211_MAX_DATA_LEN,
 
 	.coex_para_ver = 0x2007022f,
