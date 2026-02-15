@@ -677,7 +677,12 @@ static void rtw_sdio_init(struct rtw_dev *rtwdev)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 
-	rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST | REG_SDIO_HIMR_CPWM1;
+	/* Enable RX request and CPWM1 interrupts. Also enable AVAL (availability)
+	 * interrupt so the driver is notified when free TX pages become available
+	 * (this is required to refill the H2C/command queue and avoid TX deadlock).
+	 */
+	rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST | REG_SDIO_HIMR_CPWM1 |
+					   REG_SDIO_HIMR_AVAL;
 }
 
 static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
@@ -1093,6 +1098,15 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 
 	if (hisr & REG_SDIO_HISR_TXERR)
 		rtw_sdio_tx_err_isr(rtwdev);
+	/* If free TX pages became available on the card (AVAL), kick the TX
+	 * handler so queued H2C/management frames are retried and the page
+	 * counters observed by the driver get refreshed.
+	 */
+	if (hisr & REG_SDIO_HISR_AVAL) {
+		hisr &= ~REG_SDIO_HISR_AVAL;
+		rtw_dbg(rtwdev, RTW_DBG_SDIO, "SDIO AVAL interrupt: free TX pages available\n");
+		rtw_sdio_tx_kick_off(rtwdev);
+	}
 	if (hisr & REG_SDIO_HISR_RX_REQUEST) {
 		hisr &= ~REG_SDIO_HISR_RX_REQUEST;
 		rtw_sdio_rx_isr(rtwdev);
