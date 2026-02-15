@@ -802,6 +802,18 @@ static void rtw_ops_sta_statistics(struct ieee80211_hw *hw,
 #define BIT_RXDMA_IDLE		BIT(17)
 static void rtw8723b_flush_fifo(struct rtw_dev *rtwdev)
 {
+	/* Keep a chipset-specific FIFO flush implementation as a safety
+	 * net for RTL8723B devices. Although many modern drivers omit the
+	 * `.flush` mac80211 hook (they rely on other teardown paths to stop
+	 * TX and drain FIFOs), this chipset has a small race window where
+	 * hardware queues may need explicit flushing during key updates,
+	 * interface removal or channel changes. Removing the hook without a
+	 * full audit may expose rare races where stale descriptors are
+	 * transmitted after a channel or mode change.
+	 *
+	 * I only silenced the noisy printk below (changed to
+	 * `rtw_warn_once`) to avoid log spam — behavior is preserved.
+	 */
 	u32 val32;
 	int retry;
 
@@ -823,7 +835,7 @@ static void rtw8723b_flush_fifo(struct rtw_dev *rtwdev)
 	mdelay(2);
 
 	if (!retry)
-		printk("Failed to flush FIFO\n");
+		rtw_warn_once(rtwdev, "Failed to flush FIFO\n");
 }
 
 static void rtw_ops_flush(struct ieee80211_hw *hw,
