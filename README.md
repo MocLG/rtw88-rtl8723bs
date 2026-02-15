@@ -37,39 +37,53 @@ cd rtw88-rtl8723bs
 sudo dkms install .
 sudo make install_fw
 sudo cp rtw88.conf /etc/modprobe.d/
-3. Secure Boot 🔐
+```
+### 3. Secure Boot 🔐
 If you have Secure Boot enabled, you must enroll the signing key:
-
-Bash
+```bash
 sudo mokutil --import /var/lib/dkms/mok.pub
-# Reboot and select "Enroll MOK" from the blue screen menu.
-🛑 Important Tips for RTL8723BS Users
-1. Fixing Scan Failures / Timeouts
-If the interface is up but scanning fails or you see -110 errors in dmesg, try disabling deep sleep power management:
+```
+### Reboot and select "Enroll MOK" from the blue screen menu.
 
-Open /etc/modprobe.d/rtw88.conf
-
-Add the following line:
-options rtw88_core disable_lps_deep=y
-
-Reboot.
-
-2. Manual Loading
-To manually reload the driver for debugging:
-
-Bash
-sudo modprobe -r rtw_8723bs
-sudo modprobe rtw_8723bs
-🚨 Reporting Issues
+## 🚨 Reporting Issues
 When reporting a bug, please include:
 
 Output of uname -r (Kernel version)
 
-Output of dmesg | grep rtw
-
 Your hardware platform (e.g., PC, PinePhone, Samsung Note 20)
 
-⚖️ License & Credits
+And follow these steps:
+
+### Step 1: Enable Verbose Debugging
+Run this as root to ensure the driver actually outputs the messages you need:
+```bash
+echo 0xFFFFFFFF | sudo tee /sys/module/rtw_core/parameters/debug_mask
+```
+### Step 2: Start the Live Capture
+Open a terminal and run this command. It will clear the old logs and start saving new ones to a file:
+```bash
+sudo dmesg -C && sudo dmesg -w | tee rtw88_debug.log
+```
+(Leave this running in the background)
+
+### Step 3: Open a terminal and run the following:
+```bash
+sudo journalctl -k -b 0 -f | tee rtw88_journal.log
+```
+(Leave this running in the background)
+
+### Step 4: Trigger the Failure
+In a different terminal, run the commands that cause the "Scanning Failed" error:
+
+```bash
+sudo ip link set wlan0 up
+sudo iw dev wlan0 scan
+```
+
+### Step 5: Stop and Send
+Once the scan fails, go back to the first terminal, then second, hit Ctrl+C, and provide the rtw88_debug.log and rtw88_journal.log files.
+
+## ⚖️ License & Credits
 Licensed under Dual BSD/GPL-2.0.
 
 Maintainer: Luka Gejak (MocLG)
