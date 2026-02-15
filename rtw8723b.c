@@ -8,6 +8,7 @@
 #include "mac.h"
 #include "sdio.h"
 #include "rtw8723b.h"
+#include "tx.h"
 #include "rtw8723b_table.h"
 /* for struct phy_status_8703b */
 #include "rtw8703b.h"
@@ -3161,6 +3162,24 @@ static void rtw8723b_cfg_ldo25(struct rtw_dev *rtwdev, bool enable)
 	/* TODO: ... */
 }
 
+static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
+										 struct rtw_tx_pkt_info *pkt_info,
+										 struct rtw_tx_desc *txdesc)
+{
+	/* USB (8723BU) expects the raw XOR checksum (no bitwise inversion).
+	 * SDIO/PCIe variants (8723BS/BE) require inverted checksum as in
+	 * __rtw8723x_fill_txdesc_checksum. Use bus-aware behavior to avoid
+	 * dropping TX packets on USB.
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB) {
+		/* compute XOR of first 32 bytes (16 words) without inversion */
+		fill_txdesc_checksum_common(txdesc, 32 / 2);
+	} else {
+		/* call common routine which applies vendor-specific inversion */
+		rtw8723x_fill_txdesc_checksum(rtwdev, pkt_info, txdesc);
+	}
+}
+
 static const struct rtw_chip_ops rtw8723b_ops = {
 	.power_on		= rtw_power_on,
 	.power_off		= rtw_power_off,
@@ -3212,7 +3231,7 @@ static const struct rtw_chip_ops rtw8723b_ops = {
 	.config_tx_path		= NULL,
 	.config_txrx_mode	= NULL,
 	.led_set		= NULL,
-	.fill_txdesc_checksum	= rtw8723x_fill_txdesc_checksum, /* checked against vendor driver and it matches */
+	.fill_txdesc_checksum	= rtw8723b_fill_txdesc_checksum, /* USB needs non-inverted checksum */
 
 	.coex_set_init		= rtw8723b_coex_cfg_init,
 	.coex_set_ant_switch	= NULL,
