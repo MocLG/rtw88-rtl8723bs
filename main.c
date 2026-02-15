@@ -1875,6 +1875,16 @@ static void __update_firmware_feature(struct rtw_dev *rtwdev,
 	feature = le32_to_cpu(fw_hdr->feature);
 	fw->feature = feature & FW_FEATURE_SIG ? feature : 0;
 
+	/* Quirk: disable firmware scan-offload for RTL8723B due to firmware/SDIO
+	 * path delivering zero-length RX frames during HW scan (see bug report).
+	 * This forces host-side scanning for affected chips as a safe fallback.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_fw_feature_check(fw, FW_FEATURE_SCAN_OFFLOAD)) {
+		fw->feature &= ~FW_FEATURE_SCAN_OFFLOAD;
+		rtw_dbg(rtwdev, RTW_DBG_FW, "quirk: disabled FW_FEATURE_SCAN_OFFLOAD for RTL8723B\n");
+	}
+
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8822C &&
 	    RTW_FW_SUIT_VER_CODE(rtwdev->fw) < RTW_FW_VER_CODE(9, 9, 13))
 		fw->feature_ext |= FW_FEATURE_EXT_OLD_PAGE_NUM;

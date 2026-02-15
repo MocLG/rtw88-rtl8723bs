@@ -971,6 +971,14 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
 
+	/* Defensive: do not hand zero-length SKBs to mac80211; drop and log */
+	if (skb->len == 0) {
+		rtw_dbg(rtwdev, RTW_DBG_RX, "drop zero-length skb (pkt_len==0) pkt_offset=%u drv_info_sz=%u shift=%u vif=%p\n",
+			pkt_offset, pkt_stat->drv_info_sz, pkt_stat->shift, pkt_stat->vif);
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
 	rtw_dbg(rtwdev, RTW_DBG_RFK, "RX: before ieee80211_rx_irqsafe skb=%p data=%p len=%u hw=%p\n",
 		skb, skb->data, skb->len, rtwdev->hw);
 
@@ -1095,6 +1103,8 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	rtwsdio->irq_thread = current;
 
 	hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
+
+	pr_info("RTW88 DEBUG: HISR raw value is 0x%08x\n", hisr);
 
 	if (hisr & REG_SDIO_HISR_TXERR)
 		rtw_sdio_tx_err_isr(rtwdev);

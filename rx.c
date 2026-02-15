@@ -281,7 +281,7 @@ static void rtw_rx_fill_rx_status(struct rtw_dev *rtwdev,
 	rtw_rx_addr_match(rtwdev, pkt_stat, hdr);
 
 
-	printk("pkt_len=0x%x", pkt_stat->pkt_len);
+	rtw_dbg(rtwdev, RTW_DBG_RX, "pkt_len=0x%x", pkt_stat->pkt_len);
 
 	/* Rtl8723cs and rtl8723bs drivers check for size < 14 or size > 8192
 	 * and simply drop the packet.
@@ -317,6 +317,23 @@ void rtw_rx_query_rx_desc(struct rtw_dev *rtwdev, void *rx_desc8,
 	pkt_stat->decrypted = !swdec && enc_type != RX_DESC_ENC_NONE;
 
 	pkt_stat->cam_id = le32_get_bits(rx_desc->w1, RTW_RX_DESC_W1_MACID);
+
+	/* Diagnostic dump: if pkt_len is zero, print RX descriptor and first 8
+	 * bytes of the rx buffer (debug-only) to help diagnose missing scan
+	 * frames when firmware reports scan results.
+	 */
+	if (le32_get_bits(rx_desc->w0, RTW_RX_DESC_W0_PKT_LEN) == 0 &&
+	    rtw_dbg_is_enabled(rtwdev, RTW_DBG_RX)) {
+		rtw_dbg(rtwdev, RTW_DBG_RX, "rx_desc w0=0x%08x w1=0x%08x w2=0x%08x w3=0x%08x w4=0x%08x w5=0x%08x",
+			le32_to_cpu(rx_desc->w0), le32_to_cpu(rx_desc->w1),
+			le32_to_cpu(rx_desc->w2), le32_to_cpu(rx_desc->w3),
+			le32_to_cpu(rx_desc->w4), le32_to_cpu(rx_desc->w5));
+		if (rx_buf) {
+			u8 *buf = (u8 *)rx_buf;
+			rtw_dbg(rtwdev, RTW_DBG_RX, "rx_buf[0..7]=%02x %02x %02x %02x %02x %02x %02x %02x",
+				buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
+		}
+	}
 
 	pkt_stat->is_c2h = le32_get_bits(rx_desc->w2, RTW_RX_DESC_W2_C2H);
 	pkt_stat->ppdu_cnt = le32_get_bits(rx_desc->w2, RTW_RX_DESC_W2_PPDU_CNT);
