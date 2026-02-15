@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) Michael Straube <straube.linux@gmail.com> */
+/* Copyright(c) 2024-2026 Luka Gejak <luka.gejak@linux.dev> */
 
 #include "main.h"
 #include "phy.h"

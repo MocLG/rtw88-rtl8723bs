@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0 OR BSD-3-Clause
 /* Copyright(c) Michael Straube <straube.linux@gmail.com> */
+/* Copyright(c) 2024-2026 Luka Gejak <luka.gejak@linux.dev> */
 
 #include "main.h"
 #include "coex.h"
@@ -3339,6 +3340,7 @@ EXPORT_SYMBOL(rtw8723b_hw_spec);
 MODULE_FIRMWARE("rtw88/rtw8723b_fw.bin");
 MODULE_FIRMWARE("rtw88/rtw8723b_wow_fw.bin");
 
+MODULE_AUTHOR("Luka Gejak <luka.gejak@linux.dev>");
 MODULE_AUTHOR("Michael Straube <straube.linux@gmail.com>");
 MODULE_DESCRIPTION("Realtek 802.11n wireless 8723b driver");
 MODULE_LICENSE("Dual BSD/GPL");
