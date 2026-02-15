@@ -1448,10 +1448,26 @@ static void rtw8723b_init_available_page_threshold(struct rtw_dev *rtwdev)
 	const struct rtw_page_table *pg_tbl = NULL;
 	u16 hq_threshold, nq_threshold, lq_threshold;
 	u16 pubq_num;
+	/* Only initialize these page thresholds for SDIO devices.
+	 * PCIe and USB handle TX FIFO/thresholds differently (DMA/host
+	 * scheduling) and writing these registers on those buses can be
+	 * unnecessary or counter-productive.
+	 */
+	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return;
 
 	pg_tbl = &chip->page_table[0]; /* SDIO */
 
-	/* NOTE: fifo must be initilialized before this I guess */
+	/* fifo must be initialized before this is called */
+	if (fifo->acq_pg_num == 0)
+		return;
+
+	/* ensure we don't underflow if tables are misconfigured */
+	if (fifo->acq_pg_num <= (pg_tbl->hq_num + pg_tbl->lq_num +
+				   pg_tbl->nq_num + pg_tbl->exq_num +
+				   pg_tbl->gapq_num))
+		return;
+
 	pubq_num = fifo->acq_pg_num - pg_tbl->hq_num - pg_tbl->lq_num -
 		   pg_tbl->nq_num - pg_tbl->exq_num - pg_tbl->gapq_num;
 
