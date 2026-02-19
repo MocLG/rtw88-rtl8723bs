@@ -1262,6 +1262,40 @@ static int __priority_queue_cfg_legacy(struct rtw_dev *rtwdev,
 	if (!check_hw_ready(rtwdev, REG_AUTO_LLT, BIT_AUTO_INIT_LLT, 0))
 		return -EBUSY;
 
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		u32 freepg, txdma_status, hisr;
+
+		/* Clear any stale TXDMA errors (e.g. TXFOVW) left over from
+		 * a previous power cycle so they don't block page accounting.
+		 */
+		txdma_status = rtw_read32(rtwdev, REG_TXDMA_STATUS);
+		if (txdma_status) {
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"post-LLT: clearing stale TXDMA_STATUS 0x%08x\n",
+				txdma_status);
+			rtw_write32(rtwdev, REG_TXDMA_STATUS, txdma_status);
+		}
+
+		/* Clear stale SDIO interrupt status (including TXFOVW) that
+		 * may have been latched before the RQPN/LLT was configured.
+		 */
+		hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
+		if (hisr) {
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"post-LLT: clearing stale HISR 0x%08x\n", hisr);
+			rtw_write32(rtwdev, REG_SDIO_HISR, hisr);
+		}
+
+		/* Dummy read to synchronize the SDIO-local free page counters
+		 * with the newly programmed RQPN values.
+		 */
+		freepg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+		rtw_dbg(rtwdev, RTW_DBG_SDIO,
+			"post-LLT: FREE_TXPG=0x%08x (HPQ=%u NPQ=%u LPQ=%u PUBQ=%u)\n",
+			freepg, freepg & 0xff, (freepg >> 8) & 0xff,
+			(freepg >> 16) & 0xff, (freepg >> 24) & 0xff);
+	}
+
 	return 0;
 }
 
