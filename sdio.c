@@ -490,8 +490,17 @@ static u32 rtw_sdio_get_tx_addr(struct rtw_dev *rtwdev, size_t size,
 				    REG_SDIO_CMD_ADDR_TXFF_LOW);
 		break;
 	case RTW_TX_QUEUE_MGMT:
-		txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
-				    REG_SDIO_CMD_ADDR_TXFF_EXTRA);
+		/* 8051-based chips (e.g. 8723B) map MGMT to HIGH priority in
+		 * their RQPN table and allocate zero EXTRA queue pages, so
+		 * the MGMT FIFO write must go to TXFF_HIGH.  Newer 3081-based
+		 * chips have a dedicated EXTRA queue with its own page pool.
+		 */
+		if (rtw_chip_wcpu_8051(rtwdev))
+			txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
+					    REG_SDIO_CMD_ADDR_TXFF_HIGH);
+		else
+			txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
+					    REG_SDIO_CMD_ADDR_TXFF_EXTRA);
 		break;
 	default:
 		rtw_warn(rtwdev, "Unsupported queue for TX addr: 0x%02x\n",
