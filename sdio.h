@@ -159,6 +159,15 @@ struct rtw_sdio {
 	struct workqueue_struct *txwq;
 	struct rtw_sdio_work_data *tx_handler_data;
 	struct sk_buff_head tx_queue[RTK_MAX_TX_QUEUE_NUM];
+
+	/* Software-managed free TX page counters for 8051-based chips.
+	 * Used as a fallback when the HW REG_SDIO_FREE_TXPG register
+	 * does not reflect the true page allocation after power cycling.
+	 */
+	atomic_t free_pg_high;
+	atomic_t free_pg_normal;
+	atomic_t free_pg_low;
+	atomic_t free_pg_pub;
 };
 
 extern const struct dev_pm_ops rtw_sdio_pm_ops;

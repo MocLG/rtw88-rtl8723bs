@@ -557,9 +557,65 @@ static int rtw_sdio_read_port(struct rtw_dev *rtwdev, u8 *buf, size_t count)
 	return ret;
 }
 
+static void rtw_sdio_init_free_txpg(struct rtw_dev *rtwdev)
+{
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	const struct rtw_chip_info *chip = rtwdev->chip;
+	const struct rtw_page_table *pg_tbl;
+	u32 free_txpg;
+	u16 pubq_num;
+
+	if (!rtw_chip_wcpu_8051(rtwdev))
+		return;
+
+	pg_tbl = &chip->page_table[0];
+	pubq_num = rtwdev->fifo.acq_pg_num - pg_tbl->hq_num - pg_tbl->lq_num -
+		   pg_tbl->nq_num - pg_tbl->exq_num - pg_tbl->gapq_num;
+
+	/* Try to read the HW register first.  If it already has valid
+	 * counts, seed the SW counters from hardware.  Otherwise fall
+	 * back to the static page table values programmed via RQPN.
+	 */
+	free_txpg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+	if (free_txpg != 0) {
+		atomic_set(&rtwsdio->free_pg_high, free_txpg & 0xff);
+		atomic_set(&rtwsdio->free_pg_normal, (free_txpg >> 8) & 0xff);
+		atomic_set(&rtwsdio->free_pg_low, (free_txpg >> 16) & 0xff);
+		atomic_set(&rtwsdio->free_pg_pub, (free_txpg >> 24) & 0xff);
+	} else {
+		atomic_set(&rtwsdio->free_pg_high, pg_tbl->hq_num);
+		atomic_set(&rtwsdio->free_pg_normal, pg_tbl->nq_num);
+		atomic_set(&rtwsdio->free_pg_low, pg_tbl->lq_num);
+		atomic_set(&rtwsdio->free_pg_pub, pubq_num);
+		rtw_dbg(rtwdev, RTW_DBG_SDIO,
+			"HW FREE_TXPG=0, using page table: H=%u N=%u L=%u P=%u\n",
+			pg_tbl->hq_num, pg_tbl->nq_num, pg_tbl->lq_num,
+			pubq_num);
+	}
+}
+
+/* Re-read HW free page register and update SW counters.  Called from
+ * the AVAL interrupt handler when the firmware signals freed pages.
+ */
+static void rtw_sdio_sync_free_txpg(struct rtw_dev *rtwdev)
+{
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	u32 free_txpg;
+
+	free_txpg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+	if (free_txpg == 0)
+		return;
+
+	atomic_set(&rtwsdio->free_pg_high, free_txpg & 0xff);
+	atomic_set(&rtwsdio->free_pg_normal, (free_txpg >> 8) & 0xff);
+	atomic_set(&rtwsdio->free_pg_low, (free_txpg >> 16) & 0xff);
+	atomic_set(&rtwsdio->free_pg_pub, (free_txpg >> 24) & 0xff);
+}
+
 static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 				    size_t count)
 {
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	unsigned int pages_free, pages_needed;
 
 	if (rtw_chip_wcpu_8051(rtwdev)) {
@@ -567,23 +623,38 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 
 		free_txpg = rtw_sdio_read32(rtwdev, REG_SDIO_FREE_TXPG);
 
+		/* If HW reports valid counts, update SW counters and use
+		 * them.  Otherwise fall back to the current SW values
+		 * (seeded at init time from the page table).
+		 */
+		if (free_txpg != 0) {
+			atomic_set(&rtwsdio->free_pg_high,
+				   free_txpg & 0xff);
+			atomic_set(&rtwsdio->free_pg_normal,
+				   (free_txpg >> 8) & 0xff);
+			atomic_set(&rtwsdio->free_pg_low,
+				   (free_txpg >> 16) & 0xff);
+			atomic_set(&rtwsdio->free_pg_pub,
+				   (free_txpg >> 24) & 0xff);
+		}
+
 		switch (queue) {
 		case RTW_TX_QUEUE_BCN:
 		case RTW_TX_QUEUE_H2C:
 		case RTW_TX_QUEUE_HI0:
 		case RTW_TX_QUEUE_MGMT:
 			/* high */
-			pages_free = free_txpg & 0xff;
+			pages_free = atomic_read(&rtwsdio->free_pg_high);
 			break;
 		case RTW_TX_QUEUE_VI:
 		case RTW_TX_QUEUE_VO:
 			/* normal */
-			pages_free = (free_txpg >> 8) & 0xff;
+			pages_free = atomic_read(&rtwsdio->free_pg_normal);
 			break;
 		case RTW_TX_QUEUE_BE:
 		case RTW_TX_QUEUE_BK:
 			/* low */
-			pages_free = (free_txpg >> 16) & 0xff;
+			pages_free = atomic_read(&rtwsdio->free_pg_low);
 			break;
 		default:
 			rtw_warn(rtwdev, "Unknown mapping for queue %u\n", queue);
@@ -591,7 +662,7 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 		}
 
 		/* add the pages from the public queue */
-		pages_free += (free_txpg >> 24) & 0xff;
+		pages_free += atomic_read(&rtwsdio->free_pg_pub);
 	} else {
 		u32 free_txpg[3];
 
@@ -766,6 +837,7 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
+	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
 	rtw_sdio_enable_interrupt(rtwdev);
 
@@ -1123,6 +1195,7 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	 */
 	if (hisr & REG_SDIO_HISR_AVAL) {
 		hisr &= ~REG_SDIO_HISR_AVAL;
+		rtw_sdio_sync_free_txpg(rtwdev);
 		rtw_dbg(rtwdev, RTW_DBG_SDIO, "SDIO AVAL interrupt: free TX pages available\n");
 		rtw_sdio_tx_kick_off(rtwdev);
 	}
