@@ -1561,7 +1561,7 @@ void rtw_core_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 			 const u8 *mac_addr, bool hw_scan)
 {
-	printk("%s begin", __func__);
+	printk("%s begin\n", __func__);
 
 	u32 config = 0;
 	int ret = 0;
@@ -1594,6 +1594,8 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 {
 	struct rtw_vif *rtwvif = vif ? (struct rtw_vif *)vif->drv_priv : NULL;
 	u32 config = 0;
+
+	printk("%s begin\n", __func__);
 
 	if (!rtwvif)
 		return;

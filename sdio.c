@@ -1038,6 +1038,8 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			    u32 pkt_offset, struct rtw_rx_pkt_stat *pkt_stat,
 			    struct ieee80211_rx_status *rx_status)
 {
+	static int scan_rx_count = 0;
+
 	*IEEE80211_SKB_RXCB(skb) = *rx_status;
 
 	if (pkt_stat->is_c2h) {
@@ -1051,6 +1053,17 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
+
+	/* Log packets received during scan */
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
+		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+		scan_rx_count++;
+		pr_info("RTW88 RX SCAN: pkt #%d len=%u ch=%d fc=0x%04x (%s)\n",
+			scan_rx_count, skb->len, rx_status->freq,
+			le16_to_cpu(hdr->frame_control),
+			ieee80211_is_beacon(hdr->frame_control) ? "BEACON" :
+			ieee80211_is_probe_resp(hdr->frame_control) ? "PROBE_RESP" : "OTHER");
+	}
 
 	/* Defensive: do not hand zero-length SKBs to mac80211; drop and log */
 	if (skb->len == 0) {
@@ -1137,6 +1150,13 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 {
 	u32 rx_len, hisr, total_rx_bytes = 0;
+	static int rx_during_scan_count = 0;
+
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
+		rx_during_scan_count++;
+		if (rx_during_scan_count <= 5 || rx_during_scan_count % 10 == 0)
+			pr_info("RTW88 RX: rx_isr called during scan (count=%d)\n", rx_during_scan_count);
+	}
 
 	do {
 		if (rtw_chip_wcpu_8051(rtwdev))
@@ -1146,6 +1166,9 @@ static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 
 		if (!rx_len)
 			break;
+
+		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
+			pr_info("RTW88 RX: got packet during scan, rx_len=%u\n", rx_len);
 
 		rtw_sdio_rxfifo_recv(rtwdev, rx_len);
 
@@ -1177,6 +1200,7 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	struct rtw_sdio *rtwsdio;
 	struct rtw_dev *rtwdev;
 	u32 hisr;
+	static int scan_irq_count = 0;
 
 	rtwdev = hw->priv;
 	rtwsdio = (struct rtw_sdio *)rtwdev->priv;
@@ -1184,6 +1208,16 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	rtwsdio->irq_thread = current;
 
 	hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
+
+	/* Log all interrupts during scan */
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
+		scan_irq_count++;
+		if (scan_irq_count <= 10 || scan_irq_count % 20 == 0)
+			pr_info("RTW88 IRQ during scan #%d: HISR=0x%08x (RX=%d AVAL=%d)\n",
+				scan_irq_count, hisr,
+				!!(hisr & REG_SDIO_HISR_RX_REQUEST),
+				!!(hisr & REG_SDIO_HISR_AVAL));
+	}
 
 	pr_info("RTW88 DEBUG: HISR raw value is 0x%08x\n", hisr);
 
