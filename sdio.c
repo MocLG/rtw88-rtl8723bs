@@ -770,10 +770,19 @@ static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
 	u8 size, timeout;
 
 	switch (rtwdev->chip->id) {
+	case RTW_CHIP_TYPE_8723B:
+		/* Disable RX aggregation on 8723B: the 8051 firmware
+		 * buffers aggregated frames and may not signal
+		 * RX_REQUEST until the aggregation timeout expires,
+		 * which causes scan result loss during the short
+		 * ~65ms dwell times.  The reference vendor driver
+		 * (rtl8723bs) does not enable aggregation either.
+		 */
+		rtw_write8_clr(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_AGG_EN);
+		return;
 	case RTW_CHIP_TYPE_8703B:
 	case RTW_CHIP_TYPE_8821A:
 	case RTW_CHIP_TYPE_8812A:
-	case RTW_CHIP_TYPE_8723B:
 		size = 0x6;
 		timeout = 0x6;
 		break;
@@ -837,8 +846,23 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
+	u32 stale;
+
 	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
+
+	/* Drain any stale HISR bits left over from a previous power
+	 * cycle.  The firmware has just been downloaded and its RX DMA
+	 * is still being set up, so any pending RX_REQUEST is garbage.
+	 */
+	stale = rtw_read32(rtwdev, REG_SDIO_HISR);
+	if (stale) {
+		rtw_dbg(rtwdev, RTW_DBG_SDIO,
+			"clearing stale HISR 0x%08x before enabling IRQ\n",
+			stale);
+		rtw_write32(rtwdev, REG_SDIO_HISR, stale);
+	}
+
 	rtw_sdio_enable_interrupt(rtwdev);
 
 	return 0;

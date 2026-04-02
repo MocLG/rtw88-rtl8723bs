@@ -99,3 +99,9 @@ all.config
 # Driver backups
 backup_drivers.tar
 
+#Other
+.idea
+.vscode
+.vs
+rtl8723bs-staging
+rtw88_debug.log
