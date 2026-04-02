@@ -280,6 +280,11 @@ static void rtw_rx_fill_rx_status(struct rtw_dev *rtwdev,
 
 	rtw_rx_addr_match(rtwdev, pkt_stat, hdr);
 
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
+		if (ieee80211_is_beacon(hdr->frame_control) ||
+		    ieee80211_is_probe_resp(hdr->frame_control))
+			rtwdev->coex.stat.cnt_wl[COEX_CNT_WL_SCANAP]++;
+	}
 
 	rtw_dbg(rtwdev, RTW_DBG_RX, "pkt_len=0x%x", pkt_stat->pkt_len);
 

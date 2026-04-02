@@ -2866,12 +2866,16 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 	rtw_coex_write_scbd(rtwdev, COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 
 	if (type == COEX_SCAN_START_5G) {
+		coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
+
 		rtw_dbg(rtwdev, RTW_DBG_COEX,
 			"[BTCoex], SCAN START notify (5G)\n");
 
 		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_5G);
 		rtw_coex_run_coex(rtwdev, COEX_RSN_5GSCANSTART);
 	} else if ((type == COEX_SCAN_START_2G) || (type == COEX_SCAN_START)) {
+		coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
+
 		rtw_dbg(rtwdev, RTW_DBG_COEX,
 			"[BTCoex], SCAN START notify (2G)\n");
 
@@ -2881,8 +2885,6 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 		rtw_coex_run_coex(rtwdev, COEX_RSN_2GSCANSTART);
 	} else {
-		coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 30; /* To do */
-
 		rtw_dbg(rtwdev, RTW_DBG_COEX,
 			"[BTCoex], SCAN FINISH notify (Scan-AP = %d)\n",
 			coex_stat->cnt_wl[COEX_CNT_WL_SCANAP]);
