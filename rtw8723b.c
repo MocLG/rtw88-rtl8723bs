@@ -2088,6 +2088,12 @@ static void rtw8723b_query_phy_status(struct rtw_dev *rtwdev, u8 *phy_status,
 {
 	printk("%s begin", __func__);
 
+	/* The 8723B PHY status does not report the channel, so we must
+	 * mark it invalid to allow mac80211/rtw88 to parse it from the IE
+	 * during scanning.
+	 */
+	pkt_stat->channel_invalid = true;
+
 	if (pkt_stat->rate <= DESC_RATE11M)
 		rtw8723b_query_phy_status_cck(rtwdev, phy_status, pkt_stat);
 	else

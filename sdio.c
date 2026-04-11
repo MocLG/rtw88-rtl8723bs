@@ -771,15 +771,9 @@ static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
 
 	switch (rtwdev->chip->id) {
 	case RTW_CHIP_TYPE_8723B:
-		/* Disable RX aggregation on 8723B: the 8051 firmware
-		 * buffers aggregated frames and may not signal
-		 * RX_REQUEST until the aggregation timeout expires,
-		 * which causes scan result loss during the short
-		 * ~65ms dwell times.  The reference vendor driver
-		 * (rtl8723bs) does not enable aggregation either.
-		 */
-		rtw_write8_clr(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_AGG_EN);
-		return;
+		size = 0x6;
+		timeout = 0x6;
+		break;
 	case RTW_CHIP_TYPE_8703B:
 	case RTW_CHIP_TYPE_8821A:
 	case RTW_CHIP_TYPE_8812A:
@@ -807,6 +801,15 @@ static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
 		    FIELD_PREP(BIT_DMA_AGG_TO_V1, timeout));
 
 	rtw_write8_set(rtwdev, REG_RXDMA_MODE, BIT_DMA_MODE);
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		/* REG_RXDMA_MODE (0x0290)
+		 * BIT(1): RXDMA_AGG_MODE_EN
+		 * BIT(2..3): aggBurstNum (0:1, 1:2, 2:3, 3:4)
+		 * BIT(4..5): aggBurstSize (0:1K, 1:512B, 2:256B...)
+		 */
+		rtw_write8_set(rtwdev, REG_RXDMA_MODE, (3 << 2));
+	}
 }
 
 static void rtw_sdio_enable_interrupt(struct rtw_dev *rtwdev)
