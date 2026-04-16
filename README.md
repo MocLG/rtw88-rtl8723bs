@@ -1,8 +1,8 @@
-# rtw88-rtl8723bs 🐧
+# rtw88-rtl8723bs
 
 ### Optimized Realtek rtw88 drivers with a primary focus on RTL8723B (PCIe) and RTL8723BS (SDIO) support.
 
-This repository is a downstream fork of the `rtw88` driver, specifically maintained to bring stable support for the **RTL8723B** chipset series to modern Linux kernels (up to 6.13+) and mobile platforms like the **Samsung Galaxy Note 20 Ultra (NetHunter)**.
+This repository is a downstream fork of the `rtw88` driver, specifically maintained to bring stable support for the **RTL8723B(S)** chipset series to modern Linux kernels and prepare it for upstreaming.
 
 🌟 **The Star Chipset: RTL8723B / RTL8723BS**
 While `rtw88` supports many chips, this repo prioritizes the development and debugging of the 8723B series. The SDIO version (8723BS) is notorious for bus timeouts and scanning failures—this project aims to fix those issues through improved power sequencing and refined H2C command handling.
@@ -66,13 +66,7 @@ sudo dmesg -C && sudo dmesg -w | tee rtw88_debug.log
 ```
 (Leave this running in the background)
 
-### Step 3: Open a terminal and run the following:
-```bash
-sudo journalctl -k -b 0 -f | tee rtw88_journal.log
-```
-(Leave this running in the background)
-
-### Step 4: Trigger the Failure
+### Step 3: Trigger the Failure
 In a different terminal, run the commands that cause the "Scanning Failed" error:
 
 ```bash
@@ -80,8 +74,8 @@ sudo ip link set wlan0 up
 sudo iw dev wlan0 scan
 ```
 
-### Step 5: Stop and Send
-Once the scan fails, go back to the first terminal, then second, hit Ctrl+C, and provide the rtw88_debug.log and rtw88_journal.log files.
+### Step 4: Stop and Send
+Once the scan fails, go back to the first terminal, hit Ctrl+C, and provide the rtw88_debug.log in github issue together with other info requested above(and your message if you have it).
 
 ## ⚖️ License & Credits
 Licensed under Dual BSD/GPL-2.0.
