@@ -32,7 +32,7 @@ You must install your kernel headers and build tools before compiling.
 DKMS automatically rebuilds the driver when you update your kernel.
 
 ```bash
-git clone [https://github.com/MocLG/rtw88-rtl8723bs.git](https://github.com/MocLG/rtw88-rtl8723bs.git)
+git clone https://github.com/MocLG/rtw88-rtl8723bs.git
 cd rtw88-rtl8723bs
 sudo dkms install .
 sudo make install_fw
