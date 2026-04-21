@@ -71,7 +71,8 @@
 #define RF_RCK_OS			0x30
 #define RF_TXPA_G1			0x31
 #define RF_TXPA_G2			0x32
-#define IQK_DELAY_TIME_8723B		20
+#define IQK_DELAY_TIME_8723B_SDIO	20
+#define IQK_DELAY_TIME_8723B_USB	5
 
 #define REG_B_RXIQI			0x0c1c
 
@@ -1742,6 +1743,10 @@ static int rtw8723b_mac_init(struct rtw_dev *rtwdev)
 	rtw_write8(rtwdev, REG_MISC_CTRL, 0x3); /* CCA */
 	rtw_write8(rtwdev, REG_2ND_CCA_CTRL, 0x0); /* hpfan_todo: 2nd CCA related */
 
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB) {
+		rtw_write8_set(rtwdev, REG_AFE_CTRL_4 + 1, BIT(7));
+	}
+
 	return 0;
 }
 
@@ -1818,9 +1823,11 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	 * 2015.03.19.
 	 */
 	// NOTE: also done by the mac poer on rtw88 routines, we can remove it probably here
-	val32 = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
-	val32 &= 0x0000fff8;
-	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val32);
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		val32 = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
+		val32 &= 0x0000fff8;
+		rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val32);
+	}
 
 	rtw_write16(rtwdev, REG_ATIMWND, 0x2);
 
@@ -2330,7 +2337,10 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf9000000);
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf8000000);
 
-	mdelay(IQK_DELAY_TIME_8723B); /* NOTE: rtl8xxxu uses mdelay(1) */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
+		mdelay(IQK_DELAY_TIME_8723B_USB);
+	else
+		mdelay(IQK_DELAY_TIME_8723B_SDIO);
 
 	/* restore ant path */
 	rtw_write32(rtwdev, REG_BB_SEL_BTG, path_sel);
@@ -2406,7 +2416,10 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf9000000);
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf8000000);
 
-	mdelay(IQK_DELAY_TIME_8723B); // NOTE: rtl8xxxu uses mdelay(1)
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
+		mdelay(IQK_DELAY_TIME_8723B_USB);
+	else
+		mdelay(IQK_DELAY_TIME_8723B_SDIO);
 
 	/* restore ant path */
 	rtw_write32(rtwdev, REG_BB_SEL_BTG, path_sel);
@@ -2476,7 +2489,10 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf9000000);
 	rtw_write32(rtwdev, REG_IQK_AGC_PTS_11N, 0xf8000000);
 
-	mdelay(IQK_DELAY_TIME_8723B); // NOTE: rtl8xxxu uses mdelay(1)
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
+		mdelay(IQK_DELAY_TIME_8723B_USB);
+	else
+		mdelay(IQK_DELAY_TIME_8723B_SDIO);
 
 	/* restore ant path */
 	rtw_write32(rtwdev, REG_BB_SEL_BTG, path_sel);
