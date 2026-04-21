@@ -953,6 +953,7 @@ static void rtw_usb_dynamic_rx_agg(struct rtw_dev *rtwdev, bool enable)
 	case RTW_CHIP_TYPE_8812A:
 		rtw_usb_dynamic_rx_agg_v2(rtwdev, enable);
 		break;
+	case RTW_CHIP_TYPE_8723B:
 	case RTW_CHIP_TYPE_8723D:
 		/* Doesn't like aggregation. */
 		break;
