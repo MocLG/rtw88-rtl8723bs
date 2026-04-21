@@ -8,6 +8,7 @@
 #include "rtw8723x.h"
 
 extern const struct rtw_chip_info rtw8723b_hw_spec;
+extern const struct rtw_chip_info rtw8723bu_hw_spec;
 
 // struct rtw_8723b_iqk_cfg {
 // 	const char *name;

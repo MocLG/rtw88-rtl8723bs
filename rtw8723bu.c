@@ -10,17 +10,23 @@
 
 static const struct usb_device_id rtw_8723bu_id_table[] = {
 	{USB_DEVICE_AND_INTERFACE_INFO(RTW_USB_VENDOR_ID_REALTEK, 0xb720, 0xff, 0xff, 0xff),
-	 .driver_info = (kernel_ulong_t)&(rtw8723b_hw_spec) },
+	 .driver_info = (kernel_ulong_t)&(rtw8723bu_hw_spec) },
 	{USB_DEVICE_AND_INTERFACE_INFO(0x7392, 0xa611, 0xff, 0xff, 0xff),
-	 .driver_info = (kernel_ulong_t)&(rtw8723b_hw_spec) },
+	 .driver_info = (kernel_ulong_t)&(rtw8723bu_hw_spec) },
 	{ },
 };
 MODULE_DEVICE_TABLE(usb, rtw_8723bu_id_table);
 
+static int rtw8723bu_probe(struct usb_interface *intf,
+			   const struct usb_device_id *id)
+{
+	return rtw_usb_probe(intf, id);
+}
+
 static struct usb_driver rtw_8723bu_driver = {
 	.name = KBUILD_MODNAME,
 	.id_table = rtw_8723bu_id_table,
-	.probe = rtw_usb_probe,
+	.probe = rtw8723bu_probe,
 	.disconnect = rtw_usb_disconnect,
 };
 module_usb_driver(rtw_8723bu_driver);

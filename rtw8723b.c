@@ -3385,3 +3385,57 @@ MODULE_AUTHOR("Luka Gejak <luka.gejak@linux.dev>");
 MODULE_AUTHOR("Michael Straube <straube.linux@gmail.com>");
 MODULE_DESCRIPTION("Realtek 802.11n wireless 8723b driver");
 MODULE_LICENSE("Dual BSD/GPL");
+
+const struct rtw_chip_info rtw8723bu_hw_spec = {
+	.ops = &rtw8723b_ops,
+	.id = RTW_CHIP_TYPE_8723B,
+	.fw_name = "rtw88/rtw8723bu_fw.bin",
+	.wlan_cpu = RTW_WCPU_8051,
+	.tx_pkt_desc_sz = 40,
+	.tx_buf_desc_sz = 16,
+	.rx_pkt_desc_sz = 24,
+	.rx_buf_desc_sz = 8,
+	.phy_efuse_size = 512,
+	.log_efuse_size = 512,
+	.ptct_efuse_size = 15,
+
+	.txff_size = 32768,
+	.rxff_size = 16384,
+	.rsvd_drv_pg_num = 8,
+
+	.txgi_factor = 1,
+	.is_pwr_by_rate_dec = true,
+	.rx_ldpc = false,
+	.bfee_support = false,
+	.ht_supported = true,
+	.vht_supported = false,
+	.lps_deep_mode = LPS_DEEP_MODE_LPS,
+
+	.wow_fw_name = "rtw88/rtw8723bu_wow_fw.bin",
+	.wowlan_stub = NULL,
+
+	.coex_para_ver = 20180201,
+	.bt_desired_ver = 0x6f,
+	.scbd_support = true,
+	.new_scbd10_def = true,
+	.ble_hid_profile_support = false,
+	.wl_mimo_ps_support = false,
+	.pstdma_type = COEX_PSTDMA_FORCE_LPSOFF,
+	.bt_rssi_type = COEX_BTRSSI_RATIO,
+	.scbd_type = COEX_SCBD_DEFAULT,
+
+	.page_size = 128,
+	.bq_size = 144,
+	.page_mac_info = 1,
+
+	.rf_base_addr = {
+		[RF_PATH_A] = REG_RF_A,
+		[RF_PATH_B] = REG_RF_B,
+	},
+
+	.coex_pwr_seq_tbl = &rtw8723b_coex_pwr_seq_tbl,
+	.coex_set_rfe_type	= rtw8723b_coex_set_rfe_type,
+	.coex_set_wl_tx_power	= rtw8723b_coex_set_wl_tx_power,
+	.coex_set_wl_rx_gain	= rtw8723b_coex_set_wl_rx_gain,
+};
+EXPORT_SYMBOL(rtw8723bu_hw_spec);
