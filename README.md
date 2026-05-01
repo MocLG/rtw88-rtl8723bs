@@ -67,7 +67,8 @@ echo 0xFFFFFFFF | sudo tee /sys/module/rtw_core/parameters/debug_mask
 ### Step 2: Start the Live Capture
 Open a terminal and run this command. It will clear the old logs and start saving new ones to a file:
 ```bash
-sudo dmesg -C && sudo dmesg -w | tee rtw88_debug.log
+sudo dmesg -C
+sudo dmesg -w | tee rtw88_debug.log
 ```
 (Leave this running in the background)
 
