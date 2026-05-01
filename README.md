@@ -29,6 +29,11 @@ You must install your kernel headers and build tools before compiling.
 * **Raspberry Pi OS**: `sudo apt install raspberrypi-kernel-headers build-essential git`
 
 ### 2. Installation Using DKMS (Recommended) 🔄
+## Note
+In case you are testing for development process insmoding .ko files is recommended way to load the driver.
+
+---
+
 DKMS automatically rebuilds the driver when you update your kernel.
 
 ```bash
