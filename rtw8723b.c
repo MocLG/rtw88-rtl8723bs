@@ -1865,21 +1865,25 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 	/* NOTE: this func is ready! */
 
 	u32 rf_cfgch_a;
-	u32 rf_cfgch_b;
+	u32 rf_cfgch_b = 0;
 
 	rf_cfgch_a = rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK);
-	rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
+	if (rtwdev->hal.rf_path_num > 1)
+		rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
 
 	// DEBUG
 	printk("channel=0x%x, bw=0x%x\n", channel, bw);
 	printk("initial reg value: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	printk("initial reg value: rf_cfgch_b= 0x%x\n", rf_cfgch_b);
-
+	if (rtwdev->hal.rf_path_num > 1)
+		printk("initial reg value: rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	rf_cfgch_a &= ~RFCFGCH_CHANNEL_MASK;
-	rf_cfgch_b &= ~RFCFGCH_CHANNEL_MASK;
+	if (rtwdev->hal.rf_path_num > 1)
+		rf_cfgch_b &= ~RFCFGCH_CHANNEL_MASK;
+
 	rf_cfgch_a |= (channel & RFCFGCH_CHANNEL_MASK);
-	rf_cfgch_b |= (channel & RFCFGCH_CHANNEL_MASK);
+	if (rtwdev->hal.rf_path_num > 1)
+		rf_cfgch_b |= (channel & RFCFGCH_CHANNEL_MASK);
 
 	rf_cfgch_a &= ~RFCFGCH_BW_MASK;
 
@@ -1894,22 +1898,28 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 		break;
 	}
 
-	/* the vendor driver writes A value also to B */
-	rf_cfgch_b = rf_cfgch_a;
+	if (rtwdev->hal.rf_path_num > 1) {
+		/* the vendor driver writes A value also to B */
+		rf_cfgch_b = rf_cfgch_a;
+	}
 
 	printk("before writing reg: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	printk("before writing reg : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
+	if (rtwdev->hal.rf_path_num > 1)
+		printk("before writing reg : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK, rf_cfgch_a);
-	rtw_write_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK, rf_cfgch_b);
+	if (rtwdev->hal.rf_path_num > 1)
+		rtw_write_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK, rf_cfgch_b);
 
 	// DEBUG
 	mdelay(100);
 	rf_cfgch_a = rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK);
-	rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
+	if (rtwdev->hal.rf_path_num > 1)
+		rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
 
 	printk("reg after readback: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	printk("reg after readback : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
+	if (rtwdev->hal.rf_path_num > 1)
+		printk("reg after readback : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	/* NOTE: not called in vendor driver */
 	// rtw8723b_spur_cal(rtwdev, channel);
