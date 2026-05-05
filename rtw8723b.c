@@ -1549,7 +1549,9 @@ static void rtw8723b_init_network_type(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_wmac_setting(struct rtw_dev *rtwdev)
 {
-	rtw_write32(rtwdev, REG_RCR, WLAN_RCR_CFG);
+	/* Override the default rcr filter for 8723B */
+	rtwdev->hal.rcr = WLAN_RCR_CFG;
+	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	rtw_write32(rtwdev, REG_MAR, 0xffffffff);
 	rtw_write32(rtwdev, REG_MAR + 4, 0xffffffff);
