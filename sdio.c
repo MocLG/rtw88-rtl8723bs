@@ -1126,7 +1126,7 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 	u8 *rx_buf;
 	int ret;
 
-	bufsz = sdio_align_size(rtwsdio->sdio_func, rx_len);
+	bufsz = ALIGN(rx_len, 4);
 	pr_info("RX_LEN=%u, BUFSZ=%zu\n", rx_len, bufsz);
 
 	skb = dev_alloc_skb(bufsz);
