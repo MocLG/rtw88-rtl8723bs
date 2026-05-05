@@ -519,6 +519,10 @@ static int rtw_sdio_read_port(struct rtw_dev *rtwdev, u8 *buf, size_t count)
 	struct mmc_host *host = rtwsdio->sdio_func->card->host;
 	bool bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 	u32 rxaddr = rtwsdio->rx_addr++;
+	u32 sdio_addr = RTW_SDIO_ADDR_RX_RX0FF_GEN(rxaddr);
+
+	pr_info("SDIO READ_PORT: rxaddr=%u, sdio_addr=0x%08x, count=%zu\n", rxaddr, sdio_addr, count);
+
 	int ret = 0, err;
 	size_t bytes;
 
@@ -1123,6 +1127,7 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 	int ret;
 
 	bufsz = sdio_align_size(rtwsdio->sdio_func, rx_len);
+	pr_info("RX_LEN=%u, BUFSZ=%zu\n", rx_len, bufsz);
 
 	skb = dev_alloc_skb(bufsz);
 	if (!skb)
@@ -1134,11 +1139,14 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 		return;
 	}
 
+	print_hex_dump(KERN_INFO, "RX_BUF: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, 64, false);
+
 	while (true) {
 		rx_desc = skb->data;
 		rx_buf = rx_desc + pkt_desc_sz;
 		rtw_rx_query_rx_desc(rtwdev, rx_desc, rx_buf,
 				     &pkt_stat, &rx_status);
+		pr_info("PKT_LEN=%u, DRV_INFO=%u, SHIFT=%u\n", pkt_stat.pkt_len, pkt_stat.drv_info_sz, pkt_stat.shift);
 		pkt_offset = pkt_desc_sz + pkt_stat.drv_info_sz +
 			     pkt_stat.shift;
 
