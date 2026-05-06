@@ -1411,6 +1411,9 @@ static void rtw_add_rsvd_page_probe_req(struct rtw_dev *rtwdev,
 {
 	struct rtw_rsvd_page *rsvd_pkt;
 
+	pr_info("SCAN_DEBUG: Adding probe_req for SSID len=%d\n",
+		ssid ? ssid->ssid_len : 0);
+
 	rsvd_pkt = rtw_alloc_rsvd_page(rtwdev, RSVD_PROBE_REQ, true);
 	if (!rsvd_pkt) {
 		rtw_err(rtwdev, "failed to alloc probe req rsvd page\n");
