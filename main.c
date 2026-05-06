@@ -1586,6 +1586,11 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	set_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 	set_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 
+	/* Accept all data frames during scan - same as staging driver which
+	 * sets REG_RXFLTMAP2=0 during sitesurvey (hw_var_set_ndis_asocrsp)
+	 */
+	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
+
 	rtw_phy_dig_set_max_coverage(rtwdev);
 }
 
@@ -1605,6 +1610,9 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	clear_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 
 	rtw_core_fw_scan_notify(rtwdev, false);
+
+	/* Restore data frame filter after scan */
+	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	config |= PORT_SET_MAC_ADDR;

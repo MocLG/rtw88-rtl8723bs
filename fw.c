@@ -2302,8 +2302,6 @@ void rtw_hw_scan_start(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	rtwdev->hal.rcr &= ~BIT_CBSSID_BCN;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
-	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
-
 	pr_info("SCAN_DEBUG: RXFLTMAP2=0x%04x, RCR=0x%08x after scan start\n",
 		rtw_read16(rtwdev, REG_RXFLTMAP2), rtw_read32(rtwdev, REG_RCR));
 }
@@ -2324,8 +2322,6 @@ void rtw_hw_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	rtwdev->hal.rcr |= BIT_CBSSID_BCN;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
-
-	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 
 	rtw_core_scan_complete(rtwdev, vif, true);
 

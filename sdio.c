@@ -1148,9 +1148,9 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 
 	/* Check if buffer is all zeros */
 	if (rx_len > 0 && skb->data[0] == 0 && skb->data[1] == 0 && skb->data[2] == 0 && skb->data[3] == 0) {
-		pr_warn("RX_DEBUG: WARNING - RX buffer appears to be all zeros! rx_len=%u\n", rx_len);
-		pr_info("RX_DEBUG: Dumping full buffer (%zu bytes):", bufsz);
-		print_hex_dump(KERN_INFO, "RX_BUF: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, bufsz, false);
+		pr_warn("RX_DEBUG: WARNING - RX buffer appears to be all zeros! rx_len=%u - skipping\n", rx_len);
+		dev_kfree_skb_any(skb);
+		return;
 	}
 
 	while (true) {
