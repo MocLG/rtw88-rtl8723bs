@@ -2280,6 +2280,9 @@ void rtw_hw_scan_start(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	struct cfg80211_scan_request *req = &scan_req->req;
 	u8 mac_addr[ETH_ALEN];
 
+	pr_info("SCAN_DEBUG: rtw_hw_scan_start begin, req->n_channels=%d, req->n_ssids=%d\n",
+		req->n_channels, req->n_ssids);
+
 	rtwdev->scan_info.scanning_vif = vif;
 	rtwvif->scan_ies = &scan_req->ies;
 	rtwvif->scan_req = req;
@@ -2300,6 +2303,9 @@ void rtw_hw_scan_start(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
+
+	pr_info("SCAN_DEBUG: RXFLTMAP2=0x%04x, RCR=0x%08x after scan start\n",
+		rtw_read16(rtwdev, REG_RXFLTMAP2), rtw_read32(rtwdev, REG_RCR));
 }
 
 void rtw_hw_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,

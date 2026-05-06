@@ -1127,19 +1127,31 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 	int ret;
 
 	bufsz = ALIGN(rx_len, 4);
-	pr_info("RX_LEN=%u, BUFSZ=%zu\n", rx_len, bufsz);
+	pr_info("RX_DEBUG: rx_len=%u, bufsz=%zu, HISR=0x%08x, rx_addr=%u\n",
+		rx_len, bufsz, rtw_read32(rtwdev, REG_SDIO_HISR), rtwsdio->rx_addr);
 
+	/* Debug: dump first bytes of RX buffer to see what's actually there */
 	skb = dev_alloc_skb(bufsz);
 	if (!skb)
 		return;
 
 	ret = rtw_sdio_read_port(rtwdev, skb->data, bufsz);
 	if (ret) {
+		pr_info("RX_DEBUG: sdio_read_port failed ret=%d\n", ret);
 		dev_kfree_skb_any(skb);
 		return;
 	}
 
-	print_hex_dump(KERN_INFO, "RX_BUF: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, 64, false);
+	/* Dump first 64 bytes of RX buffer */
+	pr_info("RX_DEBUG: First 64 bytes of RX buffer:");
+	print_hex_dump(KERN_INFO, "RX_DATA: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, 64, false);
+
+	/* Check if buffer is all zeros */
+	if (rx_len > 0 && skb->data[0] == 0 && skb->data[1] == 0 && skb->data[2] == 0 && skb->data[3] == 0) {
+		pr_warn("RX_DEBUG: WARNING - RX buffer appears to be all zeros! rx_len=%u\n", rx_len);
+		pr_info("RX_DEBUG: Dumping full buffer (%zu bytes):", bufsz);
+		print_hex_dump(KERN_INFO, "RX_BUF: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, bufsz, false);
+	}
 
 	while (true) {
 		rx_desc = skb->data;
