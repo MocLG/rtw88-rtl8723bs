@@ -2120,6 +2120,8 @@ static int _rtw_hw_scan_update_probe_req(struct rtw_dev *rtwdev, u8 num_probes,
 		goto out;
 	}
 
+	pr_info("SCAN_DEBUG: Probe request downloaded to firmware, size=%d\n", buf_offset);
+
 	rtwdev->scan_info.probe_pg_size = page_offset;
 out:
 	kfree(buf);
