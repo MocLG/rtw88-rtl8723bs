@@ -2325,6 +2325,8 @@ void rtw_hw_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	if (!vif)
 		return;
 
+	pr_info("SCAN_DEBUG: scan_complete, aborted=%d, chan=%d\n", aborted, chan);
+
 	rtwdev->hal.rcr |= BIT_CBSSID_BCN;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
