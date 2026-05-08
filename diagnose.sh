@@ -58,6 +58,7 @@ EXISTING_IFACES=$(iw dev | awk '$1=="Interface" {print $2}')
 # 3. Load the new driver
 modprobe rtw_8723bs
 sleep 3
+echo 0x40 > /sys/module/rtw_core/parameters/debug_mask 2>/dev/null || true
 
 # 4. Find the NEW interface that just appeared
 IFACE=""
