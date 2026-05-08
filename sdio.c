@@ -720,6 +720,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			       enum rtw_tx_queue_type queue)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	static int scan_tx_port_count;
 	bool bus_claim;
 	size_t txsize;
 	u32 txaddr;
@@ -732,8 +733,18 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	txsize = sdio_align_size(rtwsdio->sdio_func, skb->len);
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
-	if (ret)
+	if (ret) {
+		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
+			rtw_info(rtwdev,
+				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d\n",
+				 queue, skb->len, txsize, ret,
+				 rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->free_pg_high),
+				 atomic_read(&rtwsdio->free_pg_normal),
+				 atomic_read(&rtwsdio->free_pg_low),
+				 atomic_read(&rtwsdio->free_pg_pub));
 		return ret;
+	}
 
 	if (!IS_ALIGNED((unsigned long)skb->data, RTW_SDIO_DATA_PTR_ALIGN))
 		rtw_warn(rtwdev, "Got unaligned SKB in %s() for queue %u\n",
@@ -748,6 +759,19 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
+
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
+		scan_tx_port_count++;
+		if (scan_tx_port_count <= 20 || scan_tx_port_count % 20 == 0)
+			rtw_info(rtwdev,
+				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d\n",
+				 scan_tx_port_count, queue, txaddr, skb->len,
+				 txsize, ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->free_pg_high),
+				 atomic_read(&rtwsdio->free_pg_normal),
+				 atomic_read(&rtwsdio->free_pg_low),
+				 atomic_read(&rtwsdio->free_pg_pub));
+	}
 
 	if (ret)
 		rtw_warn(rtwdev,
@@ -1047,8 +1071,35 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	enum rtw_tx_queue_type queue = rtw_tx_queue_mapping(skb);
 	struct rtw_sdio_tx_data *tx_data;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	static int scan_mgmt_tx_count;
+	bool scan_probe_req = false;
+	bool scan_mgmt = false;
+	__le16 fc = 0;
+
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags) &&
+	    skb->len >= sizeof(*hdr)) {
+		fc = hdr->frame_control;
+		scan_mgmt = ieee80211_is_mgmt(fc);
+		scan_probe_req = ieee80211_is_probe_req(fc);
+	}
+
+	if (scan_mgmt) {
+		scan_mgmt_tx_count++;
+		rtw_info(rtwdev,
+			 "SCAN_DEBUG: tx_mgmt_enqueue count=%d probe_req=%d queue=%u len=%u rate=%u sn=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM\n",
+			 scan_mgmt_tx_count, scan_probe_req, queue, skb->len,
+			 pkt_info->rate, pkt_info->sn, le16_to_cpu(fc),
+			 hdr->addr1, hdr->addr2, hdr->addr3);
+	}
 
 	rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
+
+	if (scan_mgmt)
+		rtw_info(rtwdev,
+			 "SCAN_DEBUG: tx_mgmt_prepared probe_req=%d queue=%u qsel=%u offset=%u pkt_offset=%u skb_len=%u\n",
+			 scan_probe_req, queue, pkt_info->qsel, pkt_info->offset,
+			 pkt_info->pkt_offset, skb->len);
 
 	tx_data = rtw_sdio_get_tx_data(skb);
 	tx_data->sn = pkt_info->sn;

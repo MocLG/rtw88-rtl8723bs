@@ -43,6 +43,56 @@ MODULE_PARM_DESC(disable_lps_deep, "Set Y to disable Deep PS");
 MODULE_PARM_DESC(support_bf, "Set Y to enable beamformee support");
 MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
+static u32 rtw_scan_read_sdio_rx_len(struct rtw_dev *rtwdev)
+{
+	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return 0;
+
+	if (rtw_chip_wcpu_8051(rtwdev))
+		return rtw_read16(rtwdev, REG_SDIO_RX0_REQ_LEN);
+
+	return rtw_read32(rtwdev, REG_SDIO_RX0_REQ_LEN);
+}
+
+static void rtw_scan_dump_regs(struct rtw_dev *rtwdev, const char *tag)
+{
+	struct rtw_hal *hal = &rtwdev->hal;
+	u32 sdio_himr = 0;
+	u32 sdio_hisr = 0;
+	u32 sdio_rx_len = 0;
+
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		sdio_himr = rtw_read32(rtwdev, REG_SDIO_HIMR);
+		sdio_hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
+		sdio_rx_len = rtw_scan_read_sdio_rx_len(rtwdev);
+	}
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: %s ch=%u bw=%u band=%u CR=0x%08x RCR=0x%08x hal_rcr=0x%08x RXFLTMAP=0x%04x/0x%04x/0x%04x RXDMA_MODE=0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_HIMR=0x%08x SDIO_HISR=0x%08x SDIO_RX0_REQ_LEN=%u\n",
+		 tag, hal->current_channel, hal->current_band_width,
+		 hal->current_band_type, rtw_read32(rtwdev, REG_CR),
+		 rtw_read32(rtwdev, REG_RCR), hal->rcr,
+		 rtw_read16(rtwdev, REG_RXFLTMAP0),
+		 rtw_read16(rtwdev, REG_RXFLTMAP1),
+		 rtw_read16(rtwdev, REG_RXFLTMAP2),
+		 rtw_read32(rtwdev, REG_RXDMA_MODE),
+		 rtw_read32(rtwdev, REG_RXDMA_STATUS),
+		 rtw_read32(rtwdev, REG_RXPKT_NUM), sdio_himr, sdio_hisr,
+		 sdio_rx_len);
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: %s PHY CRC_CCK=0x%08x CCA_OFDM=0x%08x CRC_HT=0x%08x CRC_OFDM=0x%08x FA_OFDM=0x%08x CCA_CCK=0x%08x EDCCA=0x%08x RXIGI_A=0x%08x RXPSEL=0x%08x\n",
+		 tag, rtw_read32(rtwdev, REG_CRC_CCK),
+		 rtw_read32(rtwdev, REG_CCA_OFDM),
+		 rtw_read32(rtwdev, REG_CRC_HT),
+		 rtw_read32(rtwdev, REG_CRC_OFDM),
+		 rtw_read32(rtwdev, REG_FA_OFDM),
+		 rtw_read32(rtwdev, REG_CCA_CCK),
+		 rtw_read32(rtwdev, REG_EDCCA_REPORT),
+		 rtw_read32(rtwdev, REG_RXIGI_A),
+		 rtw_read32(rtwdev, REG_RXPSEL));
+}
+
 static struct ieee80211_channel rtw_channeltable_2g[] = {
 	{.center_freq = 2412, .hw_value = 1,},
 	{.center_freq = 2417, .hw_value = 2,},
@@ -904,6 +954,9 @@ void rtw_set_channel(struct rtw_dev *rtwdev)
 	chip->ops->set_channel(rtwdev, center_chan, bandwidth,
 			       hal->current_primary_channel_index);
 
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
+		rtw_scan_dump_regs(rtwdev, "set_channel");
+
 	if (hal->current_band_type == RTW_BAND_5G) {
 		rtw_coex_switchband_notify(rtwdev, COEX_SWITCH_TO_5G);
 	} else {
@@ -1591,13 +1644,14 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
 
-	/* Accept beacon/probe responses from other BSSIDs during scan. The
-	 * RTL8723B scan-offload path is disabled, so software scans need the
-	 * same RCR relaxation here.
+	/* Accept beacon/probe responses and directed probe responses from other
+	 * BSSIDs during scan. The RTL8723B scan-offload path is disabled, so
+	 * software scans need the same CHECK_BSSID(false) relaxation as the
+	 * staging driver.
 	 */
 	rtwdev->scan_info.rcr_backup = rtwdev->hal.rcr;
 	rtwdev->scan_info.rcr_backup_valid = true;
-	rtwdev->hal.rcr &= ~BIT_CBSSID_BCN;
+	rtwdev->hal.rcr &= ~(BIT_CBSSID_BCN | BIT_CBSSID_DATA);
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	/* Drop data frames during scan, matching the vendor site-survey path. */
@@ -1608,6 +1662,7 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 		 hw_scan, mac_addr, rcr_before, rtw_read32(rtwdev, REG_RCR),
 		 rtwdev->hal.rcr, rxfltmap2_before,
 		 rtw_read16(rtwdev, REG_RXFLTMAP2));
+	rtw_scan_dump_regs(rtwdev, "core_start");
 
 	rtw_phy_dig_set_max_coverage(rtwdev);
 }
@@ -1639,6 +1694,7 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
+	rtw_scan_dump_regs(rtwdev, "core_complete_before_restore");
 
 	if (rtwdev->scan_info.rcr_backup_valid) {
 		rtwdev->hal.rcr = rtwdev->scan_info.rcr_backup;
@@ -1654,6 +1710,7 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 		 hw_scan, rcr_before, rtw_read32(rtwdev, REG_RCR),
 		 rtwdev->hal.rcr, rxfltmap2_before,
 		 rtw_read16(rtwdev, REG_RXFLTMAP2));
+	rtw_scan_dump_regs(rtwdev, "core_complete_after_restore");
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	config |= PORT_SET_MAC_ADDR;

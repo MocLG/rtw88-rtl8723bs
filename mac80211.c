@@ -289,6 +289,7 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 				     u64 multicast)
 {
 	struct rtw_dev *rtwdev = hw->priv;
+	u32 rcr_before;
 
 	*new_flags &= FIF_ALLMULTI | FIF_OTHER_BSS | FIF_FCSFAIL |
 		      FIF_BCN_PRBRESP_PROMISC;
@@ -296,6 +297,7 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 	mutex_lock(&rtwdev->mutex);
 
 	rtw_leave_lps_deep(rtwdev);
+	rcr_before = rtwdev->hal.rcr;
 
 	if (changed_flags & FIF_ALLMULTI) {
 		if (*new_flags & FIF_ALLMULTI)
@@ -316,7 +318,8 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 			rtwdev->hal.rcr &= ~(BIT_AAP);
 	}
 	if (changed_flags & FIF_BCN_PRBRESP_PROMISC) {
-		if (*new_flags & FIF_BCN_PRBRESP_PROMISC)
+		if ((*new_flags & FIF_BCN_PRBRESP_PROMISC) ||
+		    test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 			rtwdev->hal.rcr &= ~(BIT_CBSSID_BCN | BIT_CBSSID_DATA);
 		else
 			rtwdev->hal.rcr |= BIT_CBSSID_BCN;
@@ -325,6 +328,10 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 	rtw_dbg(rtwdev, RTW_DBG_RX,
 		"config rx filter, changed=0x%08x, new=0x%08x, rcr=0x%08x\n",
 		changed_flags, *new_flags, rtwdev->hal.rcr);
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: configure_filter scanning=%d changed=0x%08x new=0x%08x RCR 0x%08x->0x%08x\n",
+		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), changed_flags,
+		 *new_flags, rcr_before, rtwdev->hal.rcr);
 
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
