@@ -106,3 +106,4 @@ backup_drivers.tar
 rtl8723bs-staging
 rtw88_debug.log
 debug-logs*
+logs-rtw88*
