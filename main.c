@@ -1586,9 +1586,16 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	set_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 	set_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 
-	/* Accept all data frames during scan - same as staging driver which
-	 * sets REG_RXFLTMAP2=0 during sitesurvey (hw_var_set_ndis_asocrsp)
+	/* Accept beacon/probe responses from other BSSIDs during scan. The
+	 * RTL8723B scan-offload path is disabled, so software scans need the
+	 * same RCR relaxation here.
 	 */
+	rtwdev->scan_info.rcr_backup = rtwdev->hal.rcr;
+	rtwdev->scan_info.rcr_backup_valid = true;
+	rtwdev->hal.rcr &= ~BIT_CBSSID_BCN;
+	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
+
+	/* Drop data frames during scan, matching the vendor site-survey path. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
 
 	rtw_phy_dig_set_max_coverage(rtwdev);
@@ -1611,7 +1618,13 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	rtw_core_fw_scan_notify(rtwdev, false);
 
-	/* Restore data frame filter after scan */
+	if (rtwdev->scan_info.rcr_backup_valid) {
+		rtwdev->hal.rcr = rtwdev->scan_info.rcr_backup;
+		rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
+		rtwdev->scan_info.rcr_backup_valid = false;
+	}
+
+	/* Restore data frame filter after scan. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
