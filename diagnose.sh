@@ -4,17 +4,23 @@
 
 set -e
 
-OUTDIR="logs-rtw88"
-mkdir -p "$OUTDIR"
-
-echo "=== RTL8723BS Diagnostic Test ==="
-echo "Output directory: $OUTDIR"
-echo ""
-
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Run this script as root: sudo ./diagnose.sh"
     exit 1
 fi
+
+GIT_HASH=$(git -c safe.directory="$PWD" rev-parse --short=8 HEAD 2>/dev/null) || {
+    echo "ERROR: Unable to determine git commit hash"
+    exit 1
+}
+
+OUTDIR="logs-rtw88-$GIT_HASH"
+mkdir -p "$OUTDIR"
+
+echo "=== RTL8723BS Diagnostic Test ==="
+echo "Git commit: $GIT_HASH"
+echo "Output directory: $OUTDIR"
+echo ""
 
 # Helper function
 run_cmd() {
@@ -230,7 +236,7 @@ echo ""
 ls -la "$OUTDIR"
 
 # Create tar archive
-TARFILE="diagnostic-$(date +%Y%m%d-%H%M%S).tar.gz"
+TARFILE="diagnostic-$GIT_HASH.tar.gz"
 tar -czf "$TARFILE" "$OUTDIR"
 echo ""
 echo "Archive created: $TARFILE"
