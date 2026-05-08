@@ -1561,10 +1561,12 @@ void rtw_core_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 			 const u8 *mac_addr, bool hw_scan)
 {
-	printk("%s begin\n", __func__);
-
 	u32 config = 0;
+	u32 rcr_before;
+	u16 rxfltmap2_before;
 	int ret = 0;
+
+	printk("%s begin\n", __func__);
 
 	rtw_leave_lps(rtwdev);
 
@@ -1586,6 +1588,9 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	set_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 	set_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 
+	rcr_before = rtw_read32(rtwdev, REG_RCR);
+	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
+
 	/* Accept beacon/probe responses from other BSSIDs during scan. The
 	 * RTL8723B scan-offload path is disabled, so software scans need the
 	 * same RCR relaxation here.
@@ -1598,6 +1603,12 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	/* Drop data frames during scan, matching the vendor site-survey path. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
 
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: core_start hw_scan=%d mac=%pM RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+		 hw_scan, mac_addr, rcr_before, rtw_read32(rtwdev, REG_RCR),
+		 rtwdev->hal.rcr, rxfltmap2_before,
+		 rtw_read16(rtwdev, REG_RXFLTMAP2));
+
 	rtw_phy_dig_set_max_coverage(rtwdev);
 }
 
@@ -1606,17 +1617,28 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 {
 	struct rtw_vif *rtwvif = vif ? (struct rtw_vif *)vif->drv_priv : NULL;
 	u32 config = 0;
+	u32 rcr_before;
+	u16 rxfltmap2_before;
 
 	printk("%s begin\n", __func__);
 
-	if (!rtwvif)
+	if (!rtwvif) {
+		rtw_info(rtwdev,
+			 "SCAN_DEBUG: core_complete hw_scan=%d without vif RCR=0x%08x RXFLTMAP2=0x%04x backup_valid=%d\n",
+			 hw_scan, rtw_read32(rtwdev, REG_RCR),
+			 rtw_read16(rtwdev, REG_RXFLTMAP2),
+			 rtwdev->scan_info.rcr_backup_valid);
 		return;
+	}
 
 	rtw_phy_dig_reset(rtwdev);
 	clear_bit(RTW_FLAG_SCANNING, rtwdev->flags);
 	clear_bit(RTW_FLAG_DIG_DISABLE, rtwdev->flags);
 
 	rtw_core_fw_scan_notify(rtwdev, false);
+
+	rcr_before = rtw_read32(rtwdev, REG_RCR);
+	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
 
 	if (rtwdev->scan_info.rcr_backup_valid) {
 		rtwdev->hal.rcr = rtwdev->scan_info.rcr_backup;
@@ -1626,6 +1648,12 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	/* Restore data frame filter after scan. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: core_complete hw_scan=%d RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+		 hw_scan, rcr_before, rtw_read32(rtwdev, REG_RCR),
+		 rtwdev->hal.rcr, rxfltmap2_before,
+		 rtw_read16(rtwdev, REG_RXFLTMAP2));
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	config |= PORT_SET_MAC_ADDR;
