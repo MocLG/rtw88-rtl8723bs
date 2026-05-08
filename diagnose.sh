@@ -11,6 +11,11 @@ echo "=== RTL8723BS Diagnostic Test ==="
 echo "Output directory: $OUTDIR"
 echo ""
 
+if [ "$(id -u)" -ne 0 ]; then
+    echo "ERROR: Run this script as root: sudo ./diagnose.sh"
+    exit 1
+fi
+
 # Helper function
 run_cmd() {
     local name="$1"
@@ -23,6 +28,12 @@ run_cmd() {
 # Test 0: Preparation & Interface Discovery
 # ============================================================================
 echo "[0/6] Preparing environment..."
+
+echo "Building and installing current driver modules..."
+make clean
+make
+make install
+depmod -a
 
 # Enable Dynamic Debugging for our custom prints
 mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
@@ -225,4 +236,3 @@ echo ""
 echo "Archive created: $TARFILE"
 echo ""
 echo "Upload $TARFILE for analysis."
-
