@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "coex.h"
+#include "fw.h"
 #include "phy.h"
 #include "mac.h"
 #include "sdio.h"
@@ -67,6 +68,16 @@
 
 #define REG_BT_CONTROL_8723B		0x0764
 #define REG_PWR_DATA			0x0038
+#define REG_BT_COEX_CTRL_8723B		0x0039
+#define REG_ANTSEL_SW_8723B		0x0064
+#define REG_BT_ANT_SEL_8723B		0x0067
+#define REG_BT_GNT_BT_8723B		0x0765
+#define REG_BT_WLAN_ACT_8723B		0x076e
+#define REG_BB_ANT_CFG_8723B		0x0930
+#define REG_BB_ANT_CFG1_8723B		0x0944
+#define REG_BB_ANT_BUF_8723B		0x0974
+
+#define BIT_BT_SEL_BY_WIFI_8723B	BIT(5)
 
 #define RF_RCK_OS			0x30
 #define RF_TXPA_G1			0x31
@@ -3104,37 +3115,126 @@ static void rtw8723b_coex_set_gnt_debug(struct rtw_dev *rtwdev)
 	/* TODO: ... */
 }
 
+static bool rtw8723b_coex_ant_is_aux(struct rtw_dev *rtwdev)
+{
+	return !!(rtwdev->efuse.bt_setting & BIT(6));
+}
+
+static void rtw8723b_coex_set_ant_ctrl_by_wifi(struct rtw_dev *rtwdev)
+{
+	/* 0x4c[23] = 1, 0x4c[24] = 0: antenna control by 0x64. */
+	rtw_write32_clr(rtwdev, REG_LED_CFG, BIT(24));
+	rtw_write32_set(rtwdev, REG_LED_CFG, BIT(23));
+}
+
+static void rtw8723b_coex_set_ant_ctrl_by_bt(struct rtw_dev *rtwdev)
+{
+	/* 0x4c[24:23] = 0: antenna control by BT_RFE_CTRL. */
+	rtw_write32_clr(rtwdev, REG_LED_CFG, BIT(23) | BIT(24));
+}
+
+static u32 rtw8723b_coex_ant_path_value(struct rtw_dev *rtwdev, u8 pos_type)
+{
+	bool aux = rtw8723b_coex_ant_is_aux(rtwdev);
+
+	switch (pos_type) {
+	case COEX_SWITCH_TO_BT:
+		return aux ? 0x0 : 0x280;
+	case COEX_SWITCH_TO_WLG:
+	case COEX_SWITCH_TO_WLA:
+		return aux ? 0x280 : 0x0;
+	case COEX_SWITCH_TO_WLG_BT:
+	case COEX_SWITCH_TO_NOCARE:
+	default:
+		return aux ? 0x80 : 0x200;
+	}
+}
+
+static void rtw8723b_coex_cfg_ant_switch(struct rtw_dev *rtwdev,
+					 u8 ctrl_type, u8 pos_type)
+{
+	u32 ant_path;
+
+	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return;
+
+	if (ctrl_type == COEX_SWITCH_CTRL_BY_BT) {
+		rtw_write8(rtwdev, REG_BT_GNT_BT_8723B, 0x18);
+		rtw_write8(rtwdev, REG_BT_WLAN_ACT_8723B, 0x4);
+		rtw_write8_clr(rtwdev, REG_BT_ANT_SEL_8723B,
+			       BIT_BT_SEL_BY_WIFI_8723B);
+		rtw8723b_coex_set_ant_ctrl_by_bt(rtwdev);
+
+		rtw_dbg(rtwdev, RTW_DBG_COEX,
+			"[BTCoex], 8723bs ant switch by BT BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x67=0x%02x 0x765=0x%02x 0x76e=0x%02x\n",
+			rtw_read32(rtwdev, REG_BB_SEL_BTG),
+			rtw_read32(rtwdev, REG_LED_CFG),
+			rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
+			rtw_read8(rtwdev, REG_BT_GNT_BT_8723B),
+			rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B));
+		return;
+	}
+
+	rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
+	rtw_write8(rtwdev, REG_BT_ANT_SEL_8723B, 0x20);
+
+	if (ctrl_type == COEX_SWITCH_CTRL_BY_BBSW &&
+	    pos_type == COEX_SWITCH_TO_BT) {
+		rtw_write8(rtwdev, REG_BT_GNT_BT_8723B, 0x18);
+		rtw_write8(rtwdev, REG_BT_WLAN_ACT_8723B, 0x4);
+	} else {
+		if (rtw_read8(rtwdev, REG_BT_GNT_BT_8723B) != 0)
+			rtw_write8(rtwdev, REG_BT_GNT_BT_8723B, 0x0);
+
+		if (rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B) != 0xc)
+			rtw_write8(rtwdev, REG_BT_WLAN_ACT_8723B, 0xc);
+	}
+
+	if (ctrl_type == COEX_SWITCH_CTRL_BY_BBSW)
+		ant_path = rtw8723b_coex_ant_path_value(rtwdev, pos_type);
+	else
+		ant_path = rtw8723b_coex_ant_path_value(rtwdev,
+							COEX_SWITCH_TO_NOCARE);
+
+	rtw_write32(rtwdev, REG_BB_SEL_BTG, ant_path);
+
+	rtw_dbg(rtwdev, RTW_DBG_COEX,
+		"[BTCoex], 8723bs ant switch ctrl=%u pos=%u BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x67=0x%02x 0x765=0x%02x 0x76e=0x%02x\n",
+		ctrl_type, pos_type, rtw_read32(rtwdev, REG_BB_SEL_BTG),
+		rtw_read32(rtwdev, REG_LED_CFG),
+		rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
+		rtw_read8(rtwdev, REG_BT_GNT_BT_8723B),
+		rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B));
+}
+
 /* vendor file: hal/btc/halbtc8723b1ant.c
  * function: ex_halbtc8723b1ant_power_on_setting
  * NOTE: do wee need also 2ant?
  */
 static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 {
-	/* NOTE: this func should be ready! */
-
-	struct rtw_efuse *efuse = &rtwdev->efuse;
 	struct rtw_coex *coex = &rtwdev->coex;
 	struct rtw_coex_rfe *coex_rfe = &coex->rfe;
-	bool aux = efuse->bt_setting & BIT(6); /* 0xc3[6] */
+	enum rtw_hci_type hci_type = rtw_hci_type(rtwdev);
+	bool aux = rtw8723b_coex_ant_is_aux(rtwdev);
 	u32 reg;
 
-	/* MAYBE TODO: are these correct? */
 	coex_rfe->rfe_module_type = rtwdev->efuse.rfe_option;
-	coex_rfe->ant_switch_polarity = 0;
-	coex_rfe->ant_switch_exist = false;
+	coex_rfe->ant_switch_polarity = aux ? 1 : 0;
+	coex_rfe->ant_switch_exist = hci_type == RTW_HCI_TYPE_SDIO;
 	coex_rfe->ant_switch_with_bt = false;
 	coex_rfe->ant_switch_diversity = false;
 	coex_rfe->wlg_at_btg = true;
 
-	rtw_write8(rtwdev, 0x67, 0x20);
+	rtw_write8(rtwdev, REG_BT_ANT_SEL_8723B, 0x20);
 
 	/* set GRAN_BT = 1 */
-	rtw_write8(rtwdev, 0x765, 0x18);
+	rtw_write8(rtwdev, REG_BT_GNT_BT_8723B, 0x18);
 
 	/* set WLAN_ACT = 0 */
-	rtw_write8(rtwdev, 0x76e, 0x4);
+	rtw_write8(rtwdev, REG_BT_WLAN_ACT_8723B, 0x4);
 
-	switch (rtwdev->hci.type) {
+	switch (hci_type) {
 	case RTW_HCI_TYPE_USB:
 		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x0);
 		rtw_write8(rtwdev, 0xfe08, 0x1); // antenna inverse
@@ -3142,7 +3242,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 	case RTW_HCI_TYPE_PCIE:
 		/* fallthrough */
 	case RTW_HCI_TYPE_SDIO:
-		reg = rtwdev->hci.type == RTW_HCI_TYPE_PCIE ? 0x384 : 0x60;
+		reg = hci_type == RTW_HCI_TYPE_PCIE ? 0x384 : 0x60;
 		/* efuse 0xc3[6] == 0, S1(Main), RF_PATH_A
 		 * efuse 0xc3[6] == 1, S0(Aux), RF_PATH_B
 		 */
@@ -3153,6 +3253,31 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 			rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x280);
 			rtw_write8(rtwdev, reg, 0x0);
 		}
+
+		if (hci_type != RTW_HCI_TYPE_SDIO)
+			break;
+
+		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
+		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x0);
+		rtw_write8_set(rtwdev, REG_BT_COEX_CTRL_8723B, BIT(3));
+		rtw_write8(rtwdev, REG_BB_ANT_BUF_8723B, 0xff);
+		rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
+		rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
+
+		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
+
+		rtw_info(rtwdev,
+			 "COEX_RFE_DEBUG: 8723bs aux=%d ant_h2c=%u:0 BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+			 aux, aux ? 1 : 0, rtw_read32(rtwdev, REG_BB_SEL_BTG),
+			 rtw_read32(rtwdev, REG_LED_CFG),
+			 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
+			 rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
+			 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
+			 rtw_read8(rtwdev, REG_BT_GNT_BT_8723B),
+			 rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B),
+			 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
+			 rtw_read8(rtwdev, REG_BB_ANT_CFG1_8723B),
+			 rtw_read8(rtwdev, REG_BB_ANT_BUF_8723B));
 		break;
 	default:
 		break;
@@ -3252,7 +3377,7 @@ static const struct rtw_chip_ops rtw8723b_ops = {
 	.fill_txdesc_checksum	= rtw8723b_fill_txdesc_checksum, /* USB needs non-inverted checksum */
 
 	.coex_set_init		= rtw8723b_coex_cfg_init,
-	.coex_set_ant_switch	= NULL,
+	.coex_set_ant_switch	= rtw8723b_coex_cfg_ant_switch,
 	.coex_set_gnt_fix	= rtw8723b_coex_set_gnt_fix,
 	.coex_set_gnt_debug	= rtw8723b_coex_set_gnt_debug,
 	.coex_set_rfe_type	= rtw8723b_coex_set_rfe_type,

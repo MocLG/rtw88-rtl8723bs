@@ -694,6 +694,18 @@ void rtw_fw_coex_tdma_type(struct rtw_dev *rtwdev,
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }
 
+void rtw_fw_coex_ant_sel_rsv(struct rtw_dev *rtwdev, u8 inverse, u8 type)
+{
+	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
+
+	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_COEX_ANT_SEL_RSV);
+	SET_COEX_ANT_SEL_RSV_INVERSE(h2c_pkt, inverse);
+	SET_COEX_ANT_SEL_RSV_TYPE(h2c_pkt, type);
+
+	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+}
+EXPORT_SYMBOL(rtw_fw_coex_ant_sel_rsv);
+
 void rtw_fw_coex_query_hid_info(struct rtw_dev *rtwdev, u8 sub_id, u8 data)
 {
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
