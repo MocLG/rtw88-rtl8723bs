@@ -3164,6 +3164,9 @@ static void rtw8723b_coex_cfg_ant_switch(struct rtw_dev *rtwdev,
 		rtw_write8_clr(rtwdev, REG_BT_ANT_SEL_8723B,
 			       BIT_BT_SEL_BY_WIFI_8723B);
 		rtw8723b_coex_set_ant_ctrl_by_bt(rtwdev);
+		rtw_write32(rtwdev, REG_BB_SEL_BTG,
+			    rtw8723b_coex_ant_path_value(rtwdev,
+							 COEX_SWITCH_TO_BT));
 
 		rtw_dbg(rtwdev, RTW_DBG_COEX,
 			"[BTCoex], 8723bs ant switch by BT BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x67=0x%02x 0x765=0x%02x 0x76e=0x%02x\n",
@@ -3260,14 +3263,14 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x0);
 		rtw_write8_set(rtwdev, REG_BT_COEX_CTRL_8723B, BIT(3));
-		rtw_write8(rtwdev, REG_BB_ANT_BUF_8723B, 0xff);
+		rtw_write32_mask(rtwdev, REG_BB_ANT_BUF_8723B, MASKBYTE0, 0xff);
 		rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
 		rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
 
 		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
 
 		rtw_info(rtwdev,
-			 "COEX_RFE_DEBUG: 8723bs aux=%d ant_h2c=%u:0 BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+			 "COEX_RFE_DEBUG: 8723bs aux=%d ant_h2c=%u:0 BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%08x\n",
 			 aux, aux ? 1 : 0, rtw_read32(rtwdev, REG_BB_SEL_BTG),
 			 rtw_read32(rtwdev, REG_LED_CFG),
 			 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
@@ -3277,7 +3280,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 			 rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B),
 			 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
 			 rtw_read8(rtwdev, REG_BB_ANT_CFG1_8723B),
-			 rtw_read8(rtwdev, REG_BB_ANT_BUF_8723B));
+			 rtw_read32(rtwdev, REG_BB_ANT_BUF_8723B));
 		break;
 	default:
 		break;

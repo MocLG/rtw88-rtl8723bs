@@ -1441,9 +1441,8 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return;
 
-	/* Match the RTL8723BS staging scan path: disable PS-TDMA with type 8
-	 * and leave antenna selection under PTA control. This is explicitly
-	 * used there as the "no scan result" workaround.
+	/* Keep staging's no-scan PS-TDMA workaround, but force WiFi ownership
+	 * of the antenna during scan. The PTA path leaves this SDIO board deaf.
 	 */
 	coex_dm->cur_ps_tdma_on = false;
 	coex_dm->cur_ps_tdma = 8;
@@ -1454,12 +1453,13 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	coex_dm->ps_tdma_para[4] = 0x00;
 
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
-	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
+	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_WONLY);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 BB_SEL_BTG=0x%08x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
-		 rtw_read32(rtwdev, 0x948), rtw_read8(rtwdev, 0x765),
-		 rtw_read8(rtwdev, 0x67), rtw_read8(rtwdev, 0x76e));
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=wifi BB_SEL_BTG=0x%08x LED_CFG=0x%08x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 rtw_read32(rtwdev, 0x948), rtw_read32(rtwdev, 0x4c),
+		 rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x67),
+		 rtw_read8(rtwdev, 0x76e));
 }
 
 #define case_ALGO(src) \
