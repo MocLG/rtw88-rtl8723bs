@@ -1371,6 +1371,17 @@ static void rtw8723b_phy_bb_config(struct rtw_dev *rtwdev)
 			 xtal_cap | (xtal_cap << 6));
 }
 
+static void rtw8723b_phy_load_bb_tables(struct rtw_dev *rtwdev)
+{
+	const struct rtw_chip_info *chip = rtwdev->chip;
+	const struct rtw_rfe_def *rfe_def = rtw_get_rfe_def(rtwdev);
+
+	rtw_load_table(rtwdev, chip->bb_tbl);
+	rtw_load_table(rtwdev, chip->agc_tbl);
+	if (rfe_def && rfe_def->agc_btg_tbl)
+		rtw_load_table(rtwdev, rfe_def->agc_btg_tbl);
+}
+
 /* vendor: hal/rtl8723b/rtl8723b_rf6052.c
  * function: PHY_RF6052_Config8723B
  */
@@ -1422,7 +1433,7 @@ static void rtw8723b_phy_rf6052_config(struct rtw_dev *rtwdev)
 		/* NOTE: path A only, there is no table for path B
 		 * vendor driver also uses radio_a table for both paths
 		 */
-		//rtw_load_table(rtwdev, rtwdev->chip->rf_tbl[RF_PATH_A]);
+		rtw_load_table(rtwdev, rtwdev->chip->rf_tbl[RF_PATH_A]);
 
 		rtw_write32_mask(rtwdev, intf_s, mask, val32);
 	}
@@ -1771,20 +1782,17 @@ static int rtw8723b_mac_init(struct rtw_dev *rtwdev)
  */
 static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
-
+	const struct rtw_chip_info *chip = rtwdev->chip;
 	u32 val32;
+
+	printk("%s begin", __func__);
 
 	rtw8723b_post_enable_flow(rtwdev);
 
-	// rtw_load_table(rtwdev, rtwdev->chip->mac_tbl);
-
+	rtw_load_table(rtwdev, chip->mac_tbl);
 	rtw8723b_phy_bb_config(rtwdev);
+	rtw8723b_phy_load_bb_tables(rtwdev);
 	rtw8723b_phy_rf_config(rtwdev);
-
-	/* NOTE: if we uncomment this, do not forget to comment
-	 * the individual load_table() calls */
-	rtw_phy_load_tables(rtwdev);
 
 	/* enable CCK and OFDM block */
 	rtw_write32_set(rtwdev, REG_FPGA0_RFMOD, BIT_CCKEN | BIT_OFDMEN);
@@ -1862,7 +1870,7 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 // 	// rtwdev->dm_info.cck_pd_default = rtw_read8(rtwdev, REG_CSRATIO) & 0x1f;
 // 	// rtw_write16_set(rtwdev, REG_TXDMA_OFFSET_CHK, BIT_DROP_DATA_EN);
 
-	rtw8723x_lck(rtwdev); /* TODO: ? */
+	/* 8723B LCK ran after the RF table load in rtw8723b_phy_rf_config(). */
 	//rtw8723b_lck(rtwdev);
 
 	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x50);
