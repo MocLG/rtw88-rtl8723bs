@@ -3242,6 +3242,43 @@ static bool rtw8723b_coex_ant_is_aux(struct rtw_dev *rtwdev)
 	return !!(rtwdev->efuse.bt_setting & BIT(6));
 }
 
+static void rtw8723b_coex_write8_verify(struct rtw_dev *rtwdev, u32 addr,
+					u8 value, const char *tag)
+{
+	u8 readback;
+
+	rtw_write8(rtwdev, addr, value);
+	readback = rtw_read8(rtwdev, addr);
+	if (readback == value)
+		return;
+
+	usleep_range(10, 11);
+	rtw_write8(rtwdev, addr, value);
+
+	rtw_info(rtwdev,
+		 "COEX_RFE_DEBUG: 8723bs %s retry addr=0x%03x target=0x%02x first=0x%02x final=0x%02x\n",
+		 tag, addr, value, readback, rtw_read8(rtwdev, addr));
+}
+
+static void rtw8723b_coex_dump_rfe_state(struct rtw_dev *rtwdev,
+					 const char *tag, bool aux,
+					 u8 ant_h2c_type)
+{
+	rtw_info(rtwdev,
+		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 tag, aux, aux ? 1 : 0, ant_h2c_type,
+		 rtw_read32(rtwdev, REG_BB_SEL_BTG),
+		 rtw_read32(rtwdev, REG_LED_CFG),
+		 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
+		 rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
+		 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
+		 rtw_read8(rtwdev, REG_BT_GNT_BT_8723B),
+		 rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_CFG1_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_BUF_8723B));
+}
+
 static void rtw8723b_coex_set_ant_ctrl_by_wifi(struct rtw_dev *rtwdev)
 {
 	/* 0x4c[23] = 1, 0x4c[24] = 0: antenna control by 0x64. */
@@ -3402,9 +3439,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		rtw_write8(rtwdev, 0xfe08, 0x1); // antenna inverse
 		break;
 	case RTW_HCI_TYPE_PCIE:
-		/* fallthrough */
-	case RTW_HCI_TYPE_SDIO:
-		reg = hci_type == RTW_HCI_TYPE_PCIE ? 0x384 : 0x60;
+		reg = 0x384;
 		/* efuse 0xc3[6] == 0, S1(Main), RF_PATH_A
 		 * efuse 0xc3[6] == 1, S0(Aux), RF_PATH_B
 		 */
@@ -3417,31 +3452,38 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 						       "rfe_main");
 			rtw_write8(rtwdev, reg, 0x0);
 		}
+		break;
+	case RTW_HCI_TYPE_SDIO:
+		/* Staging power-on and SetAntPath(init) sequence for the
+		 * internal switch: keep WiFi TRx enabled, let WiFi control
+		 * S0/S1 through 0x64, and program the firmware antenna-inverse
+		 * hint with H2C 0x65 type 0.
+		 */
+		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
 
-		if (hci_type != RTW_HCI_TYPE_SDIO)
-			break;
+		rtw_write8(rtwdev, REG_BT_ANT_SEL_8723B, 0x20);
+		rtw_write8(rtwdev, REG_BT_GNT_BT_8723B, 0x18);
+		rtw_write8(rtwdev, REG_BT_WLAN_ACT_8723B, 0x4);
+
+		if (aux) {
+			rtw8723b_coex_write_bb_sel_btg(rtwdev, 0x0, "rfe_sdio_aux");
+			rtw_write8(rtwdev, 0x60, 0x1);
+		} else {
+			rtw8723b_coex_write_bb_sel_btg(rtwdev, 0x280,
+						       "rfe_sdio_main");
+			rtw_write8(rtwdev, 0x60, 0x0);
+		}
 
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x0);
 		rtw_write8_set(rtwdev, REG_BT_COEX_CTRL_8723B, BIT(3));
-		rtw_write32_mask(rtwdev, REG_BB_ANT_BUF_8723B, MASKBYTE0, 0xff);
+		rtw8723b_coex_write8_verify(rtwdev, REG_BB_ANT_BUF_8723B,
+					    0xff, "rfe_sdio_0x974");
 		rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
 		rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
 
 		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
-
-		rtw_info(rtwdev,
-			 "COEX_RFE_DEBUG: 8723bs aux=%d ant_h2c=%u:0 BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%08x\n",
-			 aux, aux ? 1 : 0, rtw_read32(rtwdev, REG_BB_SEL_BTG),
-			 rtw_read32(rtwdev, REG_LED_CFG),
-			 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
-			 rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
-			 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
-			 rtw_read8(rtwdev, REG_BT_GNT_BT_8723B),
-			 rtw_read8(rtwdev, REG_BT_WLAN_ACT_8723B),
-			 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
-			 rtw_read8(rtwdev, REG_BB_ANT_CFG1_8723B),
-			 rtw_read32(rtwdev, REG_BB_ANT_BUF_8723B));
+		rtw8723b_coex_dump_rfe_state(rtwdev, "rfe_sdio", aux, 0);
 		break;
 	default:
 		break;

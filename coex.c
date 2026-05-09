@@ -1433,9 +1433,60 @@ static void rtw_coex_set_ant_path(struct rtw_dev *rtwdev, bool force, u8 phase)
 		rtw_coex_set_ant_switch(rtwdev, ctrl_type, pos_type);
 }
 
+static u32 rtw_coex_8723bs_wifi_ant_path(struct rtw_dev *rtwdev)
+{
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x280 : 0x0;
+}
+
+static u32 rtw_coex_8723bs_write_bb_sel_btg(struct rtw_dev *rtwdev,
+					    u32 value, const char *tag)
+{
+	u8 sys_func_before;
+	u32 readback;
+
+	sys_func_before = rtw_read8(rtwdev, REG_SYS_FUNC_EN);
+	if ((sys_func_before & (BIT(0) | BIT(1))) != (BIT(0) | BIT(1))) {
+		rtw_write8_set(rtwdev, REG_SYS_FUNC_EN, BIT(0) | BIT(1));
+		usleep_range(10, 11);
+	}
+
+	rtw_write32(rtwdev, 0x948, value);
+	readback = rtw_read32(rtwdev, 0x948);
+	if (readback == value)
+		return readback;
+
+	usleep_range(10, 11);
+	rtw_write8_set(rtwdev, REG_SYS_FUNC_EN, BIT(0) | BIT(1));
+	rtw_write32(rtwdev, 0x948, value);
+
+	rtw_info(rtwdev,
+		 "COEX_SCAN_DEBUG: 8723bs %s BB_SEL_BTG retry target=0x%08x first=0x%08x final=0x%08x SYS_FUNC_EN 0x%02x->0x%02x\n",
+		 tag, value, readback, rtw_read32(rtwdev, 0x948),
+		 sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN));
+
+	return rtw_read32(rtwdev, 0x948);
+}
+
+static u32 rtw_coex_8723bs_force_wifi_ant(struct rtw_dev *rtwdev)
+{
+	u32 ant_path = rtw_coex_8723bs_wifi_ant_path(rtwdev);
+
+	rtw_write8_set(rtwdev, 0x67, BIT(5));
+
+	if (rtw_read8(rtwdev, 0x765) != 0x0)
+		rtw_write8(rtwdev, 0x765, 0x0);
+
+	if (rtw_read8(rtwdev, 0x76e) != 0xc)
+		rtw_write8(rtwdev, 0x76e, 0xc);
+
+	return rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_path,
+						"scan_wifi_ant");
+}
+
 static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
+	u32 ant_path;
 
 	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
 	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
@@ -1454,10 +1505,12 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_WONLY);
+	ant_path = rtw_coex_8723bs_force_wifi_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=wifi BB_SEL_BTG=0x%08x LED_CFG=0x%08x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
-		 rtw_read32(rtwdev, 0x948), rtw_read32(rtwdev, 0x4c),
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=wifi target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 rtw_coex_8723bs_wifi_ant_path(rtwdev), ant_path,
+		 rtw_read32(rtwdev, 0x4c), rtw_read8(rtwdev, 0x64),
 		 rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x67),
 		 rtw_read8(rtwdev, 0x76e));
 }
