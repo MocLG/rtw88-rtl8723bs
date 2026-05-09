@@ -59,29 +59,12 @@ Your hardware platform (e.g., PC, PinePhone, Samsung Note 20)
 
 And follow these steps:
 
-### Step 1: Enable Verbose Debugging
-Run this as root to ensure the driver actually outputs the messages you need:
+### Run diagnose.sh
 ```bash
-echo 0xFFFFFFFF | sudo tee /sys/module/rtw_core/parameters/debug_mask
-```
-### Step 2: Start the Live Capture
-Open a terminal and run this command. It will clear the old logs and start saving new ones to a file:
-```bash
-sudo dmesg -C
-sudo dmesg -w | tee rtw88_debug.log
-```
-(Leave this running in the background)
-
-### Step 3: Trigger the Failure
-In a different terminal, run the commands that cause the "Scanning Failed" error:
-
-```bash
-sudo ip link set wlan0 up
-sudo iw dev wlan0 scan
+sudo diagnose.sh
 ```
 
-### Step 4: Stop and Send
-Once the scan fails, go back to the first terminal, hit Ctrl+C, and provide the rtw88_debug.log in github issue together with other info requested above(and your message if you have it).
+### Send me appropriate diagnostic-(hash).tar
 
 ## ⚖️ License & Credits
 Licensed under Dual BSD/GPL-2.0.
