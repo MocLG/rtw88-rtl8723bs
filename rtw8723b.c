@@ -34,7 +34,10 @@
 						 BIT_FEN_BB_RSTB)
 #define WLAN_RF_CTRL_ENABLE			(BIT_RF_EN | BIT_RF_RSTB | \
 						 BIT_RF_SDM_RSTB)
-#define WLAN_RX_PATH_A_8723B			0x03a05600
+/* Staging and the BB table use 0x03a05611 as the normal RX path. 0x03a05600
+ * is only an IQK temporary value and must not be reasserted during scan.
+ */
+#define WLAN_RX_PATH_A_8723B			0x03a05611
 
 #define ADDA_ON_VAL_8723B			0x01c00014
 

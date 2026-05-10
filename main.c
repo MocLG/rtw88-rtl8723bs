@@ -946,6 +946,10 @@ void rtw_set_channel(struct rtw_dev *rtwdev)
 	bandwidth = ch_param.bandwidth;
 	band = ch_param.center_chan > 14 ? RTW_BAND_5G : RTW_BAND_2G;
 
+	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags) &&
+	    hal->current_channel && hal->current_channel != center_chan)
+		rtw_scan_dump_regs(rtwdev, "dwell_end");
+
 	rtw_update_channel(rtwdev, center_chan, primary_chan, band, bandwidth);
 
 	if (rtwdev->scan_info.op_chan)
