@@ -21,6 +21,10 @@
 #include "sdio.h"
 #include "led.h"
 
+#define RTW_SCAN_SDIO_HISR_ERRS (REG_SDIO_HISR_RXERR | \
+				 REG_SDIO_HISR_TXFOVW | \
+				 REG_SDIO_HISR_RXFOVW)
+
 bool rtw_disable_lps_deep_mode;
 EXPORT_SYMBOL(rtw_disable_lps_deep_mode);
 bool rtw_bf_support = true;
@@ -77,6 +81,29 @@ static u32 rtw_scan_read_sdio_rx_len(struct rtw_dev *rtwdev)
 		return rtw_read16(rtwdev, REG_SDIO_RX0_REQ_LEN);
 
 	return rtw_read32(rtwdev, REG_SDIO_RX0_REQ_LEN);
+}
+
+static void rtw_scan_clear_sdio_hisr_errs(struct rtw_dev *rtwdev,
+					  const char *tag)
+{
+	u32 hisr;
+	u32 clear;
+
+	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return;
+
+	hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
+	clear = hisr & RTW_SCAN_SDIO_HISR_ERRS;
+	if (!clear)
+		return;
+
+	rtw_write32(rtwdev, REG_SDIO_HISR, clear);
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: %s clear_sdio_hisr_errs clear=0x%08x HISR 0x%08x->0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_RX0_REQ_LEN=%u\n",
+		 tag, clear, hisr, rtw_read32(rtwdev, REG_SDIO_HISR),
+		 rtw_read32(rtwdev, REG_RXDMA_STATUS),
+		 rtw_read32(rtwdev, REG_RXPKT_NUM),
+		 rtw_scan_read_sdio_rx_len(rtwdev));
 }
 
 static void rtw_scan_dump_regs(struct rtw_dev *rtwdev, const char *tag)
@@ -1692,6 +1719,7 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 		 rtwdev->hal.rcr, rxfltmap2_before,
 		 rtw_read16(rtwdev, REG_RXFLTMAP2));
 	rtw_scan_dump_regs(rtwdev, "core_start");
+	rtw_scan_clear_sdio_hisr_errs(rtwdev, "core_start");
 
 	rtw_phy_dig_set_max_coverage(rtwdev);
 	rtw_scan_set_8723bs_igi(rtwdev);
@@ -1725,6 +1753,7 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
 	rtw_scan_dump_regs(rtwdev, "core_complete_before_restore");
+	rtw_scan_clear_sdio_hisr_errs(rtwdev, "core_complete");
 
 	if (rtwdev->scan_info.rcr_backup_valid) {
 		rtwdev->hal.rcr = rtwdev->scan_info.rcr_backup;
