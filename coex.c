@@ -1504,6 +1504,17 @@ static void rtw_coex_8723bs_reassert_ant_buffer(struct rtw_dev *rtwdev)
 		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
 }
 
+static void rtw_coex_8723bs_apply_scan_table(struct rtw_dev *rtwdev)
+{
+	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
+
+	/* Staging's RTL8723B 1-ant non-connected scan action applies coex
+	 * table type 2: {0x5a5a5a5a, 0x5a5a5a5a}.
+	 */
+	coex_dm->cur_table = 2;
+	rtw_coex_set_table(rtwdev, true, 0x5a5a5a5a, 0x5a5a5a5a);
+}
+
 static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
@@ -1527,11 +1538,14 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
+	rtw_coex_8723bs_apply_scan_table(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=pta target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=pta table=2 target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 rtw_coex_8723bs_pta_ant_path(rtwdev), ant_path,
+		 rtw_read32(rtwdev, REG_BT_COEX_TABLE0),
+		 rtw_read32(rtwdev, REG_BT_COEX_TABLE1),
 		 rtw_read32(rtwdev, 0x4c), rtw_read8(rtwdev, 0x64),
 		 rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x67),
 		 rtw_read8(rtwdev, 0x76e),
