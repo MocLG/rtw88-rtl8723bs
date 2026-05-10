@@ -2197,12 +2197,15 @@ struct rtw_chan_list {
 struct rtw_hw_scan_info {
 	struct ieee80211_vif *scanning_vif;
 	u32 rcr_backup;
+	enum rtw_net_type net_type_backup;
+	u8 bcn_ctrl_backup;
 	u8 probe_pg_size;
 	u8 op_pri_ch_idx;
 	u8 op_pri_ch;
 	u8 op_chan;
 	u8 op_bw;
 	bool rcr_backup_valid;
+	bool survey_backup_valid;
 };
 
 struct rtw_dev {

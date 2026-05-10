@@ -1673,6 +1673,8 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	u32 config = 0;
 	u32 rcr_before;
 	u16 rxfltmap2_before;
+	enum rtw_net_type net_type_before;
+	u8 bcn_ctrl_before;
 	int ret = 0;
 
 	printk("%s begin\n", __func__);
@@ -1687,9 +1689,21 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 		}
 	}
 
+	net_type_before = rtwvif->net_type;
+	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
+
+	rtwdev->scan_info.net_type_backup = net_type_before;
+	rtwdev->scan_info.bcn_ctrl_backup = bcn_ctrl_before;
+	rtwdev->scan_info.survey_backup_valid = true;
+
 	ether_addr_copy(rtwvif->mac_addr, mac_addr);
-	config |= PORT_SET_MAC_ADDR;
+	rtwvif->net_type = RTW_NET_NO_LINK;
+	config |= PORT_SET_MAC_ADDR | PORT_SET_NET_TYPE;
 	rtw_vif_port_config(rtwdev, rtwvif, config);
+
+	if (net_type_before == RTW_NET_MGD_LINKED ||
+	    net_type_before == RTW_NET_AD_HOC)
+		rtw_write8_set(rtwdev, REG_BCN_CTRL, BIT_DIS_TSF_UDT);
 
 	rtw_coex_scan_notify(rtwdev, COEX_SCAN_START);
 	rtw_core_fw_scan_notify(rtwdev, true);
@@ -1714,9 +1728,11 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
 
 	rtw_info(rtwdev,
-		 "SCAN_DEBUG: core_start hw_scan=%d mac=%pM RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
-		 hw_scan, mac_addr, rcr_before, rtw_read32(rtwdev, REG_RCR),
-		 rtwdev->hal.rcr, rxfltmap2_before,
+		 "SCAN_DEBUG: core_start hw_scan=%d mac=%pM net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+		 hw_scan, mac_addr, net_type_before, rtwvif->net_type,
+		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
+		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
+		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr, rxfltmap2_before,
 		 rtw_read16(rtwdev, REG_RXFLTMAP2));
 	rtw_scan_dump_regs(rtwdev, "core_start");
 	rtw_scan_clear_sdio_hisr_errs(rtwdev, "core_start");
@@ -1732,15 +1748,18 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	u32 config = 0;
 	u32 rcr_before;
 	u16 rxfltmap2_before;
+	enum rtw_net_type net_type_before;
+	u8 bcn_ctrl_before;
 
 	printk("%s begin\n", __func__);
 
 	if (!rtwvif) {
 		rtw_info(rtwdev,
-			 "SCAN_DEBUG: core_complete hw_scan=%d without vif RCR=0x%08x RXFLTMAP2=0x%04x backup_valid=%d\n",
+			 "SCAN_DEBUG: core_complete hw_scan=%d without vif RCR=0x%08x RXFLTMAP2=0x%04x backup_valid=%d survey_backup_valid=%d\n",
 			 hw_scan, rtw_read32(rtwdev, REG_RCR),
 			 rtw_read16(rtwdev, REG_RXFLTMAP2),
-			 rtwdev->scan_info.rcr_backup_valid);
+			 rtwdev->scan_info.rcr_backup_valid,
+			 rtwdev->scan_info.survey_backup_valid);
 		return;
 	}
 
@@ -1752,6 +1771,8 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
+	net_type_before = rtwvif->net_type;
+	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
 	rtw_scan_dump_regs(rtwdev, "core_complete_before_restore");
 	rtw_scan_clear_sdio_hisr_errs(rtwdev, "core_complete");
 
@@ -1764,16 +1785,26 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	/* Restore data frame filter after scan. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: core_complete hw_scan=%d RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
-		 hw_scan, rcr_before, rtw_read32(rtwdev, REG_RCR),
-		 rtwdev->hal.rcr, rxfltmap2_before,
-		 rtw_read16(rtwdev, REG_RXFLTMAP2));
-	rtw_scan_dump_regs(rtwdev, "core_complete_after_restore");
+	if (rtwdev->scan_info.survey_backup_valid) {
+		rtwvif->net_type = rtwdev->scan_info.net_type_backup;
+		rtw_write8(rtwdev, REG_BCN_CTRL,
+			   rtwdev->scan_info.bcn_ctrl_backup);
+		rtwdev->scan_info.survey_backup_valid = false;
+		config |= PORT_SET_NET_TYPE;
+	}
 
 	ether_addr_copy(rtwvif->mac_addr, vif->addr);
 	config |= PORT_SET_MAC_ADDR;
 	rtw_vif_port_config(rtwdev, rtwvif, config);
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: core_complete hw_scan=%d net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+		 hw_scan, net_type_before, rtwvif->net_type,
+		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
+		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
+		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
+		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2));
+	rtw_scan_dump_regs(rtwdev, "core_complete_after_restore");
 
 	rtw_coex_scan_notify(rtwdev, COEX_SCAN_FINISH);
 
