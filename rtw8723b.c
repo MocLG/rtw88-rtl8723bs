@@ -3295,6 +3295,34 @@ static void rtw8723b_coex_set_ant_ctrl_by_bt(struct rtw_dev *rtwdev)
 	rtw_write32_clr(rtwdev, REG_LED_CFG, BIT(23) | BIT(24));
 }
 
+static void rtw8723b_coex_cfg_ant_buffer(struct rtw_dev *rtwdev,
+					 const char *tag)
+{
+	u8 sys_func_before;
+
+	sys_func_before = rtw_read8(rtwdev, REG_SYS_FUNC_EN);
+	if ((sys_func_before & WLAN_SYS_FUNC_BB_ENABLE) !=
+	    WLAN_SYS_FUNC_BB_ENABLE) {
+		rtw_write8_set(rtwdev, REG_SYS_FUNC_EN,
+			       WLAN_SYS_FUNC_BB_ENABLE);
+		usleep_range(10, 11);
+	}
+
+	rtw_write8_set(rtwdev, REG_BT_COEX_CTRL_8723B, BIT(3));
+	rtw8723b_coex_write8_verify(rtwdev, REG_BB_ANT_BUF_8723B,
+				    0xff, tag);
+	rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
+	rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
+
+	rtw_info(rtwdev,
+		 "COEX_RFE_DEBUG: 8723bs %s ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 tag, sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
+		 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_CFG1_8723B),
+		 rtw_read8(rtwdev, REG_BB_ANT_BUF_8723B));
+}
+
 static u32 rtw8723b_coex_write_bb_sel_btg(struct rtw_dev *rtwdev, u32 value,
 					  const char *tag)
 {
@@ -3479,11 +3507,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x0);
-		rtw_write8_set(rtwdev, REG_BT_COEX_CTRL_8723B, BIT(3));
-		rtw8723b_coex_write8_verify(rtwdev, REG_BB_ANT_BUF_8723B,
-					    0xff, "rfe_sdio_0x974");
-		rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
-		rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
+		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
 
 		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
 		rtw8723b_coex_dump_rfe_state(rtwdev, "rfe_sdio", aux, 0);

@@ -1438,6 +1438,11 @@ static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
 }
 
+#define REG_8723BS_BT_COEX_CTRL		0x0039
+#define REG_8723BS_BB_ANT_CFG		0x0930
+#define REG_8723BS_BB_ANT_CFG1		0x0944
+#define REG_8723BS_BB_ANT_BUF		0x0974
+
 static u32 rtw_coex_8723bs_write_bb_sel_btg(struct rtw_dev *rtwdev,
 					    u32 value, const char *tag)
 {
@@ -1475,6 +1480,30 @@ static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
 						"scan_pta_ant");
 }
 
+static void rtw_coex_8723bs_reassert_ant_buffer(struct rtw_dev *rtwdev)
+{
+	u8 sys_func_before;
+
+	sys_func_before = rtw_read8(rtwdev, REG_SYS_FUNC_EN);
+	if ((sys_func_before & (BIT(0) | BIT(1))) != (BIT(0) | BIT(1))) {
+		rtw_write8_set(rtwdev, REG_SYS_FUNC_EN, BIT(0) | BIT(1));
+		usleep_range(10, 11);
+	}
+
+	rtw_write8_mask(rtwdev, REG_8723BS_BT_COEX_CTRL, BIT(3), 0x1);
+	rtw_write8(rtwdev, REG_8723BS_BB_ANT_BUF, 0xff);
+	rtw_write8_mask(rtwdev, REG_8723BS_BB_ANT_CFG1, 0x3, 0x3);
+	rtw_write8(rtwdev, REG_8723BS_BB_ANT_CFG, 0x77);
+
+	rtw_info(rtwdev,
+		 "COEX_SCAN_DEBUG: 8723bs scan ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
+		 rtw_read8(rtwdev, REG_8723BS_BT_COEX_CTRL),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_CFG),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_CFG1),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
+}
+
 static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
@@ -1497,14 +1526,18 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
+	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=pta target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=pta target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 rtw_coex_8723bs_pta_ant_path(rtwdev), ant_path,
 		 rtw_read32(rtwdev, 0x4c), rtw_read8(rtwdev, 0x64),
 		 rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x67),
-		 rtw_read8(rtwdev, 0x76e));
+		 rtw_read8(rtwdev, 0x76e),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_CFG),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_CFG1),
+		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
 }
 
 #define case_ALGO(src) \
