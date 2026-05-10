@@ -43,6 +43,31 @@ MODULE_PARM_DESC(disable_lps_deep, "Set Y to disable Deep PS");
 MODULE_PARM_DESC(support_bf, "Set Y to enable beamformee support");
 MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
+#define RTW8723BS_SCAN_IGI	0x1e
+
+static bool rtw_scan_is_8723bs(struct rtw_dev *rtwdev)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+}
+
+static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
+{
+	u32 before;
+
+	if (!rtw_scan_is_8723bs(rtwdev))
+		return;
+
+	before = rtw_read32(rtwdev, REG_RXIGI_A);
+	rtw_write32_mask(rtwdev, REG_RXIGI_A, MASKBYTE0,
+			 RTW8723BS_SCAN_IGI);
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: 8723bs scan IGI 0x%08x->0x%08x target=0x%02x\n",
+		 before, rtw_read32(rtwdev, REG_RXIGI_A),
+		 RTW8723BS_SCAN_IGI);
+}
+
 static u32 rtw_scan_read_sdio_rx_len(struct rtw_dev *rtwdev)
 {
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
@@ -1669,6 +1694,7 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	rtw_scan_dump_regs(rtwdev, "core_start");
 
 	rtw_phy_dig_set_max_coverage(rtwdev);
+	rtw_scan_set_8723bs_igi(rtwdev);
 }
 
 void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
