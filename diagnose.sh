@@ -368,6 +368,8 @@ echo "Building and installing current driver modules..."
 
 clear_dmesg
 
+systemctl stop NetworkManager wpa_supplicant.service iwd.service
+
 # 1. Unload both drivers completely to clear the target interface
 modprobe -r rtw_8723bs 2>/dev/null || true
 modprobe -r r8723bs 2>/dev/null || true
