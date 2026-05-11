@@ -212,6 +212,27 @@ echo "Detected staging interface: ${STAGING_IFACE:-NOT_FOUND}"
 if [ -n "$STAGING_IFACE" ]; then
     ip link set "$STAGING_IFACE" up 2>/dev/null
     sleep 2
+    iw dev "$STAGING_IFACE" info > "$OUTDIR/test-06-staging-iw-info.log" 2>&1 || \
+        echo "staging iw info failed" >> "$OUTDIR/test-06-staging-iw-info.log"
+
+    dmesg > "$OUTDIR/test-06-staging-init.log"
+
+    dmesg -C
+    iw dev "$STAGING_IFACE" set channel 6 2>/dev/null || \
+        echo "staging set channel failed" >> "$OUTDIR/test-06-staging-chan6.log"
+    sleep 10
+    dmesg > "$OUTDIR/test-06-staging-chan6.log"
+
+    dmesg -C
+    iw dev "$STAGING_IFACE" scan > "$OUTDIR/test-06-staging-scan-output.txt" 2>&1 || \
+        echo "staging scan failed" >> "$OUTDIR/test-06-staging-scan-output.txt"
+    dmesg > "$OUTDIR/test-06-staging-scan-log.txt"
+
+    {
+        ls -la /proc/net/rtl8723bs 2>&1 || true
+        ls -la /proc/net/rtl8723bs/* 2>&1 || true
+    } > "$OUTDIR/test-06-staging-proc-tree.txt"
+
     # The legacy driver uses procfs, not debugfs
     if [ -f "/proc/net/rtl8723bs/$STAGING_IFACE/registers" ]; then
         cat "/proc/net/rtl8723bs/$STAGING_IFACE/registers" > "$OUTDIR/test-06-staging-regs.txt"
@@ -222,6 +243,12 @@ if [ -n "$STAGING_IFACE" ]; then
     fi
 else
     echo "Staging interface not found - results may be invalid" >> "$OUTDIR/test-06-staging-regs.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-iw-info.log"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-init.log"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-chan6.log"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-scan-output.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-scan-log.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-proc-tree.txt"
 fi
 
 dmesg > "$OUTDIR/test-06-staging-dmesg.log"
