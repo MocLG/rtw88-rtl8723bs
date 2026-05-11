@@ -1438,6 +1438,11 @@ static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
 }
 
+static u32 rtw_coex_8723bs_wifi_ant_path(struct rtw_dev *rtwdev)
+{
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x280 : 0x0;
+}
+
 #define REG_8723BS_BT_COEX_CTRL		0x0039
 #define REG_8723BS_BB_ANT_CFG		0x0930
 #define REG_8723BS_BB_ANT_CFG1		0x0944
@@ -1480,6 +1485,14 @@ static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
 						"scan_pta_ant");
 }
 
+static u32 rtw_coex_8723bs_reassert_wifi_ant(struct rtw_dev *rtwdev)
+{
+	u32 ant_path = rtw_coex_8723bs_wifi_ant_path(rtwdev);
+
+	return rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_path,
+						"scan_wifi_ant");
+}
+
 static void rtw_coex_8723bs_reassert_ant_buffer(struct rtw_dev *rtwdev)
 {
 	u8 sys_func_before;
@@ -1519,14 +1532,18 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
+	struct rtw_efuse *efuse = &rtwdev->efuse;
 	u32 ant_path;
+	u32 ant_target;
+	bool wifi_only;
 
 	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
 	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return;
 
-	/* Match staging's no-scan workaround: PS-TDMA type 8 with TDMA off
-	 * selects BTC_ANT_PATH_PTA, not the WLAN-only antenna path.
+	/* Start with staging's no-scan workaround: PS-TDMA type 8 with TDMA
+	 * off. When BT is disabled, force WLAN-only afterward so scan RX does
+	 * not depend on a PTA grant path that is not serving active BT traffic.
 	 */
 	coex_dm->cur_ps_tdma_on = false;
 	coex_dm->cur_ps_tdma = 8;
@@ -1537,17 +1554,25 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	coex_dm->ps_tdma_para[4] = 0x00;
 
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
-	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
+	wifi_only = coex_stat->bt_disabled;
+	if (wifi_only)
+		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_WONLY);
+	else
+		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	if (!coex_stat->bt_disabled)
 		rtw_coex_8723bs_apply_scan_table(rtwdev);
-	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
+	ant_target = wifi_only ? rtw_coex_8723bs_wifi_ant_path(rtwdev) :
+				  rtw_coex_8723bs_pta_ant_path(rtwdev);
+	ant_path = wifi_only ? rtw_coex_8723bs_reassert_wifi_ant(rtwdev) :
+				rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=pta table=%s bt_disabled=%d target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x LED_CFG=0x%08x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 wifi_only ? "wifi" : "pta",
 		 coex_stat->bt_disabled ? "keep" : "2",
-		 coex_stat->bt_disabled,
-		 rtw_coex_8723bs_pta_ant_path(rtwdev), ant_path,
+		 coex_stat->bt_disabled, efuse->bt_setting, efuse->share_ant,
+		 efuse->rfe_option, ant_target, ant_path,
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE0),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE1),
 		 rtw_read32(rtwdev, 0x4c), rtw_read8(rtwdev, 0x64),
