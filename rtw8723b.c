@@ -3268,10 +3268,11 @@ static void rtw8723b_coex_dump_rfe_state(struct rtw_dev *rtwdev,
 					 u8 ant_h2c_type)
 {
 	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x 0x4c=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 tag, aux, aux ? 1 : 0, ant_h2c_type,
 		 rtw_read32(rtwdev, REG_BB_SEL_BTG),
 		 rtw_read32(rtwdev, REG_LED_CFG),
+		 rtw_read8(rtwdev, REG_SDIO_H2C),
 		 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
 		 rtw_read8(rtwdev, REG_BT_ANT_SEL_8723B),
 		 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
@@ -3498,11 +3499,11 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 
 		if (aux) {
 			rtw8723b_coex_write_bb_sel_btg(rtwdev, 0x0, "rfe_sdio_aux");
-			rtw_write8(rtwdev, 0x60, 0x1);
+			rtw_write8(rtwdev, REG_SDIO_H2C, 0x1);
 		} else {
 			rtw8723b_coex_write_bb_sel_btg(rtwdev, 0x280,
 						       "rfe_sdio_main");
-			rtw_write8(rtwdev, 0x60, 0x0);
+			rtw_write8(rtwdev, REG_SDIO_H2C, 0x0);
 		}
 
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
