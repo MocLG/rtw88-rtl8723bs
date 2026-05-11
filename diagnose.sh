@@ -9,7 +9,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep; do
+for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $cmd"
         exit 1
@@ -98,6 +98,40 @@ debug_dir_for_iface() {
     fi
 }
 
+driver_for_iface() {
+    local iface="$1"
+    local path
+
+    if [ -z "$iface" ]; then
+        echo "NOT_FOUND"
+        return
+    fi
+
+    path=$(readlink -f "/sys/class/net/$iface/device/driver" 2>/dev/null || true)
+    if [ -n "$path" ] && [ -e "$path" ]; then
+        echo "${path##*/}"
+    else
+        echo "NOT_FOUND"
+    fi
+}
+
+module_for_iface() {
+    local iface="$1"
+    local path
+
+    if [ -z "$iface" ]; then
+        echo "NOT_FOUND"
+        return
+    fi
+
+    path=$(readlink -f "/sys/class/net/$iface/device/driver/module" 2>/dev/null || true)
+    if [ -n "$path" ] && [ -e "$path" ]; then
+        echo "${path##*/}"
+    else
+        echo "NOT_FOUND"
+    fi
+}
+
 dump_rtw88_file() {
     local name="$1"
     local out="$2"
@@ -108,6 +142,197 @@ dump_rtw88_file() {
     else
         echo "$name not accessible" > "$out"
     fi
+}
+
+unused_monitor_iface() {
+    local candidate
+
+    for candidate in diagmon0 diagmon1 diagmon2; do
+        if ! iw dev "$candidate" info >/dev/null 2>&1; then
+            echo "$candidate"
+            return
+        fi
+    done
+}
+
+run_channel6_listen() {
+    local base_iface="$1"
+    local cmd_log="$2"
+    local dmesg_log="$3"
+    local mon_iface
+    local listen_iface="$base_iface"
+    local created_monitor=0
+    local switched_monitor=0
+    local managed_fallback=0
+    local channel_set=0
+
+    mon_iface=$(unused_monitor_iface)
+    : > "$cmd_log"
+
+    {
+        echo "Base interface: $base_iface"
+        echo "Base driver: $(driver_for_iface "$base_iface")"
+        echo "Base module: $(module_for_iface "$base_iface")"
+        echo "Monitor candidate: ${mon_iface:-NONE_AVAILABLE}"
+        echo "+ ip link set $base_iface down"
+        ip link set "$base_iface" down || true
+
+        if [ -n "$mon_iface" ]; then
+            echo "+ iw dev $base_iface interface add $mon_iface type monitor"
+            if iw dev "$base_iface" interface add "$mon_iface" type monitor; then
+                created_monitor=1
+                listen_iface="$mon_iface"
+            else
+                echo "temporary monitor interface add failed"
+            fi
+        fi
+
+        if [ "$created_monitor" -eq 0 ]; then
+            echo "+ iw dev $base_iface set type monitor"
+            if iw dev "$base_iface" set type monitor; then
+                switched_monitor=1
+                listen_iface="$base_iface"
+            else
+                echo "switch to monitor mode failed; falling back to managed set-channel"
+                managed_fallback=1
+                listen_iface="$base_iface"
+            fi
+        fi
+
+        if [ "$managed_fallback" -eq 1 ]; then
+            echo "+ iw dev $listen_iface set channel 6"
+            if iw dev "$listen_iface" set channel 6; then
+                channel_set=1
+            else
+                echo "set channel failed"
+            fi
+            echo "+ ip link set $listen_iface up"
+            ip link set "$listen_iface" up || true
+        else
+            echo "+ ip link set $listen_iface up"
+            ip link set "$listen_iface" up || true
+            echo "+ iw dev $listen_iface set channel 6"
+            if iw dev "$listen_iface" set channel 6; then
+                channel_set=1
+            else
+                echo "set channel failed"
+            fi
+        fi
+        echo "listen interface: $listen_iface"
+        echo "channel set: $channel_set"
+    } >> "$cmd_log" 2>&1
+
+    sleep 10
+    dmesg > "$dmesg_log"
+
+    {
+        echo "+ restoring $base_iface"
+        if [ "$created_monitor" -eq 1 ]; then
+            echo "+ ip link set $listen_iface down"
+            ip link set "$listen_iface" down || true
+            echo "+ iw dev $listen_iface del"
+            iw dev "$listen_iface" del || true
+        elif [ "$switched_monitor" -eq 1 ]; then
+            echo "+ ip link set $base_iface down"
+            ip link set "$base_iface" down || true
+            echo "+ iw dev $base_iface set type managed"
+            iw dev "$base_iface" set type managed || true
+        fi
+
+        echo "+ ip link set $base_iface up"
+        ip link set "$base_iface" up || true
+    } >> "$cmd_log" 2>&1
+
+    append_if_nonempty "$dmesg_log" "iw channel listen output" "$cmd_log"
+}
+
+staging_proc_dirs() {
+    local dir
+
+    for dir in /proc/net/r8723bs /proc/net/rtl8723bs /proc/net/rtl8723b /proc/net/*8723*; do
+        if [ -d "$dir" ]; then
+            echo "$dir"
+        fi
+    done
+}
+
+dump_staging_proc_tree() {
+    local iface="$1"
+    local out="$2"
+    local proc_dirs
+    local dir
+    local child
+
+    proc_dirs=$(staging_proc_dirs || true)
+    {
+        echo "Staging interface: ${iface:-NOT_FOUND}"
+        echo "Staging netdev driver: $(driver_for_iface "$iface")"
+        echo "Staging netdev module: $(module_for_iface "$iface")"
+        echo ""
+        echo "Module directory /sys/module/r8723bs:"
+        if [ -d /sys/module/r8723bs ]; then
+            ls -la /sys/module/r8723bs
+        else
+            echo "not found"
+        fi
+        echo ""
+        echo "SDIO driver directory /sys/bus/sdio/drivers/rtl8723bs:"
+        if [ -d /sys/bus/sdio/drivers/rtl8723bs ]; then
+            ls -la /sys/bus/sdio/drivers/rtl8723bs
+        else
+            echo "not found"
+        fi
+        echo ""
+        echo "Candidate staging /proc/net directories:"
+        if [ -n "$proc_dirs" ]; then
+            printf '%s\n' "$proc_dirs"
+            while IFS= read -r dir; do
+                [ -n "$dir" ] || continue
+                echo ""
+                echo "=== $dir ==="
+                ls -la "$dir"
+                for child in "$dir"/*; do
+                    [ -e "$child" ] || continue
+                    echo ""
+                    echo "=== $child ==="
+                    ls -la "$child"
+                done
+            done <<< "$proc_dirs"
+        else
+            echo "none found"
+        fi
+    } > "$out" 2>&1
+}
+
+dump_staging_registers() {
+    local iface="$1"
+    local out="$2"
+    local proc_dirs
+    local dir
+    local reg
+    local found=0
+
+    proc_dirs=$(staging_proc_dirs || true)
+    {
+        if [ -n "$proc_dirs" ]; then
+            while IFS= read -r dir; do
+                [ -n "$dir" ] || continue
+                for reg in "$dir/$iface/registers" "$dir"/*/registers "$dir"/registers; do
+                    [ -f "$reg" ] || continue
+                    found=1
+                    echo "=== $reg ==="
+                    cat "$reg"
+                    echo ""
+                done
+            done <<< "$proc_dirs"
+        fi
+
+        if [ "$found" -eq 0 ]; then
+            echo "Staging procfs registers not found"
+            echo "Note: staging module is r8723bs; SDIO driver name may be rtl8723bs."
+            echo "This staging tree appears not to expose /proc/net register dumps on this kernel."
+        fi
+    } > "$out" 2>&1
 }
 
 # ============================================================================
@@ -203,6 +428,8 @@ fi
 {
     echo ""
     echo "Selected rtw88 interface: $IFACE"
+    echo "Selected rtw88 driver: $(driver_for_iface "$IFACE")"
+    echo "Selected rtw88 module: $(module_for_iface "$IFACE")"
     echo "Selected rtw88 debugfs: ${RTW88_DEBUG_DIR:-NOT_FOUND}"
 } >> "$OUTDIR/test-00-interfaces.txt"
 echo "Detected rtw88 interface: $IFACE"
@@ -233,12 +460,7 @@ echo "[2/6] Listen on channel 6..."
 clear_dmesg
 
 CHAN6_CMD_LOG="$OUTDIR/test-02-chan6-cmd.txt"
-iw dev "$IFACE" set channel 6 > "$CHAN6_CMD_LOG" 2>&1 || \
-    echo "set channel failed" >> "$CHAN6_CMD_LOG"
-sleep 10
-
-dmesg > "$OUTDIR/test-02-chan6.log"
-append_if_nonempty "$OUTDIR/test-02-chan6.log" "iw set channel output" "$CHAN6_CMD_LOG"
+run_channel6_listen "$IFACE" "$CHAN6_CMD_LOG" "$OUTDIR/test-02-chan6.log"
 
 # ============================================================================
 # Test 3: Full Wi-Fi Scan
@@ -350,6 +572,12 @@ for i in $CURRENT_STAGING_IFACES; do
 done
 
 echo "Detected staging interface: ${STAGING_IFACE:-NOT_FOUND}"
+{
+    echo ""
+    echo "Selected staging interface: ${STAGING_IFACE:-NOT_FOUND}"
+    echo "Selected staging driver: $(driver_for_iface "$STAGING_IFACE")"
+    echo "Selected staging module: $(module_for_iface "$STAGING_IFACE")"
+} >> "$OUTDIR/test-06-staging-interfaces.txt"
 
 if [ -n "$STAGING_IFACE" ]; then
     STAGING_UP_LOG="$OUTDIR/test-06-staging-iface-up.txt"
@@ -364,30 +592,15 @@ if [ -n "$STAGING_IFACE" ]; then
 
     clear_dmesg
     STAGING_CHAN6_CMD_LOG="$OUTDIR/test-06-staging-chan6-cmd.txt"
-    iw dev "$STAGING_IFACE" set channel 6 > "$STAGING_CHAN6_CMD_LOG" 2>&1 || \
-        echo "staging set channel failed" >> "$STAGING_CHAN6_CMD_LOG"
-    sleep 10
-    dmesg > "$OUTDIR/test-06-staging-chan6.log"
-    append_if_nonempty "$OUTDIR/test-06-staging-chan6.log" "iw set channel output" "$STAGING_CHAN6_CMD_LOG"
+    run_channel6_listen "$STAGING_IFACE" "$STAGING_CHAN6_CMD_LOG" "$OUTDIR/test-06-staging-chan6.log"
 
     clear_dmesg
     timeout 60 iw dev "$STAGING_IFACE" scan > "$OUTDIR/test-06-staging-scan-output.txt" 2>&1 || \
         echo "staging scan failed or timed out" >> "$OUTDIR/test-06-staging-scan-output.txt"
     dmesg > "$OUTDIR/test-06-staging-scan-log.txt"
 
-    {
-        ls -la /proc/net/rtl8723bs 2>&1 || true
-        ls -la /proc/net/rtl8723bs/* 2>&1 || true
-    } > "$OUTDIR/test-06-staging-proc-tree.txt"
-
-    # The legacy driver uses procfs, not debugfs
-    if [ -f "/proc/net/rtl8723bs/$STAGING_IFACE/registers" ]; then
-        cat "/proc/net/rtl8723bs/$STAGING_IFACE/registers" > "$OUTDIR/test-06-staging-regs.txt"
-    else
-        # Some staging versions use a different proc name
-        cat /proc/net/rtl8723bs/*/registers 2>/dev/null > "$OUTDIR/test-06-staging-regs.txt" || \
-        echo "Staging procfs registers not found" >> "$OUTDIR/test-06-staging-regs.txt"
-    fi
+    dump_staging_proc_tree "$STAGING_IFACE" "$OUTDIR/test-06-staging-proc-tree.txt"
+    dump_staging_registers "$STAGING_IFACE" "$OUTDIR/test-06-staging-regs.txt"
 else
     echo "Staging interface not found - results may be invalid" >> "$OUTDIR/test-06-staging-regs.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-iw-info.log"
