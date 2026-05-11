@@ -1721,7 +1721,7 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	 */
 	rtwdev->scan_info.rcr_backup = rtwdev->hal.rcr;
 	rtwdev->scan_info.rcr_backup_valid = true;
-	rtwdev->hal.rcr &= ~(BIT_CBSSID_BCN | BIT_CBSSID_DATA);
+	rtwdev->hal.rcr &= ~BIT_CBSSID_BCN;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	/* Drop data frames during scan, matching the vendor site-survey path. */

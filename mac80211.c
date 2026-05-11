@@ -320,7 +320,7 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 	if (changed_flags & FIF_BCN_PRBRESP_PROMISC) {
 		if ((*new_flags & FIF_BCN_PRBRESP_PROMISC) ||
 		    test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
-			rtwdev->hal.rcr &= ~(BIT_CBSSID_BCN | BIT_CBSSID_DATA);
+			rtwdev->hal.rcr &= ~BIT_CBSSID_BCN;
 		else
 			rtwdev->hal.rcr |= BIT_CBSSID_BCN;
 	}
