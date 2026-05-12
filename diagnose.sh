@@ -118,6 +118,8 @@ driver_for_iface() {
 module_for_iface() {
     local iface="$1"
     local path
+    local driver
+    local candidate
 
     if [ -z "$iface" ]; then
         echo "NOT_FOUND"
@@ -127,9 +129,24 @@ module_for_iface() {
     path=$(readlink -f "/sys/class/net/$iface/device/driver/module" 2>/dev/null || true)
     if [ -n "$path" ] && [ -e "$path" ]; then
         echo "${path##*/}"
-    else
-        echo "NOT_FOUND"
+        return
     fi
+
+    driver=$(driver_for_iface "$iface")
+    if [ -n "$driver" ] && [ -d "/sys/module/$driver" ]; then
+        echo "$driver"
+        return
+    fi
+
+    if [ "$driver" = "rtl8723bs" ]; then
+        candidate="r8723bs"
+        if [ -d "/sys/module/$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    fi
+
+    echo "NOT_FOUND"
 }
 
 dump_rtw88_file() {
