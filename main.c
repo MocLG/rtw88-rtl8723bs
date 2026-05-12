@@ -72,6 +72,20 @@ static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
 		 RTW8723BS_SCAN_IGI);
 }
 
+static void rtw_scan_prepare_8723bs_rfk(struct rtw_dev *rtwdev)
+{
+	if (!rtw_scan_is_8723bs(rtwdev) || !rtwdev->need_rfk)
+		return;
+
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: 8723bs run pending RFK before scan\n");
+	rtw_chip_prepare_tx(rtwdev);
+	rtw_info(rtwdev,
+		 "SCAN_DEBUG: 8723bs RFK before scan done need_rfk=%d RXIGI_A=0x%08x RXPSEL=0x%08x\n",
+		 rtwdev->need_rfk, rtw_read32(rtwdev, REG_RXIGI_A),
+		 rtw_read32(rtwdev, REG_RXPSEL));
+}
+
 static u32 rtw_scan_read_sdio_rx_len(struct rtw_dev *rtwdev)
 {
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
@@ -1695,6 +1709,8 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	rtwdev->scan_info.net_type_backup = net_type_before;
 	rtwdev->scan_info.bcn_ctrl_backup = bcn_ctrl_before;
 	rtwdev->scan_info.survey_backup_valid = true;
+
+	rtw_scan_prepare_8723bs_rfk(rtwdev);
 
 	ether_addr_copy(rtwvif->mac_addr, mac_addr);
 	rtwvif->net_type = RTW_NET_NO_LINK;
