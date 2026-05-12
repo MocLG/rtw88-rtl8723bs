@@ -9,10 +9,20 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink; do
+for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink systemctl; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $cmd"
         exit 1
+    fi
+done
+
+RESTORE_SERVICES=""
+for svc in NetworkManager wpa_supplicant iwd; do
+    if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
+        echo "Stopping and disabling $svc to prevent interference..."
+        systemctl stop "$svc" || true
+        systemctl disable "$svc" || true
+        RESTORE_SERVICES="$RESTORE_SERVICES $svc"
     fi
 done
 
@@ -648,3 +658,12 @@ echo ""
 echo "Archive created: $TARFILE"
 echo ""
 echo "Upload $TARFILE for analysis."
+
+if [ -n "$RESTORE_SERVICES" ]; then
+    echo ""
+    for svc in $RESTORE_SERVICES; do
+        echo "Restoring $svc..."
+        systemctl enable "$svc" || true
+        systemctl start "$svc" || true
+    done
+fi
