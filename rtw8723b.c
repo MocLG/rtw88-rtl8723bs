@@ -53,6 +53,8 @@
 #define WLAN_RX_FILTER1			0x400
 #define WLAN_RX_FILTER2			0xFFFF
 #define WLAN_RCR_CFG			0x700060CE
+#define REG_RFK_FW_ACK_8723B		0x01e7
+#define BIT_RFK_FW_ACK_8723B		BIT(0)
 
 #define REG_FPGA0_XA_RF_SW_CTRL		0x0870
 #define REG_FPGA0_XA_RF_INT_OE		0x0860
@@ -1617,6 +1619,14 @@ static void rtw8723b_init_retry_function(struct rtw_dev *rtwdev)
 	rtw_write8(rtwdev, REG_ACKTO, 0x40);
 }
 
+/* vendor: hal/rtl8723b/sdio/sdio_halinit.c
+ * function: _InitOperationMode
+ */
+static void rtw8723b_init_operation_mode(struct rtw_dev *rtwdev)
+{
+	rtw_write8(rtwdev, REG_BWOPMODE, BIT_BWOPMODE_20MHZ);
+}
+
 static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 {
 	rtw_write16(rtwdev, REG_BCN_CTRL,
@@ -1752,6 +1762,23 @@ static void rtw8723b_lck(struct rtw_dev *rtwdev)
 	}
 }
 
+static void rtw8723b_inform_rfk_status(struct rtw_dev *rtwdev, bool start)
+{
+	u8 val8;
+	int ret;
+
+	rtw_fw_inform_rfk_status(rtwdev, start);
+	if (!start)
+		return;
+
+	ret = read_poll_timeout(rtw_read8, val8,
+				val8 & BIT_RFK_FW_ACK_8723B,
+				50000, 400000, false,
+				rtwdev, REG_RFK_FW_ACK_8723B);
+	if (ret)
+		rtw_warn(rtwdev, "failed to poll firmware RFK start ack\n");
+}
+
 static int rtw8723b_mac_init(struct rtw_dev *rtwdev)
 {
 	/* TODO: needed? there is no trace of this in the vendor
@@ -1825,6 +1852,7 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 		   FIELD_PREP_CONST(BIT_MASK_AGG_BURST_NUM, AGG_BURST_NUM) |
 		   FIELD_PREP_CONST(BIT_MASK_AGG_BURST_SIZE, AGG_BURST_SIZE));
 
+	rtw8723b_init_operation_mode(rtwdev);
 	rtw8723b_init_beacon_parameters(rtwdev);
 	rtw8723b_init_burst_pkt_len(rtwdev);
 
@@ -2879,6 +2907,9 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 
 	memset(result, 0, sizeof(result));
 
+	rtw8723b_lck(rtwdev);
+	rtw8723b_inform_rfk_status(rtwdev, true);
+
 	// TODO
 	rtw8723x_iqk_backup_path_ctrl(rtwdev, &backup); // needed? reg 0x67 valid?
 	//rtw8723x_iqk_backup_lte_path_gnt(rtwdev, &backup); // not done in vendor driver for rtl8723bs
@@ -3010,6 +3041,8 @@ out:
 		rtw_read32(rtwdev, REG_RXIQ_AB_S0));
 
 	rtw_dbg(rtwdev, RTW_DBG_RFK, "[IQK] finished\n");
+
+	rtw8723b_inform_rfk_status(rtwdev, false);
 }
 
 static void rtw8723b_pwrtrack_set_ofdm_pwr(struct rtw_dev *rtwdev, s8 swing_idx,

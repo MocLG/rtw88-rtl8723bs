@@ -159,21 +159,28 @@ static void rtw_scan_dump_regs(struct rtw_dev *rtwdev, const char *tag)
 		 rtw_read32(rtwdev, REG_RXPSEL));
 }
 
+#define CHAN2G(_freq, _channel) {			\
+	.band = NL80211_BAND_2GHZ,			\
+	.center_freq = (_freq),				\
+	.hw_value = (_channel),				\
+	.max_power = 30,				\
+}
+
 static struct ieee80211_channel rtw_channeltable_2g[] = {
-	{.center_freq = 2412, .hw_value = 1,},
-	{.center_freq = 2417, .hw_value = 2,},
-	{.center_freq = 2422, .hw_value = 3,},
-	{.center_freq = 2427, .hw_value = 4,},
-	{.center_freq = 2432, .hw_value = 5,},
-	{.center_freq = 2437, .hw_value = 6,},
-	{.center_freq = 2442, .hw_value = 7,},
-	{.center_freq = 2447, .hw_value = 8,},
-	{.center_freq = 2452, .hw_value = 9,},
-	{.center_freq = 2457, .hw_value = 10,},
-	{.center_freq = 2462, .hw_value = 11,},
-	{.center_freq = 2467, .hw_value = 12,},
-	{.center_freq = 2472, .hw_value = 13,},
-	{.center_freq = 2484, .hw_value = 14,},
+	CHAN2G(2412, 1),
+	CHAN2G(2417, 2),
+	CHAN2G(2422, 3),
+	CHAN2G(2427, 4),
+	CHAN2G(2432, 5),
+	CHAN2G(2437, 6),
+	CHAN2G(2442, 7),
+	CHAN2G(2447, 8),
+	CHAN2G(2452, 9),
+	CHAN2G(2457, 10),
+	CHAN2G(2462, 11),
+	CHAN2G(2467, 12),
+	CHAN2G(2472, 13),
+	CHAN2G(2484, 14),
 };
 
 static struct ieee80211_channel rtw_channeltable_5g[] = {
