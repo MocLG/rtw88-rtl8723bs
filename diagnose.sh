@@ -401,7 +401,7 @@ if [ -w /sys/kernel/debug/dynamic_debug/control ]; then
     echo "module rtw_* +p" > /sys/kernel/debug/dynamic_debug/control 2>> "$OUTDIR/test-00-setup.log" || \
         echo "dynamic_debug post-load write failed" >> "$OUTDIR/test-00-setup.log"
 fi
-echo 0x40 > /sys/module/rtw_core/parameters/debug_mask 2>> "$OUTDIR/test-00-setup.log" || \
+echo 0xc0 > /sys/module/rtw_core/parameters/debug_mask 2>> "$OUTDIR/test-00-setup.log" || \
     echo "rtw_core debug_mask unavailable" >> "$OUTDIR/test-00-setup.log"
 
 # 4. Find the NEW managed interface that just appeared
