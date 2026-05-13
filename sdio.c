@@ -790,7 +790,7 @@ static void rtw_sdio_init(struct rtw_dev *rtwdev)
 	 * (this is required to refill the H2C/command queue and avoid TX deadlock).
 	 */
 	rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST | REG_SDIO_HIMR_CPWM1 |
-			    REG_SDIO_HIMR_C2HCMD | REG_SDIO_HIMR_AVAL;
+					   REG_SDIO_HIMR_AVAL;
 }
 
 static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
@@ -1306,7 +1306,6 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 		goto clear_evt;
 
 	id = rtw_read8(rtwdev, REG_C2HEVT);
-	rtw_info(rtwdev, "C2HCMD triggered, id=0x%x, seq=%d, len=%d\n", id, rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ), rtw_read8(rtwdev, REG_C2HEVT_CMD_LEN));
 	seq = rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ);
 	plen = rtw_read8(rtwdev, REG_C2HEVT_CMD_LEN);
 
@@ -1351,8 +1350,6 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 				!!(hisr & REG_SDIO_HISR_RX_REQUEST),
 				!!(hisr & REG_SDIO_HISR_AVAL));
 	}
-
-	pr_info("RTW88 DEBUG: HISR raw value is 0x%08x\n", hisr);
 
 	if (hisr & REG_SDIO_HISR_TXERR)
 		rtw_sdio_tx_err_isr(rtwdev);
@@ -1498,6 +1495,17 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 
 	/* enqueue to wait for tx report */
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) {
+		/* RTL8723BS firmware doesn't generate CCX TX reports via
+		 * SDIO interrupt or RX ring. Immediately report ACK to avoid
+		 * authentication/management frame timeouts. Matches staging
+		 * driver behavior (rtw_cfg80211_mgmt_tx_status before TX).
+		 */
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+			ieee80211_tx_info_clear_status(info);
+			info->flags |= IEEE80211_TX_STAT_ACK;
+			ieee80211_tx_status_irqsafe(hw, skb);
+			return;
+		}
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
 		return;
 	}
