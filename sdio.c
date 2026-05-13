@@ -790,7 +790,7 @@ static void rtw_sdio_init(struct rtw_dev *rtwdev)
 	 * (this is required to refill the H2C/command queue and avoid TX deadlock).
 	 */
 	rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST | REG_SDIO_HIMR_CPWM1 |
-					   REG_SDIO_HIMR_AVAL;
+			    REG_SDIO_HIMR_C2HCMD | REG_SDIO_HIMR_AVAL;
 }
 
 static void rtw_sdio_enable_rx_aggregation(struct rtw_dev *rtwdev)
@@ -1300,10 +1300,13 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 	int i;
 
 	trigger = rtw_read8(rtwdev, REG_C2HEVT_CLEAR);
+	if (trigger == C2H_EVT_HOST_CLOSE)
+		return;
 	if (trigger != C2H_EVT_FW_CLOSE)
 		goto clear_evt;
 
 	id = rtw_read8(rtwdev, REG_C2HEVT);
+	rtw_info(rtwdev, "C2HCMD triggered, id=0x%x, seq=%d, len=%d\n", id, rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ), rtw_read8(rtwdev, REG_C2HEVT_CMD_LEN));
 	seq = rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ);
 	plen = rtw_read8(rtwdev, REG_C2HEVT_CMD_LEN);
 
