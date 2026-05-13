@@ -1292,6 +1292,38 @@ static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 	} while (total_rx_bytes < SZ_64K && hisr & REG_SDIO_HISR_RX_REQUEST);
 }
 
+static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
+{
+	u8 trigger;
+	u8 id, seq, plen;
+	struct sk_buff *skb;
+	int i;
+
+	trigger = rtw_read8(rtwdev, REG_C2HEVT_CLEAR);
+	if (trigger != C2H_EVT_FW_CLOSE)
+		goto clear_evt;
+
+	id = rtw_read8(rtwdev, REG_C2HEVT);
+	seq = rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ);
+	plen = rtw_read8(rtwdev, REG_C2HEVT_CMD_LEN);
+
+	skb = dev_alloc_skb(2 + plen);
+	if (!skb)
+		goto clear_evt;
+
+	skb_put_u8(skb, id);
+	skb_put_u8(skb, seq);
+	for (i = 0; i < plen; i++)
+		skb_put_u8(skb, rtw_read8(rtwdev, REG_C2HEVT + 2 + i));
+
+	*((u32 *)skb->cb) = 0;
+	skb_queue_tail(&rtwdev->c2h_queue, skb);
+	ieee80211_queue_work(rtwdev->hw, &rtwdev->c2h_work);
+
+clear_evt:
+	rtw_write8(rtwdev, REG_C2HEVT_CLEAR, C2H_EVT_HOST_CLOSE);
+}
+
 static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 {
 	struct ieee80211_hw *hw = sdio_get_drvdata(sdio_func);
@@ -1334,6 +1366,11 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	if (hisr & REG_SDIO_HISR_RX_REQUEST) {
 		hisr &= ~REG_SDIO_HISR_RX_REQUEST;
 		rtw_sdio_rx_isr(rtwdev);
+	}
+
+	if (hisr & REG_SDIO_HISR_C2HCMD) {
+		hisr &= ~REG_SDIO_HISR_C2HCMD;
+		rtw_sdio_c2h_cmd_isr(rtwdev);
 	}
 
 	rtw_write32(rtwdev, REG_SDIO_HISR, hisr);
