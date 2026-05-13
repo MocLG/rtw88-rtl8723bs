@@ -3576,18 +3576,10 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 										 struct rtw_tx_pkt_info *pkt_info,
 										 struct rtw_tx_desc *txdesc)
 {
-	/* USB (8723BU) expects the raw XOR checksum (no bitwise inversion).
-	 * SDIO/PCIe variants (8723BS/BE) require inverted checksum as in
-	 * __rtw8723x_fill_txdesc_checksum. Use bus-aware behavior to avoid
-	 * dropping TX packets on USB.
+	/* SDIO (8723BS) uses raw XOR, same as USB (8723BU).
+	 * No bitwise inversion needed — matches rtl8723bs-staging.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB) {
-		/* compute XOR of first 32 bytes (16 words) without inversion */
-		fill_txdesc_checksum_common(txdesc, 32 / 2);
-	} else {
-		/* call common routine which applies vendor-specific inversion */
-		rtw8723x_fill_txdesc_checksum(rtwdev, pkt_info, txdesc);
-	}
+	fill_txdesc_checksum_common(txdesc, 32 / 2);
 }
 
 static const struct rtw_chip_ops rtw8723b_ops = {
