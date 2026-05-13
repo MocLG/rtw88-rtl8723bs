@@ -1,6 +1,7 @@
 #!/bin/bash
 # RTL8723BS rtw88 Driver Diagnostic Script
-# Run this script as: sudo ./diagnose.sh
+# Usage: sudo ./diagnose.sh [OPEN_SSID]
+#   OPEN_SSID - optional open (no password) AP SSID to attempt connection
 
 set -e
 
@@ -508,21 +509,41 @@ dump_rtw88_file mac_0 "$OUTDIR/test-03-mac0-after-scan.txt"
 dump_rtw88_file rf_dump "$OUTDIR/test-03-rf-dump-after-scan.txt"
 
 # ============================================================================
-# Test 4: TX Ping Test
+# Test 4: Connection Attempt
 # ============================================================================
-echo "[4/6] TX ping test..."
+echo "[4/6] Connection attempt..."
 
-clear_dmesg
+SSID="${1:-}"
 
-PING_CMD_LOG="$OUTDIR/test-04-ping-cmd.txt"
-ip addr add 192.168.100.185/24 dev "$IFACE" > "$PING_CMD_LOG" 2>&1 || \
-    echo "addr add failed" >> "$PING_CMD_LOG"
+if [ -z "$SSID" ]; then
+    echo "No AP SSID provided as argument — skipping connection test"
+    echo "No SSID provided — skipping connection test" > "$OUTDIR/test-04-connect-cmd.txt"
+else
+    clear_dmesg
 
-# Try to ping - may fail but that's ok
-timeout 5 ping -I "$IFACE" 192.168.1.1 -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
+    CONNECT_CMD_LOG="$OUTDIR/test-04-connect-cmd.txt"
+    {
+        echo "Connecting to SSID: $SSID"
+        echo "Interface: $IFACE"
+        echo "+ iw dev $IFACE connect \"$SSID\""
+        iw dev "$IFACE" connect "$SSID"
+        echo "iw connect exit code: $?"
+    } > "$CONNECT_CMD_LOG" 2>&1
 
-dmesg > "$OUTDIR/test-04-ping-log.txt"
-append_if_nonempty "$OUTDIR/test-04-ping-log.txt" "ip addr add output" "$PING_CMD_LOG"
+    sleep 5
+
+    iw dev "$IFACE" link > "$OUTDIR/test-04-connect-link.txt" 2>&1
+
+    timeout 10 dhclient -v "$IFACE" > "$OUTDIR/test-04-dhclient-output.txt" 2>&1 || \
+        echo "dhclient failed or timed out" >> "$OUTDIR/test-04-dhclient-output.txt"
+
+    timeout 5 ping -I "$IFACE" 192.168.1.1 -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
+        echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
+
+    dmesg > "$OUTDIR/test-04-connect-log.txt"
+    append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
+    append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw connect output" "$CONNECT_CMD_LOG"
+fi
 
 # ============================================================================
 # Test 5: All MAC Registers (Moved up)
