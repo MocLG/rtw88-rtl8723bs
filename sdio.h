@@ -177,6 +177,7 @@ struct rtw_sdio {
 	atomic_t free_pg_normal;
 	atomic_t free_pg_low;
 	atomic_t free_pg_pub;
+	atomic_t tx_oqt_free;
 };
 
 extern const struct dev_pm_ops rtw_sdio_pm_ops;

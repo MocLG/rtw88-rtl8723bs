@@ -20,6 +20,7 @@
 #include "tx.h"
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
+#define RTW_SDIO_OQT_TIMEOUT_MS				1000
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
@@ -704,6 +705,7 @@ static void rtw_sdio_init_free_txpg(struct rtw_dev *rtwdev)
 	const struct rtw_page_table *pg_tbl;
 	u32 free_txpg;
 	u16 pubq_num;
+	u8 oqt_free;
 
 	if (!rtw_chip_wcpu_8051(rtwdev))
 		return;
@@ -732,6 +734,10 @@ static void rtw_sdio_init_free_txpg(struct rtw_dev *rtwdev)
 			pg_tbl->hq_num, pg_tbl->nq_num, pg_tbl->lq_num,
 			pubq_num);
 	}
+
+	oqt_free = rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG);
+	atomic_set(&rtwsdio->tx_oqt_free, oqt_free);
+	rtw_info(rtwdev, "SDIO TX init: OQT free=%u\n", oqt_free);
 }
 
 /* Re-read HW free page register and update SW counters.  Called from
@@ -852,6 +858,34 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 	return 0;
 }
 
+static int rtw_sdio_wait_tx_oqt(struct rtw_dev *rtwdev, u8 needed)
+{
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	u8 oqt_free;
+	int i;
+
+	if (!rtw_chip_wcpu_8051(rtwdev))
+		return 0;
+
+	for (i = 0; i < RTW_SDIO_OQT_TIMEOUT_MS; i++) {
+		oqt_free = rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG);
+		if (oqt_free >= needed) {
+			atomic_set(&rtwsdio->tx_oqt_free, oqt_free - needed);
+			return 0;
+		}
+
+		msleep(1);
+	}
+
+	oqt_free = rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG);
+	atomic_set(&rtwsdio->tx_oqt_free, oqt_free);
+
+	rtw_warn(rtwdev, "SDIO TX OQT timeout: needed=%u free=%u\n",
+		 needed, oqt_free);
+
+	return -EBUSY;
+}
+
 static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			       enum rtw_tx_queue_type queue)
 {
@@ -869,15 +903,18 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	txsize = sdio_align_size(rtwsdio->sdio_func, skb->len);
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
+	if (!ret)
+		ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, skb->len, txsize,
 				 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
 				 atomic_read(&rtwsdio->free_pg_normal),
 				 atomic_read(&rtwsdio->free_pg_low),
@@ -887,9 +924,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d\n",
+				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d\n",
 				 queue, skb->len, txsize, ret,
 				 rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
 				 atomic_read(&rtwsdio->free_pg_normal),
 				 atomic_read(&rtwsdio->free_pg_low),
@@ -915,9 +953,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		scan_tx_port_count++;
 		if (scan_tx_port_count <= 20 || scan_tx_port_count % 20 == 0)
 			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d\n",
+				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d\n",
 				 scan_tx_port_count, queue, txaddr, skb->len,
 				 txsize, ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
 				 atomic_read(&rtwsdio->free_pg_normal),
 				 atomic_read(&rtwsdio->free_pg_low),
@@ -928,10 +967,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, queue, txaddr, skb->len, txsize,
 			 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+			 atomic_read(&rtwsdio->tx_oqt_free),
 			 atomic_read(&rtwsdio->free_pg_high),
 			 atomic_read(&rtwsdio->free_pg_normal),
 			 atomic_read(&rtwsdio->free_pg_low),
