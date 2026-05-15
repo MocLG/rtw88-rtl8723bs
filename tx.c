@@ -474,7 +474,13 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	struct rtw_sta_info *si;
 	struct rtw_vif *rtwvif;
 	__le16 fc = hdr->frame_control;
+	bool is_mgmt = ieee80211_is_mgmt(fc);
+	bool is_8723b_sdio_mgmt;
 	bool bmc;
+
+	is_8723b_sdio_mgmt = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+			      is_mgmt;
 
 	if (sta) {
 		si = (struct rtw_sta_info *)sta->drv_priv;
@@ -484,7 +490,7 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->mac_id = rtwvif->mac_id;
 	}
 
-	if (ieee80211_is_mgmt(fc) || ieee80211_is_nullfunc(fc))
+	if (is_mgmt || ieee80211_is_nullfunc(fc))
 		rtw_tx_mgmt_pkt_info_update(rtwdev, pkt_info, sta, skb);
 	else if (ieee80211_is_data(fc))
 		rtw_tx_data_pkt_info_update(rtwdev, pkt_info, sta, skb);
@@ -501,6 +507,8 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = skb->priority;
 	pkt_info->ls = true;
+	if (is_8723b_sdio_mgmt)
+		pkt_info->ls = false;
 
 	/* maybe merge with tx status ? */
 	rtw_tx_stats(rtwdev, vif, skb);
