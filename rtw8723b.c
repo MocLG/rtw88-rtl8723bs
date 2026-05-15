@@ -3576,10 +3576,17 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 										 struct rtw_tx_pkt_info *pkt_info,
 										 struct rtw_tx_desc *txdesc)
 {
-	/* SDIO (8723BS) uses raw XOR, same as USB (8723BU).
-	 * No bitwise inversion needed — matches rtl8723bs-staging.
-	 */
-	fill_txdesc_checksum_common(txdesc, 32 / 2);
+	__le16 *data = (__le16 *)txdesc;
+	u16 checksum = 0;
+	int words = 32 / 2;
+
+	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
+
+	while (words--)
+		checksum |= le16_to_cpu(*data++);
+
+	le32p_replace_bits(&txdesc->w7, checksum,
+			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 }
 
 static const struct rtw_chip_ops rtw8723b_ops = {
