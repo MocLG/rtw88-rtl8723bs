@@ -2073,8 +2073,6 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 	if (rtwdev->hal.rf_path_num > 1)
 		rtw_write_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK, rf_cfgch_b);
 
-	// DEBUG
-	mdelay(100);
 	rf_cfgch_a = rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK);
 	if (rtwdev->hal.rf_path_num > 1)
 		rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
