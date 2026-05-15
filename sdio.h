@@ -138,8 +138,17 @@
 struct sdio_func;
 struct sdio_device_id;
 
+#define RTW_SDIO_TX_TRACE_MGMT		BIT(0)
+
 struct rtw_sdio_tx_data {
 	u8 sn;
+	u8 flags;
+	u16 frame_control;
+	u16 seq_ctrl;
+	u16 frame_len;
+	u8 queue;
+	u8 rate;
+	u8 qsel;
 };
 
 struct rtw_sdio_work_data {
