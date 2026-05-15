@@ -68,8 +68,14 @@ void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 
 	tx_desc->w4 = le32_encode_bits(pkt_info->rate, RTW_TX_DESC_W4_DATARATE);
 
-	if (rtwdev->chip->old_datarate_fb_limit)
+	if (rtwdev->chip->old_datarate_fb_limit &&
+	    !pkt_info->disable_data_rate_fb_limit)
 		tx_desc->w4 |= le32_encode_bits(0x1f, RTW_TX_DESC_W4_DATARATE_FB_LIMIT);
+
+	if (pkt_info->retry_limit_en)
+		tx_desc->w4 |= le32_encode_bits(true, RTW_TX_DESC_W4_RETRY_LIMIT_EN) |
+				le32_encode_bits(pkt_info->data_retry_limit,
+						 RTW_TX_DESC_W4_DATA_RETRY_LIMIT);
 
 	tx_desc->w5 = le32_encode_bits(pkt_info->short_gi, RTW_TX_DESC_W5_DATA_SHORT) |
 		      le32_encode_bits(pkt_info->bw, RTW_TX_DESC_W5_DATA_BW) |
@@ -356,6 +362,12 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		seq = (le16_to_cpu(hdr->seq_ctrl) & IEEE80211_SCTL_SEQ) >> 4;
 		pkt_info->seq = seq;
+		pkt_info->en_hwseq = true;
+		pkt_info->hw_ssn_sel = 0;
+		pkt_info->dis_rate_fallback = false;
+		pkt_info->retry_limit_en = true;
+		pkt_info->data_retry_limit = 12;
+		pkt_info->disable_data_rate_fb_limit = true;
 		return;
 	}
 

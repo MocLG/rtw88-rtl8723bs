@@ -760,6 +760,7 @@ struct rtw_tx_pkt_info {
 	u8 bw;
 	u8 sec_type;
 	u8 sn;
+	u8 data_retry_limit;
 	bool ampdu_en;
 	u8 ampdu_factor;
 	u8 ampdu_density;
@@ -767,6 +768,8 @@ struct rtw_tx_pkt_info {
 	bool stbc;
 	bool ldpc;
 	bool dis_rate_fallback;
+	bool retry_limit_en;
+	bool disable_data_rate_fb_limit;
 	bool bmc;
 	bool use_rate;
 	bool ls;
