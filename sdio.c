@@ -47,12 +47,18 @@ static const char *rtw_sdio_mgmt_stype_name(u16 fc)
 	switch (fc & IEEE80211_FCTL_STYPE) {
 	case IEEE80211_STYPE_ASSOC_REQ:
 		return "assoc_req";
+	case IEEE80211_STYPE_ASSOC_RESP:
+		return "assoc_resp";
 	case IEEE80211_STYPE_REASSOC_REQ:
 		return "reassoc_req";
+	case IEEE80211_STYPE_REASSOC_RESP:
+		return "reassoc_resp";
 	case IEEE80211_STYPE_PROBE_REQ:
 		return "probe_req";
 	case IEEE80211_STYPE_PROBE_RESP:
 		return "probe_resp";
+	case IEEE80211_STYPE_BEACON:
+		return "beacon";
 	case IEEE80211_STYPE_DISASSOC:
 		return "disassoc";
 	case IEEE80211_STYPE_AUTH:
@@ -64,6 +70,68 @@ static const char *rtw_sdio_mgmt_stype_name(u16 fc)
 	default:
 		return "mgmt";
 	}
+}
+
+static bool rtw_sdio_trace_mgmt_rx_needed(u16 fc)
+{
+	switch (fc & IEEE80211_FCTL_STYPE) {
+	case IEEE80211_STYPE_ASSOC_REQ:
+	case IEEE80211_STYPE_ASSOC_RESP:
+	case IEEE80211_STYPE_REASSOC_REQ:
+	case IEEE80211_STYPE_REASSOC_RESP:
+	case IEEE80211_STYPE_DISASSOC:
+	case IEEE80211_STYPE_AUTH:
+	case IEEE80211_STYPE_DEAUTH:
+	case IEEE80211_STYPE_ACTION:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
+				   struct sk_buff *skb, u32 pkt_offset,
+				   struct rtw_rx_pkt_stat *pkt_stat,
+				   struct ieee80211_rx_status *rx_status)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct ieee80211_mgmt *mgmt = (struct ieee80211_mgmt *)skb->data;
+	u16 fc;
+
+	if (skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return;
+
+	fc = le16_to_cpu(hdr->frame_control);
+	if ((fc & IEEE80211_FCTL_FTYPE) != IEEE80211_FTYPE_MGMT ||
+	    !rtw_sdio_trace_mgmt_rx_needed(fc))
+		return;
+
+	if ((fc & IEEE80211_FCTL_STYPE) == IEEE80211_STYPE_AUTH &&
+	    skb->len >= offsetof(struct ieee80211_mgmt, u.auth.variable)) {
+		rtw_info(rtwdev,
+			 "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u auth_alg=%u auth_seq=%u status=%u\n",
+			 rtw_sdio_mgmt_stype_name(fc),
+			 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), skb->len,
+			 fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1, hdr->addr2,
+			 hdr->addr3, pkt_stat->rate, pkt_stat->crc_err,
+			 pkt_stat->icv_err, pkt_stat->phy_status, rx_status->freq,
+			 rx_status->signal, (unsigned int)rx_status->flag,
+			 pkt_offset, pkt_stat->drv_info_sz, pkt_stat->shift,
+			 le16_to_cpu(mgmt->u.auth.auth_alg),
+			 le16_to_cpu(mgmt->u.auth.auth_transaction),
+			 le16_to_cpu(mgmt->u.auth.status_code));
+		return;
+	}
+
+	rtw_info(rtwdev,
+		 "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
+		 rtw_sdio_mgmt_stype_name(fc),
+		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), skb->len, fc,
+		 le16_to_cpu(hdr->seq_ctrl), hdr->addr1, hdr->addr2,
+		 hdr->addr3, pkt_stat->rate, pkt_stat->crc_err,
+		 pkt_stat->icv_err, pkt_stat->phy_status, rx_status->freq,
+		 rx_status->signal, (unsigned int)rx_status->flag, pkt_offset,
+		 pkt_stat->drv_info_sz, pkt_stat->shift);
 }
 
 static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
@@ -1268,6 +1336,7 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
+	rtw_sdio_trace_mgmt_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
 
 	/* Log packets received during scan */
 	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
@@ -1345,6 +1414,22 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 		pr_info("PKT_LEN=%u, DRV_INFO=%u, SHIFT=%u\n", pkt_stat.pkt_len, pkt_stat.drv_info_sz, pkt_stat.shift);
 		pkt_offset = pkt_desc_sz + pkt_stat.drv_info_sz +
 			     pkt_stat.shift;
+
+		if (pkt_offset > rx_len ||
+		    pkt_stat.pkt_len > rx_len - pkt_offset) {
+			rtw_warn(rtwdev,
+				 "RX_DEBUG: drop malformed packet rx_len=%u pkt_len=%u pkt_offset=%u drv_info=%u shift=%u desc=%08x/%08x/%08x/%08x/%08x/%08x\n",
+				 rx_len, pkt_stat.pkt_len, pkt_offset,
+				 pkt_stat.drv_info_sz, pkt_stat.shift,
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w0),
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w1),
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w2),
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w3),
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w4),
+				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w5));
+			dev_kfree_skb_any(skb);
+			break;
+		}
 
 		curr_pkt_len = ALIGN(pkt_offset + pkt_stat.pkt_len,
 				     RTW_SDIO_DATA_PTR_ALIGN);
