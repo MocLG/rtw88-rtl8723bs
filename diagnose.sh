@@ -38,7 +38,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink systemctl mktemp; do
+for cmd in git make depmod modprobe insmod modinfo iw ip dmesg timeout tar ping awk grep readlink systemctl mktemp sha256sum uname; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $cmd"
         exit 1
@@ -68,6 +68,9 @@ GIT_HASH=$(git -c safe.directory="$PWD" rev-parse --short=8 HEAD 2>/dev/null) ||
     echo "ERROR: Unable to determine git commit hash"
     exit 1
 }
+RUNNING_KVER=$(uname -r)
+RTW88_BUILD_MODULES="rtw_core rtw_8723x rtw_8723b rtw_sdio rtw_8723bs"
+RTW88_UNLOAD_MODULES="rtw_8723bs rtw_sdio rtw_8723b rtw_8723x rtw_core"
 
 OUTDIR="logs-rtw88-$GIT_HASH"
 TARFILE="diagnostic-$GIT_HASH.tar.gz"
@@ -84,6 +87,99 @@ echo ""
 
 clear_dmesg() {
     dmesg -C 2>/dev/null || true
+}
+
+unload_rtw88_stack() {
+    local mod
+
+    for mod in $RTW88_UNLOAD_MODULES; do
+        echo "+ modprobe -r $mod"
+        modprobe -r "$mod" || true
+    done
+}
+
+load_built_rtw88_stack() {
+    local mod
+    local ko
+
+    echo "+ modprobe mac80211"
+    modprobe mac80211
+
+    for mod in $RTW88_BUILD_MODULES; do
+        ko="./$mod.ko"
+        if [ ! -f "$ko" ]; then
+            echo "ERROR: built module missing: $ko"
+            return 1
+        fi
+
+        echo "+ insmod $ko"
+        insmod "$ko"
+    done
+}
+
+dump_module_provenance() {
+    local out="$1"
+    local title="$2"
+    local mod
+    local path
+
+    {
+        echo "=== $title ==="
+        echo "Running kernel: $RUNNING_KVER"
+        echo "Git commit: $GIT_HASH"
+        echo "Build directory: $PWD"
+        echo ""
+        echo "Local built modules:"
+        for mod in $RTW88_BUILD_MODULES; do
+            if [ -f "$mod.ko" ]; then
+                sha256sum "$mod.ko"
+                modinfo "$mod.ko" | awk '/^(filename|version|vermagic|srcversion|depends):/ { print }'
+            else
+                echo "$mod.ko: missing"
+            fi
+            echo ""
+        done
+
+        echo "modprobe-resolved modules:"
+        for mod in $RTW88_BUILD_MODULES; do
+            path=$(modinfo -n "$mod" 2>/dev/null || true)
+            if [ -n "$path" ] && [ -e "$path" ]; then
+                echo "$mod: $path"
+                sha256sum "$path"
+                modinfo "$path" | awk '/^(filename|version|vermagic|srcversion|depends):/ { print }'
+            else
+                echo "$mod: NOT_FOUND"
+            fi
+            echo ""
+        done
+
+        echo "Loaded rtw modules:"
+        awk '$1 ~ /^rtw_/ || $1 == "rtw_core" || $1 == "r8723bs" { print }' /proc/modules
+        echo ""
+        echo "Loaded rtw module sysfs:"
+        for mod in $RTW88_BUILD_MODULES; do
+            if [ -d "/sys/module/$mod" ]; then
+                echo "$mod:"
+                if [ -r "/sys/module/$mod/srcversion" ]; then
+                    printf 'srcversion: '
+                    cat "/sys/module/$mod/srcversion"
+                fi
+                if [ -r "/sys/module/$mod/refcnt" ]; then
+                    printf 'refcnt: '
+                    cat "/sys/module/$mod/refcnt"
+                fi
+                printf 'holders:'
+                for path in "/sys/module/$mod"/holders/*; do
+                    [ -e "$path" ] || continue
+                    printf ' %s' "${path##*/}"
+                done
+                echo ""
+            else
+                echo "$mod: not loaded"
+            fi
+        done
+        echo ""
+    } >> "$out" 2>&1
 }
 
 append_if_nonempty() {
@@ -469,20 +565,31 @@ dump_staging_registers() {
 # ============================================================================
 echo "[0/6] Preparing environment..."
 
+PREBUILD_UNLOAD_LOG="$OUTDIR/test-00-prebuild-unload.txt"
+{
+    unload_rtw88_stack
+    echo "+ modprobe -r r8723bs"
+    modprobe -r r8723bs || true
+} > "$PREBUILD_UNLOAD_LOG" 2>&1
+sleep 1
+
 echo "Building and installing current driver modules..."
 {
     echo "+ make clean"
     make clean
-    echo "+ make"
-    make -j$(nproc)
-    echo "+ make install"
-    make install
-    echo "+ depmod -a"
-    depmod -a
+    echo "+ make KVER=$RUNNING_KVER"
+    make -j"$(nproc)" KVER="$RUNNING_KVER"
+    echo "+ make install KVER=$RUNNING_KVER"
+    make install KVER="$RUNNING_KVER"
+    echo "+ depmod -a $RUNNING_KVER"
+    depmod -a "$RUNNING_KVER"
 } > "$OUTDIR/test-00-build-install.log" 2>&1 || {
     echo "ERROR: build/install failed; see $OUTDIR/test-00-build-install.log"
     exit 1
 }
+
+: > "$OUTDIR/test-00-module-provenance.txt"
+dump_module_provenance "$OUTDIR/test-00-module-provenance.txt" "after build/install"
 
 # Enable Dynamic Debugging for our custom prints
 {
@@ -498,8 +605,11 @@ echo "Building and installing current driver modules..."
 clear_dmesg
 
 # 1. Unload both drivers completely to clear the target interface
-modprobe -r rtw_8723bs 2>/dev/null || true
-modprobe -r r8723bs 2>/dev/null || true
+{
+    unload_rtw88_stack
+    echo "+ modprobe -r r8723bs"
+    modprobe -r r8723bs || true
+} >> "$OUTDIR/test-00-setup.log" 2>&1
 sleep 2
 
 # 2. Record which managed interfaces exist BEFORE we load our driver.
@@ -507,8 +617,9 @@ EXISTING_IFACES=$(list_managed_ifaces || true)
 EXISTING_IW_DEV=$(iw dev 2>&1 || true)
 
 # 3. Load the new driver
-modprobe rtw_8723bs >> "$OUTDIR/test-00-setup.log" 2>&1
+load_built_rtw88_stack >> "$OUTDIR/test-00-setup.log" 2>&1
 sleep 3
+dump_module_provenance "$OUTDIR/test-00-module-provenance.txt" "after explicit built-module load"
 if [ -w /sys/kernel/debug/dynamic_debug/control ]; then
     echo "module rtw_* +p" > /sys/kernel/debug/dynamic_debug/control 2>> "$OUTDIR/test-00-setup.log" || \
         echo "dynamic_debug post-load write failed" >> "$OUTDIR/test-00-setup.log"
@@ -763,8 +874,7 @@ ip addr flush dev "$IFACE" 2>/dev/null || true
 RTW88_UNLOAD_LOG="$OUTDIR/test-06-rtw88-unload.txt"
 ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
     echo "ip link set $IFACE down failed" >> "$RTW88_UNLOAD_LOG"
-modprobe -r rtw_8723bs >> "$RTW88_UNLOAD_LOG" 2>&1 || \
-    echo "rtw_8723bs unload failed" >> "$RTW88_UNLOAD_LOG"
+unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
 # 2. Record existing managed interfaces before loading staging
