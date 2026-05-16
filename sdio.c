@@ -1234,22 +1234,66 @@ static void rtw_sdio_interface_cfg(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val);
 }
 
-static void rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
-				    struct rtw_tx_pkt_info *pkt_info,
-				    struct sk_buff *skb,
-				    enum rtw_tx_queue_type queue)
+static int rtw_sdio_align_tx_skb(struct sk_buff *skb, unsigned int headroom)
+{
+	unsigned int misalign, needed;
+	int ret;
+
+	misalign = (unsigned long)skb->data & (RTW_SDIO_DATA_PTR_ALIGN - 1);
+	if (!misalign)
+		return 0;
+
+	needed = headroom + RTW_SDIO_DATA_PTR_ALIGN - 1;
+	if (skb_headroom(skb) < needed) {
+		ret = pskb_expand_head(skb, needed - skb_headroom(skb), 0,
+				       GFP_KERNEL);
+		if (ret)
+			return ret;
+
+		misalign = (unsigned long)skb->data &
+			   (RTW_SDIO_DATA_PTR_ALIGN - 1);
+		if (!misalign)
+			return 0;
+	}
+
+	needed = headroom + misalign;
+	if (skb_headroom(skb) < needed)
+		return -ENOSPC;
+
+	skb_push(skb, misalign);
+	memmove(skb->data, skb->data + misalign, skb->len - misalign);
+	skb_trim(skb, skb->len - misalign);
+
+	return 0;
+}
+
+static int rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
+				   struct rtw_tx_pkt_info *pkt_info,
+				   struct sk_buff *skb,
+				   enum rtw_tx_queue_type queue)
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	unsigned long data_addr, aligned_addr;
 	struct rtw_tx_desc *pkt_desc;
+	bool fixed_mgmt_offset;
 	size_t offset;
+	int ret;
+
+	fixed_mgmt_offset = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			    queue == RTW_TX_QUEUE_MGMT;
+
+	if (fixed_mgmt_offset) {
+		ret = rtw_sdio_align_tx_skb(skb, chip->tx_pkt_desc_sz);
+		if (ret)
+			return ret;
+	}
 
 	pkt_desc = skb_push(skb, chip->tx_pkt_desc_sz);
 
 	data_addr = (unsigned long)pkt_desc;
 	aligned_addr = ALIGN(data_addr, RTW_SDIO_DATA_PTR_ALIGN);
 
-	if (data_addr != aligned_addr) {
+	if (!fixed_mgmt_offset && data_addr != aligned_addr) {
 		/* Ensure that the start of the pkt_desc is always aligned at
 		 * RTW_SDIO_DATA_PTR_ALIGN.
 		 */
@@ -1272,6 +1316,8 @@ static void rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
 	rtw_tx_fill_tx_desc(rtwdev, pkt_info, pkt_desc);
 	rtw_tx_fill_txdesc_checksum(rtwdev, pkt_info, pkt_desc);
 	rtw_sdio_trace_mgmt_tx_desc(rtwdev, pkt_info, skb, pkt_desc);
+
+	return 0;
 }
 
 static int rtw_sdio_write_data(struct rtw_dev *rtwdev,
@@ -1281,9 +1327,9 @@ static int rtw_sdio_write_data(struct rtw_dev *rtwdev,
 {
 	int ret;
 
-	rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
-
-	ret = rtw_sdio_write_port(rtwdev, skb, queue);
+	ret = rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
+	if (!ret)
+		ret = rtw_sdio_write_port(rtwdev, skb, queue);
 	dev_kfree_skb_any(skb);
 
 	return ret;
@@ -1333,6 +1379,7 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 	bool scan_mgmt = false;
 	bool trace_mgmt = false;
 	__le16 fc = 0;
+	int ret;
 
 	tx_data = rtw_sdio_get_tx_data(skb);
 	memset(tx_data, 0, sizeof(*tx_data));
@@ -1386,7 +1433,9 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 			 hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M]);
 	}
 
-	rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
+	ret = rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
+	if (ret)
+		return ret;
 
 	if (scan_mgmt)
 		rtw_info(rtwdev,
