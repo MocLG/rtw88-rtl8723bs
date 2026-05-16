@@ -21,6 +21,7 @@
 
 #define RTW8723BS_PRE_AUTH_DEAUTH_WAIT_MS 100
 #define RTW8723BS_PRE_AUTH_DEAUTH_WINDOW_MS 2000
+#define RTW8723BS_JOIN_RETRY_LIMIT 0x30
 
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
 {
@@ -98,6 +99,62 @@ static bool rtw8723bs_tx_deauth(struct rtw_dev *rtwdev,
 	rtw_tx(rtwdev, &control, skb);
 
 	return true;
+}
+
+static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
+				       struct ieee80211_vif *vif,
+				       const u8 *bssid)
+{
+	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
+	enum rtw_net_type sw_net_type = rtwvif->net_type;
+	u32 rcr_before;
+	u16 rxfltmap2_before;
+	u16 retry_before;
+	u16 sec_before;
+	u8 msr_before;
+	u16 retry_limit;
+	u16 sec_bits;
+
+	if (!is_valid_ether_addr(bssid)) {
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: join_prepare skip invalid_bssid=%pM\n",
+			 bssid);
+		return;
+	}
+
+	msr_before = rtw_read8(rtwdev, REG_CR + 2);
+	rcr_before = rtw_read32(rtwdev, REG_RCR);
+	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
+	retry_before = rtw_read16(rtwdev, REG_RETRY_LIMIT);
+	sec_before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
+
+	ether_addr_copy(rtwvif->bssid, bssid);
+	rtwvif->net_type = RTW_NET_MGD_LINKED;
+	rtw_vif_port_config(rtwdev, rtwvif,
+			    PORT_SET_BSSID | PORT_SET_NET_TYPE);
+	rtwvif->net_type = sw_net_type;
+
+	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
+	rtwdev->hal.rcr |= BIT_CBSSID_DATA | BIT_CBSSID_BCN;
+	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
+
+	retry_limit = (RTW8723BS_JOIN_RETRY_LIMIT << 8) |
+		      RTW8723BS_JOIN_RETRY_LIMIT;
+	rtw_write16(rtwdev, REG_RETRY_LIMIT, retry_limit);
+
+	sec_bits = RTW_SEC_TX_UNI_USE_DK | RTW_SEC_RX_UNI_USE_DK |
+		   RTW_SEC_TX_DEC_EN | RTW_SEC_RX_DEC_EN |
+		   RTW_SEC_TX_BC_USE_DK | RTW_SEC_RX_BC_USE_DK;
+	rtw_write16_set(rtwdev, RTW_SEC_CONFIG, sec_bits);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM sw_net_type=%u hw_net_type=%u MSR 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 bssid, sw_net_type, RTW_NET_MGD_LINKED, msr_before,
+		 rtw_read8(rtwdev, REG_CR + 2), rcr_before,
+		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
+		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
+		 retry_before, rtw_read16(rtwdev, REG_RETRY_LIMIT),
+		 sec_before, rtw_read16(rtwdev, RTW_SEC_CONFIG));
 }
 #endif
 
@@ -186,6 +243,8 @@ static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
 			 vif->bss_conf.bssid ? vif->bss_conf.bssid : zero_addr);
 		return;
 	}
+
+	rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid);
 
 	if (ether_addr_equal(rtwvif->pre_auth_deauth_bssid, bssid) &&
 	    time_before(jiffies, rtwvif->pre_auth_deauth_time +
