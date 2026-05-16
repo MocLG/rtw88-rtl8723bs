@@ -1,21 +1,45 @@
 #!/bin/bash
 # RTL8723BS rtw88 Driver Diagnostic Script
-# Usage: sudo ./diagnose.sh [OPEN_SSID]
-#   OPEN_SSID - optional open (no password) AP SSID to attempt connection
+# Usage: sudo ./diagnose.sh [SSID PASSWORD]
+#   SSID PASSWORD - optional WPA/WPA2-PSK AP credentials for connection test
 
 set -e
+
+AP_SSID="${1:-}"
+AP_PASSWORD="${2:-}"
+
+if [ "$#" -gt 0 ] && [ "$#" -ne 2 ]; then
+    echo "Usage: sudo ./diagnose.sh [SSID PASSWORD]"
+    echo "Provide both SSID and WPA/WPA2 password, or no arguments to skip connection."
+    exit 1
+fi
+
+if [ "$#" -eq 2 ] && { [ -z "$AP_SSID" ] || [ -z "$AP_PASSWORD" ]; }; then
+    echo "Usage: sudo ./diagnose.sh [SSID PASSWORD]"
+    echo "SSID and password must both be non-empty."
+    exit 1
+fi
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Run this script as root: sudo ./diagnose.sh"
     exit 1
 fi
 
-for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink systemctl; do
+for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readlink systemctl mktemp; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $cmd"
         exit 1
     fi
 done
+
+if [ -n "$AP_SSID" ]; then
+    for cmd in wpa_passphrase wpa_supplicant; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "ERROR: Required command not found for WPA connection test: $cmd"
+            exit 1
+        fi
+    done
+fi
 
 RESTORE_SERVICES=""
 for svc in NetworkManager wpa_supplicant iwd; do
@@ -61,6 +85,42 @@ append_if_nonempty() {
             cat "$src"
         } >> "$dst"
     fi
+}
+
+run_dhcp_client() {
+    local iface="$1"
+    local out="$2"
+    local rc=0
+
+    {
+        if command -v dhclient >/dev/null 2>&1; then
+            echo "+ timeout 20 dhclient -v $iface"
+            if timeout 20 dhclient -v "$iface"; then
+                rc=0
+            else
+                rc=$?
+            fi
+            echo "dhclient exit code: $rc"
+        elif command -v dhcpcd >/dev/null 2>&1; then
+            echo "+ timeout 25 dhcpcd -4 -t 20 $iface"
+            if timeout 25 dhcpcd -4 -t 20 "$iface"; then
+                rc=0
+            else
+                rc=$?
+            fi
+            echo "dhcpcd exit code: $rc"
+        elif command -v udhcpc >/dev/null 2>&1; then
+            echo "+ timeout 20 udhcpc -i $iface -q -n"
+            if timeout 20 udhcpc -i "$iface" -q -n; then
+                rc=0
+            else
+                rc=$?
+            fi
+            echo "udhcpc exit code: $rc"
+        else
+            echo "No supported DHCP client found (tried dhclient, dhcpcd, udhcpc)"
+        fi
+    } > "$out" 2>&1
 }
 
 list_managed_ifaces() {
@@ -513,36 +573,115 @@ dump_rtw88_file rf_dump "$OUTDIR/test-03-rf-dump-after-scan.txt"
 # ============================================================================
 echo "[4/6] Connection attempt..."
 
-SSID="${1:-}"
-
-if [ -z "$SSID" ]; then
-    echo "No AP SSID provided as argument — skipping connection test"
-    echo "No SSID provided — skipping connection test" > "$OUTDIR/test-04-connect-cmd.txt"
+if [ -z "$AP_SSID" ]; then
+    echo "No AP credentials provided - skipping connection test"
+    echo "No SSID/password provided - skipping connection test" > "$OUTDIR/test-04-connect-cmd.txt"
+    echo "No SSID/password provided - skipping connection test" > "$OUTDIR/test-04-connect-link.txt"
+    echo "No SSID/password provided - skipping DHCP test" > "$OUTDIR/test-04-dhcp-output.txt"
+    echo "No SSID/password provided - skipping ping test" > "$OUTDIR/test-04-ping-output.txt"
 else
+    CONNECT_CMD_LOG="$OUTDIR/test-04-connect-cmd.txt"
+    WPA_LOG="$OUTDIR/test-04-wpa-supplicant.log"
+    WPA_CONF=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-conf.XXXXXX")
+    WPA_PIDFILE=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-pid.XXXXXX")
+    rm -f "$WPA_PIDFILE"
+
     clear_dmesg
 
-    CONNECT_CMD_LOG="$OUTDIR/test-04-connect-cmd.txt"
-    {
-        echo "Connecting to SSID: $SSID"
-        echo "Interface: $IFACE"
-        echo "+ iw dev $IFACE connect \"$SSID\""
-        iw dev "$IFACE" connect "$SSID"
-        echo "iw connect exit code: $?"
-    } > "$CONNECT_CMD_LOG" 2>&1
+    if ! printf '%s\n' "$AP_PASSWORD" | wpa_passphrase "$AP_SSID" | \
+        grep -v '^[[:space:]]*#psk=' > "$WPA_CONF"; then
+        {
+            echo "Failed to generate wpa_supplicant config"
+            echo "SSID: $AP_SSID"
+        } > "$CONNECT_CMD_LOG"
+        echo "wpa_supplicant config generation failed - skipping link check" > "$OUTDIR/test-04-connect-link.txt"
+        echo "wpa_supplicant config generation failed - skipping DHCP" > "$OUTDIR/test-04-dhcp-output.txt"
+        echo "wpa_supplicant config generation failed - skipping ping" > "$OUTDIR/test-04-ping-output.txt"
+        echo "wpa_supplicant config generation failed" > "$WPA_LOG"
+        rm -f "$WPA_CONF" "$WPA_PIDFILE"
+    else
+        chmod 600 "$WPA_CONF"
+        CONNECTED=0
 
-    sleep 5
+        : > "$OUTDIR/test-04-connect-link.txt"
+        : > "$WPA_LOG"
 
-    iw dev "$IFACE" link > "$OUTDIR/test-04-connect-link.txt" 2>&1
+        {
+            echo "Connecting to SSID: $AP_SSID"
+            echo "Interface: $IFACE"
+            echo "Auth: WPA/WPA2-PSK via wpa_supplicant"
+            echo "+ ip link set $IFACE up"
+            ip link set "$IFACE" up || true
+            echo "+ wpa_supplicant -B -i $IFACE -c <temp-conf> -P <pidfile> -f $WPA_LOG"
+            if wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
+                echo "wpa_supplicant start exit code: 0"
+            else
+                WPA_RC=$?
+                echo "wpa_supplicant start exit code: $WPA_RC"
+            fi
 
-    timeout 10 dhclient -v "$IFACE" > "$OUTDIR/test-04-dhclient-output.txt" 2>&1 || \
-        echo "dhclient failed or timed out" >> "$OUTDIR/test-04-dhclient-output.txt"
+            i=0
+            while [ "$i" -lt 20 ]; do
+                LINK_SNAPSHOT=$(iw dev "$IFACE" link 2>&1 || true)
+                {
+                    echo "=== link poll $i ==="
+                    echo "$LINK_SNAPSHOT"
+                    echo ""
+                } >> "$OUTDIR/test-04-connect-link.txt"
 
-    timeout 5 ping -I "$IFACE" 192.168.1.1 -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
-        echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
+                if printf '%s\n' "$LINK_SNAPSHOT" | grep -q '^Connected to '; then
+                    CONNECTED=1
+                    break
+                fi
 
-    dmesg > "$OUTDIR/test-04-connect-log.txt"
-    append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
-    append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw connect output" "$CONNECT_CMD_LOG"
+                sleep 1
+                i=$((i + 1))
+            done
+
+            echo "connected: $CONNECTED"
+        } > "$CONNECT_CMD_LOG" 2>&1
+
+        if [ "$CONNECTED" -eq 1 ]; then
+            run_dhcp_client "$IFACE" "$OUTDIR/test-04-dhcp-output.txt"
+        else
+            echo "WPA association failed - skipping DHCP" > "$OUTDIR/test-04-dhcp-output.txt"
+        fi
+
+        PING_TARGET=$(ip route show dev "$IFACE" | awk '$1 == "default" { print $3; exit }')
+        if [ -z "$PING_TARGET" ]; then
+            PING_TARGET="192.168.1.1"
+        fi
+
+        timeout 5 ping -I "$IFACE" "$PING_TARGET" -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
+            echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
+
+        dmesg > "$OUTDIR/test-04-connect-log.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "wpa_supplicant output" "$WPA_LOG"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "connect command output" "$CONNECT_CMD_LOG"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "DHCP output" "$OUTDIR/test-04-dhcp-output.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "ping output" "$OUTDIR/test-04-ping-output.txt"
+
+        {
+            echo "+ iw dev $IFACE disconnect"
+            iw dev "$IFACE" disconnect || true
+            if [ -s "$WPA_PIDFILE" ]; then
+                echo "+ kill wpa_supplicant pid $(cat "$WPA_PIDFILE")"
+                kill "$(cat "$WPA_PIDFILE")" 2>/dev/null || true
+            fi
+        } >> "$CONNECT_CMD_LOG" 2>&1
+
+        rm -f "$WPA_CONF" "$WPA_PIDFILE"
+    fi
+
+    if [ ! -s "$OUTDIR/test-04-connect-log.txt" ]; then
+        dmesg > "$OUTDIR/test-04-connect-log.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "wpa_supplicant output" "$WPA_LOG"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "connect command output" "$CONNECT_CMD_LOG"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "DHCP output" "$OUTDIR/test-04-dhcp-output.txt"
+        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "ping output" "$OUTDIR/test-04-ping-output.txt"
+    fi
 fi
 
 # ============================================================================
