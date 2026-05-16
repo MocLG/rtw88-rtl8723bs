@@ -1296,32 +1296,6 @@ static void rtw8723b_spur_cal(struct rtw_dev *rtwdev, u8 channel)
 #endif
 
 
-#define RXDMA_AGG_MODE_EN BIT(1)
-static void rtw8723b_rx_aggregation_switch(struct rtw_dev * rtwdev, bool enable)
-{
-	/* NOTE: enable/disable RX aggregation
-	 *
-	 * for testing purposes
-	 */
-
-	u8 dma;
-	u8 rx_agg_ctrl;
-
-	dma = rtw_read8(rtwdev, 0x010c);
-	rx_agg_ctrl = rtw_read8(rtwdev,  0x0290);
-
-	if (enable) {
-		dma |= BIT_RXDMA_AGG_EN;
-		rx_agg_ctrl |= RXDMA_AGG_MODE_EN;
-	} else {
-		dma &= ~BIT_RXDMA_AGG_EN;
-		rx_agg_ctrl &= ~RXDMA_AGG_MODE_EN;
-	}
-
-	rtw_write8(rtwdev, 0x010c, dma);
-	rtw_write8(rtwdev, 0x0290, rx_agg_ctrl);
-}
-
 /* adapted from: _InitPowerOn_8723BS (steps after calling cardEnable)
  */
 static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
@@ -1658,50 +1632,6 @@ static void rtw8723b_init_antenna_selection(struct rtw_dev *rtwdev)
 {
 	/* Let 8051 take control antenna settting */
 	rtw_write8(rtwdev, REG_LEDCFG2, WLAN_ANT_SEL);
-}
-
-static void rtl8xxxu_init_antenna_selection(struct rtw_dev *rtwdev)
-{
-	/* NOTE: adapted from rtl8xxu driver function
-	 * rtl8723bu_phy_init_antenna_selection
-	 *
-	 * for testing purposes
-	 */
-
-	u32 val32;
-
-	val32 = rtw_read32(rtwdev, REG_PAD_CTRL1);
-	val32 &= ~(BIT(20) | BIT(24));
-	rtw_write32(rtwdev, REG_PAD_CTRL1, val32);
-
-	val32 = rtw_read32(rtwdev, REG_GPIO_MUXCFG);
-	val32 &= ~BIT(4);
-	rtw_write32(rtwdev, REG_GPIO_MUXCFG, val32);
-
-	val32 = rtw_read32(rtwdev, REG_GPIO_MUXCFG);
-	val32 |= BIT(3);
-	rtw_write32(rtwdev, REG_GPIO_MUXCFG, val32);
-
-	val32 = rtw_read32(rtwdev, REG_LED_CFG);
-	val32 |= BIT(24);
-	rtw_write32(rtwdev, REG_LED_CFG, val32);
-
-	val32 = rtw_read32(rtwdev, REG_LED_CFG);
-	val32 &= ~BIT(23);
-	rtw_write32(rtwdev, REG_LED_CFG, val32);
-
-	val32 = rtw_read32(rtwdev, 0x0944);
-	val32 |= (BIT(0) | BIT(1));
-	rtw_write32(rtwdev, 0x0944, val32);
-
-	val32 = rtw_read32(rtwdev, 0x0930);
-	val32 &= 0xffffff00;
-	val32 |= 0x77;
-	rtw_write32(rtwdev, 0x0930, val32);
-
-	val32 = rtw_read32(rtwdev, 0x0038);
-	val32 |= BIT(11);
-	rtw_write32(rtwdev, 0x0038, val32);
 }
 
 #define RF_AC	0x00
@@ -2122,31 +2052,12 @@ static void rtw8723b_set_channel_bb(struct rtw_dev *rtwdev, u8 bw,
 	}
 }
 
-/* for testing purposes */
-static void rtw8723b_dump_rf_reg(struct rtw_dev *rtwdev)
-{
-	u32 val32, offset;
-
-	printk("%s() ====>\n", __func__);
-
-	for (offset = 0x00; offset <= 0x30; offset++) {
-		val32 = rtw_read_rf(rtwdev, RF_PATH_A, offset, 0xffffffff);
-		printk(" 0x%02x = 0x%08x\n", offset, val32);
-	}
-
-	printk("<==== %s()\n", __func__);
-
-}
-
 static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 				 u8 bw, u8 primary_chan_idx)
 {
 	/* NOTE: this func is ready! */
 
 	printk("%s begin", __func__);
-
-	// printk("RF reg before\n");
-	// rtw8723b_dump_rf_reg(rtwdev);
 
 	rtw8723b_scan_dump_bb_rf(rtwdev, "before_set_channel", channel, bw);
 
@@ -2155,9 +2066,6 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 	rtw8723b_set_channel_bb(rtwdev, bw, primary_chan_idx);
 	rtw8723b_scan_reassert_rx_path(rtwdev, "set_channel");
 	rtw8723b_scan_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
-
-	// printk("RF reg after\n");
-	// rtw8723b_dump_rf_reg(rtwdev);
 
 	printk("%s end", __func__);
 }

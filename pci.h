@@ -7,6 +7,8 @@
 
 #include "main.h"
 
+extern bool rtw_pci_disable_aspm;
+
 #define RTK_DEFAULT_TX_DESC_NUM 128
 #define RTK_BEQ_TX_DESC_NUM	256
 

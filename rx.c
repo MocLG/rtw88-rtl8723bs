@@ -13,7 +13,7 @@ void rtw_rx_stats(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 {
 	struct ieee80211_hdr *hdr;
 	struct rtw_vif *rtwvif;
-	u16 fc;
+	__le16 fc;
 
 	hdr = (struct ieee80211_hdr *)skb->data;
 	fc = hdr->frame_control;
