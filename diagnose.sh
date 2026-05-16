@@ -474,7 +474,7 @@ echo "Building and installing current driver modules..."
     echo "+ make clean"
     make clean
     echo "+ make"
-    make
+    make -j$(nproc)
     echo "+ make install"
     make install
     echo "+ depmod -a"
