@@ -143,6 +143,7 @@ struct sdio_device_id;
 struct rtw_sdio_tx_data {
 	u8 sn;
 	u8 flags;
+	u8 tx_pkt_offset;
 	u16 frame_control;
 	u16 seq_ctrl;
 	u16 frame_len;

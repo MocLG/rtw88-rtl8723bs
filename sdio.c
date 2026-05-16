@@ -1211,6 +1211,7 @@ static void rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
 		 * a different offset than normal.
 		 */
 		pkt_info->offset += offset;
+		memset((u8 *)pkt_desc + chip->tx_pkt_desc_sz, 0, offset);
 	}
 
 	memset(pkt_desc, 0, chip->tx_pkt_desc_sz);
@@ -1345,6 +1346,7 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 	tx_data->sn = pkt_info->sn;
 	tx_data->qsel = pkt_info->qsel;
 	tx_data->rate = pkt_info->rate;
+	tx_data->tx_pkt_offset = pkt_info->offset;
 
 	skb_queue_tail(&rtwsdio->tx_queue[queue], skb);
 
@@ -1749,12 +1751,16 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hw *hw = rtwdev->hw;
+	u8 tx_pkt_offset = tx_data->tx_pkt_offset;
 
-	skb_pull(skb, rtwdev->chip->tx_pkt_desc_sz);
+	if (!tx_pkt_offset)
+		tx_pkt_offset = rtwdev->chip->tx_pkt_desc_sz;
+
+	skb_pull(skb, tx_pkt_offset);
 
 	if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d fake_ack=%d skb_len=%u\n",
+			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d fake_ack=%d tx_offset=%u skb_len=%u\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, tx_data->sn, tx_data->qsel,
 			 tx_data->rate,
@@ -1762,7 +1768,7 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 			 !!(info->flags & IEEE80211_TX_CTL_NO_ACK),
 			 rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			 !!(info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS),
-			 skb->len);
+			 tx_pkt_offset, skb->len);
 
 	/* enqueue to wait for tx report */
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) {
