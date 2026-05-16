@@ -43,6 +43,56 @@ static bool rtw_ops_tx_trace_mgmt_needed(__le16 fc)
 	}
 }
 
+static void rtw8723bs_send_pre_auth_deauth(struct rtw_dev *rtwdev,
+					   struct ieee80211_tx_control *control,
+					   struct sk_buff *auth_skb)
+{
+	struct ieee80211_tx_info *auth_info = IEEE80211_SKB_CB(auth_skb);
+	const struct ieee80211_hdr *auth_hdr;
+	struct ieee80211_tx_info *info;
+	struct ieee80211_mgmt *mgmt;
+	struct sk_buff *skb;
+	unsigned int frame_len;
+	unsigned int headroom;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ||
+	    auth_skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return;
+
+	auth_hdr = (const struct ieee80211_hdr *)auth_skb->data;
+	if (!ieee80211_is_auth(auth_hdr->frame_control))
+		return;
+
+	frame_len = sizeof(struct ieee80211_hdr_3addr) + sizeof(mgmt->u.deauth);
+	headroom = rtwdev->chip->tx_pkt_desc_sz + 8;
+	skb = alloc_skb(headroom + frame_len, GFP_ATOMIC);
+	if (!skb)
+		return;
+
+	skb_reserve(skb, headroom);
+	mgmt = skb_put_zero(skb, frame_len);
+	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					  IEEE80211_STYPE_DEAUTH);
+	memcpy(mgmt->da, auth_hdr->addr1, ETH_ALEN);
+	memcpy(mgmt->sa, auth_hdr->addr2, ETH_ALEN);
+	memcpy(mgmt->bssid, auth_hdr->addr3, ETH_ALEN);
+	mgmt->u.deauth.reason_code = cpu_to_le16(WLAN_REASON_DEAUTH_LEAVING);
+
+	info = IEEE80211_SKB_CB(skb);
+	memset(info, 0, sizeof(*info));
+	info->control.vif = auth_info->control.vif;
+	skb->priority = auth_skb->priority;
+	skb_set_queue_mapping(skb, skb_get_queue_mapping(auth_skb));
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM source=%pM reason=%u\n",
+		 mgmt->bssid, mgmt->sa, WLAN_REASON_DEAUTH_LEAVING);
+
+	rtw_tx(rtwdev, control, skb);
+}
+
 static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 				  struct ieee80211_tx_control *control,
 				  struct sk_buff *skb, bool dropped)
@@ -89,6 +139,7 @@ static void rtw_ops_tx(struct ieee80211_hw *hw,
 	}
 
 	rtw_trace_ops_tx_mgmt(rtwdev, control, skb, false);
+	rtw8723bs_send_pre_auth_deauth(rtwdev, control, skb);
 	rtw_tx(rtwdev, control, skb);
 }
 
