@@ -17,6 +17,65 @@
 #include "sar.h"
 #endif
 
+static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
+{
+	switch (le16_to_cpu(fc) & IEEE80211_FCTL_STYPE) {
+	case IEEE80211_STYPE_ASSOC_REQ:
+		return "assoc_req";
+	case IEEE80211_STYPE_REASSOC_REQ:
+		return "reassoc_req";
+	case IEEE80211_STYPE_AUTH:
+		return "auth";
+	default:
+		return "mgmt";
+	}
+}
+
+static bool rtw_ops_tx_trace_mgmt_needed(__le16 fc)
+{
+	switch (le16_to_cpu(fc) & IEEE80211_FCTL_STYPE) {
+	case IEEE80211_STYPE_ASSOC_REQ:
+	case IEEE80211_STYPE_REASSOC_REQ:
+	case IEEE80211_STYPE_AUTH:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
+				  struct ieee80211_tx_control *control,
+				  struct sk_buff *skb, bool dropped)
+{
+	static const u8 zero_addr[ETH_ALEN] = { 0 };
+	const struct ieee80211_hdr *hdr;
+	const u8 *sta_addr = zero_addr;
+	const char *stype;
+	__le16 fc;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    skb->len < sizeof(*hdr))
+		return;
+
+	hdr = (const struct ieee80211_hdr *)skb->data;
+	fc = hdr->frame_control;
+	if (!ieee80211_is_mgmt(fc) || !rtw_ops_tx_trace_mgmt_needed(fc))
+		return;
+
+	if (control && control->sta)
+		sta_addr = control->sta->addr;
+
+	stype = rtw_ops_tx_mgmt_stype_name(fc);
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: ops_tx stype=%s dropped=%d running=%d scanning=%d idle=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM sta=%pM\n",
+		 stype, dropped, test_bit(RTW_FLAG_RUNNING, rtwdev->flags),
+		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags),
+		 !!(rtwdev->hw->conf.flags & IEEE80211_CONF_IDLE), skb->len,
+		 le16_to_cpu(fc), le16_to_cpu(hdr->seq_ctrl),
+		 hdr->addr1, hdr->addr2, hdr->addr3, sta_addr);
+}
+
 static void rtw_ops_tx(struct ieee80211_hw *hw,
 		       struct ieee80211_tx_control *control,
 		       struct sk_buff *skb)
@@ -24,10 +83,12 @@ static void rtw_ops_tx(struct ieee80211_hw *hw,
 	struct rtw_dev *rtwdev = hw->priv;
 
 	if (!test_bit(RTW_FLAG_RUNNING, rtwdev->flags)) {
+		rtw_trace_ops_tx_mgmt(rtwdev, control, skb, true);
 		ieee80211_free_txskb(hw, skb);
 		return;
 	}
 
+	rtw_trace_ops_tx_mgmt(rtwdev, control, skb, false);
 	rtw_tx(rtwdev, control, skb);
 }
 
