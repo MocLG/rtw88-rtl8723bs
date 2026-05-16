@@ -37,20 +37,14 @@ void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 			 struct rtw_tx_desc *tx_desc)
 {
 	bool more_data = false;
-	bool first_seg = false;
 
 	if (pkt_info->qsel == TX_DESC_QSEL_HIGH)
 		more_data = true;
-
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		first_seg = true;
 
 	tx_desc->w0 = le32_encode_bits(pkt_info->tx_pkt_size, RTW_TX_DESC_W0_TXPKTSIZE) |
 		      le32_encode_bits(pkt_info->offset, RTW_TX_DESC_W0_OFFSET) |
 		      le32_encode_bits(pkt_info->bmc, RTW_TX_DESC_W0_BMC) |
 		      le32_encode_bits(pkt_info->ls, RTW_TX_DESC_W0_LS) |
-		      le32_encode_bits(first_seg, RTW_TX_DESC_W0_FS) |
 		      le32_encode_bits(pkt_info->dis_qselseq, RTW_TX_DESC_W0_DISQSELSEQ);
 
 	tx_desc->w1 = le32_encode_bits(pkt_info->mac_id, RTW_TX_DESC_W1_MACID) |
@@ -481,7 +475,12 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	struct rtw_vif *rtwvif;
 	__le16 fc = hdr->frame_control;
 	bool is_mgmt = ieee80211_is_mgmt(fc);
+	bool is_8723b_sdio_mgmt;
 	bool bmc;
+
+	is_8723b_sdio_mgmt = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+			      is_mgmt;
 
 	if (sta) {
 		si = (struct rtw_sta_info *)sta->drv_priv;
@@ -508,6 +507,8 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = skb->priority;
 	pkt_info->ls = true;
+	if (is_8723b_sdio_mgmt)
+		pkt_info->ls = false;
 
 	/* maybe merge with tx status ? */
 	rtw_tx_stats(rtwdev, vif, skb);

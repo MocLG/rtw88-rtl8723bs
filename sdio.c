@@ -142,6 +142,9 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 {
 	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 	struct rtw_hal *hal = &rtwdev->hal;
+	const u8 *payload;
+	unsigned int payload_len;
+	int dump_len;
 	s8 pwr_idx = 0;
 
 	if (!(tx_data->flags & RTW_SDIO_TX_TRACE_MGMT))
@@ -167,6 +170,20 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 		 le32_to_cpu(tx_desc->w4), le32_to_cpu(tx_desc->w5),
 		 le32_to_cpu(tx_desc->w6), le32_to_cpu(tx_desc->w7),
 		 le32_to_cpu(tx_desc->w8), le32_to_cpu(tx_desc->w9));
+
+	if (skb->len < pkt_info->offset)
+		return;
+
+	payload = skb->data + pkt_info->offset;
+	payload_len = skb->len - pkt_info->offset;
+	dump_len = min_t(unsigned int, payload_len, 40);
+	if (!dump_len)
+		return;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: payload stype=%s len=%u offset=%u bytes=%*ph\n",
+		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+		 payload_len, pkt_info->offset, dump_len, payload);
 }
 
 static u32 rtw_sdio_to_bus_offset(struct rtw_dev *rtwdev, u32 addr)
