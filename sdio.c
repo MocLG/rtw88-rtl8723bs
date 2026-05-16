@@ -675,10 +675,6 @@ static int rtw_sdio_read_port(struct rtw_dev *rtwdev, u8 *buf, size_t count)
 	struct mmc_host *host = rtwsdio->sdio_func->card->host;
 	bool bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 	u32 rxaddr = rtwsdio->rx_addr++;
-	u32 sdio_addr = RTW_SDIO_ADDR_RX_RX0FF_GEN(rxaddr);
-
-	pr_info("SDIO READ_PORT: rxaddr=%u, sdio_addr=0x%08x, count=%zu\n", rxaddr, sdio_addr, count);
-
 	int ret = 0, err;
 	size_t bytes;
 
@@ -930,7 +926,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, skb->len, txsize,
 				 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
@@ -940,7 +936,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->free_pg_low),
 				 atomic_read(&rtwsdio->free_pg_pub),
 				 rtw_read32(rtwdev, REG_SDIO_HISR),
-				 rtw_read32(rtwdev, REG_TXDMA_STATUS));
+				 rtw_read32(rtwdev, REG_TXDMA_STATUS),
+				 rtw_read8(rtwdev, REG_TXPAUSE),
+				 rtw_read16(rtwdev, REG_TXPKT_EMPTY));
 
 		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 			rtw_info(rtwdev,
@@ -977,7 +975,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, skb->len, txsize,
 				 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
@@ -987,7 +985,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->free_pg_low),
 				 atomic_read(&rtwsdio->free_pg_pub),
 				 rtw_read32(rtwdev, REG_SDIO_HISR),
-				 rtw_read32(rtwdev, REG_TXDMA_STATUS));
+				 rtw_read32(rtwdev, REG_TXDMA_STATUS),
+				 rtw_read8(rtwdev, REG_TXPAUSE),
+				 rtw_read16(rtwdev, REG_TXPKT_EMPTY));
 
 		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 			rtw_info(rtwdev,
@@ -1037,7 +1037,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, queue, txaddr, skb->len, txsize,
 			 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
@@ -1047,7 +1047,13 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			 atomic_read(&rtwsdio->free_pg_low),
 			 atomic_read(&rtwsdio->free_pg_pub),
 			 rtw_read32(rtwdev, REG_SDIO_HISR),
-			 rtw_read32(rtwdev, REG_TXDMA_STATUS));
+			 rtw_read32(rtwdev, REG_TXDMA_STATUS),
+			 rtw_read8(rtwdev, REG_TXPAUSE),
+			 rtw_read16(rtwdev, REG_TXPKT_EMPTY),
+			 rtw_read32(rtwdev, REG_RQPN),
+			 rtw_read8(rtwdev, REG_RQPN_NPQ),
+			 rtw_read16(rtwdev, REG_TXDMA_PQ_MAP),
+			 rtw_read8(rtwdev, REG_QUEUE_CTRL));
 	}
 
 	if (ret)
@@ -1483,8 +1489,6 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			    u32 pkt_offset, struct rtw_rx_pkt_stat *pkt_stat,
 			    struct ieee80211_rx_status *rx_status)
 {
-	static int scan_rx_count = 0;
-
 	*IEEE80211_SKB_RXCB(skb) = *rx_status;
 
 	if (pkt_stat->is_c2h) {
@@ -1499,17 +1503,6 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
 	rtw_sdio_trace_mgmt_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
-
-	/* Log packets received during scan */
-	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
-		struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
-		scan_rx_count++;
-		pr_info("RTW88 RX SCAN: pkt #%d len=%u ch=%d fc=0x%04x (%s)\n",
-			scan_rx_count, skb->len, rx_status->freq,
-			le16_to_cpu(hdr->frame_control),
-			ieee80211_is_beacon(hdr->frame_control) ? "BEACON" :
-			ieee80211_is_probe_resp(hdr->frame_control) ? "PROBE_RESP" : "OTHER");
-	}
 
 	/* Defensive: do not hand zero-length SKBs to mac80211; drop and log */
 	if (skb->len == 0) {
@@ -1529,7 +1522,6 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 {
-	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	u32 pkt_desc_sz = chip->rx_pkt_desc_sz;
 	struct ieee80211_rx_status rx_status;
@@ -1548,10 +1540,6 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 	 */
 	if (bufsz > RTW_SDIO_BLOCK_SIZE)
 		bufsz = ALIGN(bufsz, RTW_SDIO_BLOCK_SIZE);
-	pr_info("RX_DEBUG: rx_len=%u, bufsz=%zu, HISR=0x%08x, rx_addr=%u\n",
-		rx_len, bufsz, rtw_read32(rtwdev, REG_SDIO_HISR), rtwsdio->rx_addr);
-
-	/* Debug: dump first bytes of RX buffer to see what's actually there */
 	skb = dev_alloc_skb(bufsz);
 	if (!skb)
 		return;
@@ -1562,10 +1550,6 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 		dev_kfree_skb_any(skb);
 		return;
 	}
-
-	/* Dump first 64 bytes of RX buffer */
-	pr_info("RX_DEBUG: First 64 bytes of RX buffer:");
-	print_hex_dump(KERN_INFO, "RX_DATA: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, 64, false);
 
 	/* Check if buffer is all zeros */
 	if (rx_len > 0 && skb->data[0] == 0 && skb->data[1] == 0 && skb->data[2] == 0 && skb->data[3] == 0) {
@@ -1579,7 +1563,6 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 		rx_buf = rx_desc + pkt_desc_sz;
 		rtw_rx_query_rx_desc(rtwdev, rx_desc, rx_buf,
 				     &pkt_stat, &rx_status);
-		pr_info("PKT_LEN=%u, DRV_INFO=%u, SHIFT=%u\n", pkt_stat.pkt_len, pkt_stat.drv_info_sz, pkt_stat.shift);
 		pkt_offset = pkt_desc_sz + pkt_stat.drv_info_sz +
 			     pkt_stat.shift;
 
@@ -1634,13 +1617,6 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 {
 	u32 rx_len, hisr, total_rx_bytes = 0;
-	static int rx_during_scan_count = 0;
-
-	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
-		rx_during_scan_count++;
-		if (rx_during_scan_count <= 5 || rx_during_scan_count % 10 == 0)
-			pr_info("RTW88 RX: rx_isr called during scan (count=%d)\n", rx_during_scan_count);
-	}
 
 	do {
 		if (rtw_chip_wcpu_8051(rtwdev))
@@ -1650,9 +1626,6 @@ static void rtw_sdio_rx_isr(struct rtw_dev *rtwdev)
 
 		if (!rx_len)
 			break;
-
-		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
-			pr_info("RTW88 RX: got packet during scan, rx_len=%u\n", rx_len);
 
 		rtw_sdio_rxfifo_recv(rtwdev, rx_len);
 

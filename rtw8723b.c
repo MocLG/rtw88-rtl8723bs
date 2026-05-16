@@ -2077,8 +2077,6 @@ static s8 rtw8723b_cck_rx_power(u8 lna_idx, u8 vga_idx)
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
-
 	s8 rx_power = 0;
 
 	switch (lna_idx) {
@@ -2107,8 +2105,6 @@ static s8 rtw8723b_cck_rx_power(u8 lna_idx, u8 vga_idx)
 static void rtw8723b_query_phy_status_cck(struct rtw_dev *rtwdev, u8 *phy_raw,
 					  struct rtw_rx_pkt_stat *pkt_stat)
 {
-	printk("%s begin", __func__);
-
 	struct phy_status_8703b *phy_status = (struct phy_status_8703b *)phy_raw;
 	u8 lna_idx = (phy_status->cck_agc_rpt_ofdm_cfosho_a & 0xE0) >> 5;
 	u8 vga_idx = (phy_status->cck_agc_rpt_ofdm_cfosho_a & 0x1F);
@@ -2130,8 +2126,6 @@ static void rtw8723b_query_phy_status_cck(struct rtw_dev *rtwdev, u8 *phy_raw,
 static void rtw8723b_query_phy_status_ofdm(struct rtw_dev *rtwdev, u8 *phy_raw,
 					   struct rtw_rx_pkt_stat *pkt_stat)
 {
-	printk("%s begin", __func__);
-
 	struct phy_status_8703b *phy_status = (struct phy_status_8703b *)phy_raw;
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	s8 val_s8;
@@ -2168,8 +2162,6 @@ static void rtw8723b_query_phy_status_ofdm(struct rtw_dev *rtwdev, u8 *phy_raw,
 static void rtw8723b_query_phy_status(struct rtw_dev *rtwdev, u8 *phy_status,
 				      struct rtw_rx_pkt_stat *pkt_stat)
 {
-	printk("%s begin", __func__);
-
 	/* The 8723B PHY status does not report the channel, so we must
 	 * mark it invalid to allow mac80211/rtw88 to parse it from the IE
 	 * during scanning.

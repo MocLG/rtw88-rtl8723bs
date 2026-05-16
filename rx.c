@@ -18,15 +18,6 @@ void rtw_rx_stats(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	hdr = (struct ieee80211_hdr *)skb->data;
 	fc = hdr->frame_control;
 
-	/* Log probe request, probe response, and beacon frames */
-	if (ieee80211_is_probe_req(fc) || ieee80211_is_probe_resp(fc) ||
-	    ieee80211_is_beacon(fc)) {
-		pr_info("RX_SCAN: frame_type=%s, len=%u, addr1=%pM, addr2=%pM\n",
-			ieee80211_is_probe_req(fc) ? "PROBE_REQ" :
-			ieee80211_is_probe_resp(fc) ? "PROBE_RESP" : "BEACON",
-			skb->len, hdr->addr1, hdr->addr2);
-	}
-
 	if (!ieee80211_is_data(fc))
 		return;
 
