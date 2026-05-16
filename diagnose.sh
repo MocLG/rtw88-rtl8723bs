@@ -276,6 +276,59 @@ run_dhcp_client() {
     } > "$out" 2>&1
 }
 
+capture_connection_state() {
+    local iface="$1"
+    local out="$2"
+
+    {
+        echo "+ iw dev $iface link"
+        iw dev "$iface" link || true
+        echo ""
+        echo "+ iw dev $iface station dump"
+        iw dev "$iface" station dump || true
+        echo ""
+        echo "+ ip addr show dev $iface"
+        ip addr show dev "$iface" || true
+        echo ""
+        echo "+ ip -4 route show dev $iface"
+        ip -4 route show dev "$iface" || true
+        echo ""
+        echo "+ ip -4 route show"
+        ip -4 route show || true
+    } > "$out" 2>&1
+}
+
+dhcp_peer_from_log() {
+    local dhcp_log="$1"
+
+    awk '
+        /DHCPOFFER .* from / { peer = $NF }
+        /DHCPACK .* from / { peer = $NF }
+        END { if (peer != "") print peer }
+    ' "$dhcp_log"
+}
+
+choose_ping_target() {
+    local iface="$1"
+    local dhcp_log="$2"
+    local target
+
+    target=$(ip -4 route show default dev "$iface" 2>/dev/null |
+             awk '$1 == "default" { print $3; exit }')
+    if [ -z "$target" ]; then
+        target=$(ip -4 route show 2>/dev/null |
+                 awk -v iface="$iface" '$1 == "default" && $0 ~ (" dev " iface "( |$)") { print $3; exit }')
+    fi
+    if [ -z "$target" ] && [ -s "$dhcp_log" ]; then
+        target=$(dhcp_peer_from_log "$dhcp_log")
+    fi
+    if [ -z "$target" ]; then
+        target="192.168.1.1"
+    fi
+
+    printf '%s\n' "$target"
+}
+
 run_wpa_connection_test() {
     local iface="$1"
     local prefix="$2"
@@ -283,6 +336,7 @@ run_wpa_connection_test() {
     local connect_cmd_log="${prefix}-connect-cmd.txt"
     local connect_link_log="${prefix}-connect-link.txt"
     local connect_log="${prefix}-connect-log.txt"
+    local state_log="${prefix}-state.txt"
     local dhcp_log="${prefix}-dhcp-output.txt"
     local ping_log="${prefix}-ping-output.txt"
     local wpa_log="${prefix}-wpa-supplicant.log"
@@ -299,6 +353,7 @@ run_wpa_connection_test() {
         echo "No SSID/password provided - skipping $label connection test" > "$connect_cmd_log"
         echo "No SSID/password provided - skipping $label connection test" > "$connect_link_log"
         echo "No SSID/password provided - skipping $label connection test" > "$connect_log"
+        echo "No SSID/password provided - skipping $label state dump" > "$state_log"
         echo "No SSID/password provided - skipping $label WPA test" > "$wpa_log"
         echo "No SSID/password provided - skipping $label DHCP test" > "$dhcp_log"
         echo "No SSID/password provided - skipping $label ping test" > "$ping_log"
@@ -317,6 +372,7 @@ run_wpa_connection_test() {
             echo "SSID: $AP_SSID"
         } > "$connect_cmd_log"
         echo "wpa_supplicant config generation failed - skipping link check" > "$connect_link_log"
+        echo "wpa_supplicant config generation failed - skipping state dump" > "$state_log"
         echo "wpa_supplicant config generation failed - skipping DHCP" > "$dhcp_log"
         echo "wpa_supplicant config generation failed - skipping ping" > "$ping_log"
         echo "wpa_supplicant config generation failed" > "$wpa_log"
@@ -341,8 +397,8 @@ run_wpa_connection_test() {
         echo "Auth: WPA/WPA2-PSK via wpa_supplicant"
         echo "+ ip link set $iface up"
         ip link set "$iface" up || true
-        echo "+ timeout 30 wpa_supplicant -B -i $iface -c <temp-conf> -P <pidfile> -f $wpa_log"
-        if timeout 30 wpa_supplicant -B -i "$iface" -c "$wpa_conf" -P "$wpa_pidfile" -f "$wpa_log"; then
+        echo "+ timeout 30 wpa_supplicant -B -t -dd -i $iface -c <temp-conf> -P <pidfile> -f $wpa_log"
+        if timeout 30 wpa_supplicant -B -t -dd -i "$iface" -c "$wpa_conf" -P "$wpa_pidfile" -f "$wpa_log"; then
             echo "wpa_supplicant start exit code: 0"
         else
             wpa_rc=$?
@@ -378,20 +434,13 @@ run_wpa_connection_test() {
         echo "WPA association failed - skipping DHCP" > "$dhcp_log"
     fi
 
-    ping_target=$(ip route show dev "$iface" 2>/dev/null | awk '$1 == "default" { print $3; exit }' || true)
-    if [ -z "$ping_target" ]; then
-        ping_target="192.168.1.1"
-    fi
+    capture_connection_state "$iface" "$state_log"
+
+    ping_target=$(choose_ping_target "$iface" "$dhcp_log")
+    echo "Ping target: $ping_target" >> "$connect_cmd_log"
 
     timeout 10 ping -I "$iface" "$ping_target" -c 3 > "$ping_log" 2>&1 || \
         echo "ping failed or timed out" >> "$ping_log"
-
-    dmesg > "$connect_log"
-    append_if_nonempty "$connect_log" "iw dev link output" "$connect_link_log"
-    append_if_nonempty "$connect_log" "wpa_supplicant output" "$wpa_log"
-    append_if_nonempty "$connect_log" "connect command output" "$connect_cmd_log"
-    append_if_nonempty "$connect_log" "DHCP output" "$dhcp_log"
-    append_if_nonempty "$connect_log" "ping output" "$ping_log"
 
     {
         echo "+ iw dev $iface disconnect"
@@ -401,6 +450,14 @@ run_wpa_connection_test() {
             kill "$(cat "$wpa_pidfile")" 2>/dev/null || true
         fi
     } >> "$connect_cmd_log" 2>&1
+
+    dmesg > "$connect_log"
+    append_if_nonempty "$connect_log" "iw dev link output" "$connect_link_log"
+    append_if_nonempty "$connect_log" "connection state output" "$state_log"
+    append_if_nonempty "$connect_log" "wpa_supplicant output" "$wpa_log"
+    append_if_nonempty "$connect_log" "connect command output" "$connect_cmd_log"
+    append_if_nonempty "$connect_log" "DHCP output" "$dhcp_log"
+    append_if_nonempty "$connect_log" "ping output" "$ping_log"
 
     rm -f "$wpa_conf" "$wpa_pidfile"
 }
@@ -990,6 +1047,7 @@ else
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-cmd.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-link.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-log.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-state.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-wpa-supplicant.log"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-dhcp-output.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-ping-output.txt"
