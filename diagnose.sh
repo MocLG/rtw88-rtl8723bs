@@ -20,6 +20,19 @@ if [ "$#" -eq 2 ] && { [ -z "$AP_SSID" ] || [ -z "$AP_PASSWORD" ]; }; then
     exit 1
 fi
 
+if [ "$#" -eq 2 ]; then
+    if [[ "$AP_SSID" == *$'\n'* || "$AP_PASSWORD" == *$'\n'* ]]; then
+        echo "ERROR: SSID/password must not contain newline characters."
+        exit 1
+    fi
+
+    if ! { [ "${#AP_PASSWORD}" -ge 8 ] && [ "${#AP_PASSWORD}" -le 63 ]; } &&
+       ! [[ "$AP_PASSWORD" =~ ^[[:xdigit:]]{64}$ ]]; then
+        echo "ERROR: WPA/WPA2 password must be 8-63 chars, or a 64-char hex PSK."
+        exit 1
+    fi
+fi
+
 if [ "$(id -u)" -ne 0 ]; then
     echo "ERROR: Run this script as root: sudo ./diagnose.sh"
     exit 1
@@ -33,7 +46,7 @@ for cmd in git make depmod modprobe iw ip dmesg timeout tar ping awk grep readli
 done
 
 if [ -n "$AP_SSID" ]; then
-    for cmd in wpa_passphrase wpa_supplicant; do
+    for cmd in wpa_supplicant; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
             echo "ERROR: Required command not found for WPA connection test: $cmd"
             exit 1
@@ -85,6 +98,34 @@ append_if_nonempty() {
             cat "$src"
         } >> "$dst"
     fi
+}
+
+wpa_conf_quote() {
+    local value="$1"
+
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    printf '%s' "$value"
+}
+
+write_wpa_config() {
+    local out="$1"
+    local ssid="$2"
+    local psk="$3"
+
+    {
+        echo "ctrl_interface=/run/wpa_supplicant"
+        echo "update_config=0"
+        echo "network={"
+        printf '\tssid="%s"\n' "$(wpa_conf_quote "$ssid")"
+        if [[ "$psk" =~ ^[[:xdigit:]]{64}$ ]]; then
+            printf '\tpsk=%s\n' "$psk"
+        else
+            printf '\tpsk="%s"\n' "$(wpa_conf_quote "$psk")"
+        fi
+        printf '\tkey_mgmt=WPA-PSK\n'
+        echo "}"
+    } > "$out"
 }
 
 run_dhcp_client() {
@@ -588,8 +629,7 @@ else
 
     clear_dmesg
 
-    if ! printf '%s\n' "$AP_PASSWORD" | wpa_passphrase "$AP_SSID" | \
-        grep -v '^[[:space:]]*#psk=' > "$WPA_CONF"; then
+    if ! write_wpa_config "$WPA_CONF" "$AP_SSID" "$AP_PASSWORD"; then
         {
             echo "Failed to generate wpa_supplicant config"
             echo "SSID: $AP_SSID"
@@ -606,14 +646,16 @@ else
         : > "$OUTDIR/test-04-connect-link.txt"
         : > "$WPA_LOG"
 
+        echo "Attempting WPA/WPA2 connection to '$AP_SSID' for up to 20 seconds..."
+
         {
             echo "Connecting to SSID: $AP_SSID"
             echo "Interface: $IFACE"
             echo "Auth: WPA/WPA2-PSK via wpa_supplicant"
             echo "+ ip link set $IFACE up"
             ip link set "$IFACE" up || true
-            echo "+ wpa_supplicant -B -i $IFACE -c <temp-conf> -P <pidfile> -f $WPA_LOG"
-            if wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
+            echo "+ timeout 15 wpa_supplicant -B -i $IFACE -c <temp-conf> -P <pidfile> -f $WPA_LOG"
+            if timeout 15 wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
                 echo "wpa_supplicant start exit code: 0"
             else
                 WPA_RC=$?
@@ -622,7 +664,7 @@ else
 
             i=0
             while [ "$i" -lt 20 ]; do
-                LINK_SNAPSHOT=$(iw dev "$IFACE" link 2>&1 || true)
+                LINK_SNAPSHOT=$(timeout 3 iw dev "$IFACE" link 2>&1 || true)
                 {
                     echo "=== link poll $i ==="
                     echo "$LINK_SNAPSHOT"
@@ -642,8 +684,10 @@ else
         } > "$CONNECT_CMD_LOG" 2>&1
 
         if [ "$CONNECTED" -eq 1 ]; then
+            echo "Association succeeded; requesting DHCP..."
             run_dhcp_client "$IFACE" "$OUTDIR/test-04-dhcp-output.txt"
         else
+            echo "Association failed; continuing diagnostics."
             echo "WPA association failed - skipping DHCP" > "$OUTDIR/test-04-dhcp-output.txt"
         fi
 
