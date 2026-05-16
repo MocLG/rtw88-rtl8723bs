@@ -891,22 +891,70 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	static int scan_tx_port_count;
+	unsigned int orig_len = skb->len;
+	unsigned int pad_len;
 	bool bus_claim;
 	size_t txsize;
 	u32 txaddr;
 	int ret;
 
-	txaddr = rtw_sdio_get_tx_addr(rtwdev, skb->len, queue);
+	txaddr = rtw_sdio_get_tx_addr(rtwdev, orig_len, queue);
 	if (!txaddr)
 		return -EINVAL;
 
-	txsize = sdio_align_size(rtwsdio->sdio_func, skb->len);
+	txsize = sdio_align_size(rtwsdio->sdio_func, orig_len);
+	pad_len = txsize - orig_len;
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
-	if (!ret)
-		ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
+
+		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
+			rtw_info(rtwdev,
+				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x\n",
+				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+				 tx_data->frame_control, queue, skb->len, txsize,
+				 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->tx_oqt_free),
+				 atomic_read(&rtwsdio->free_pg_high),
+				 atomic_read(&rtwsdio->free_pg_normal),
+				 atomic_read(&rtwsdio->free_pg_low),
+				 atomic_read(&rtwsdio->free_pg_pub),
+				 rtw_read32(rtwdev, REG_SDIO_HISR),
+				 rtw_read32(rtwdev, REG_TXDMA_STATUS));
+
+		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
+			rtw_info(rtwdev,
+				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d\n",
+				 queue, skb->len, txsize, ret,
+				 rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
+				 atomic_read(&rtwsdio->tx_oqt_free),
+				 atomic_read(&rtwsdio->free_pg_high),
+				 atomic_read(&rtwsdio->free_pg_normal),
+				 atomic_read(&rtwsdio->free_pg_low),
+				 atomic_read(&rtwsdio->free_pg_pub));
+		return ret;
+	}
+
+	if (pad_len) {
+		unsigned int tailroom = skb_tailroom(skb);
+
+		if (pad_len > tailroom) {
+			ret = pskb_expand_head(skb, 0, pad_len - tailroom,
+					       GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+
+		skb_put_zero(skb, pad_len);
+	}
+
+	ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
+	if (ret) {
+		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
+
+		if (pad_len)
+			skb_trim(skb, orig_len);
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
@@ -948,6 +996,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
+
+	if (pad_len)
+		skb_trim(skb, orig_len);
 
 	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
 		scan_tx_port_count++;
