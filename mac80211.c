@@ -769,11 +769,23 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 #endif
 {
 	struct rtw_dev *rtwdev = hw->priv;
+	int ret;
 
 	mutex_lock(&rtwdev->mutex);
 	rtw_leave_lps_deep(rtwdev);
+	ret = rtw_leave_ips(rtwdev);
+	if (ret) {
+		rtw_err(rtwdev, "failed to leave idle state for mgd tx\n");
+		goto out;
+	}
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: mgd_prepare_tx idle=%d poweron=%d running=%d\n",
+		 !!(hw->conf.flags & IEEE80211_CONF_IDLE),
+		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
+		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
 	rtw_chip_prepare_tx(rtwdev);
+out:
 	mutex_unlock(&rtwdev->mutex);
 }
 
