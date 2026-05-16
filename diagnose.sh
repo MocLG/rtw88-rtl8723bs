@@ -55,11 +55,27 @@ if [ -n "$AP_SSID" ]; then
 fi
 
 RESTORE_SERVICES=""
+
+restore_services() {
+    local svc
+
+    if [ -z "$RESTORE_SERVICES" ]; then
+        return
+    fi
+
+    echo ""
+    for svc in $RESTORE_SERVICES; do
+        echo "Restoring $svc..."
+        systemctl start "$svc" || true
+    done
+}
+
+trap restore_services EXIT
+
 for svc in NetworkManager wpa_supplicant iwd; do
     if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
-        echo "Stopping and disabling $svc to prevent interference..."
+        echo "Stopping $svc to prevent interference..."
         systemctl stop "$svc" || true
-        systemctl disable "$svc" || true
         RESTORE_SERVICES="$RESTORE_SERVICES $svc"
     fi
 done
@@ -258,6 +274,135 @@ run_dhcp_client() {
             echo "No supported DHCP client found (tried dhclient, dhcpcd, udhcpc)"
         fi
     } > "$out" 2>&1
+}
+
+run_wpa_connection_test() {
+    local iface="$1"
+    local prefix="$2"
+    local label="$3"
+    local connect_cmd_log="${prefix}-connect-cmd.txt"
+    local connect_link_log="${prefix}-connect-link.txt"
+    local connect_log="${prefix}-connect-log.txt"
+    local dhcp_log="${prefix}-dhcp-output.txt"
+    local ping_log="${prefix}-ping-output.txt"
+    local wpa_log="${prefix}-wpa-supplicant.log"
+    local wpa_conf
+    local wpa_pidfile
+    local connected=0
+    local i
+    local link_snapshot
+    local ping_target
+    local wpa_rc
+
+    if [ -z "$AP_SSID" ]; then
+        echo "No AP credentials provided - skipping $label connection test"
+        echo "No SSID/password provided - skipping $label connection test" > "$connect_cmd_log"
+        echo "No SSID/password provided - skipping $label connection test" > "$connect_link_log"
+        echo "No SSID/password provided - skipping $label connection test" > "$connect_log"
+        echo "No SSID/password provided - skipping $label WPA test" > "$wpa_log"
+        echo "No SSID/password provided - skipping $label DHCP test" > "$dhcp_log"
+        echo "No SSID/password provided - skipping $label ping test" > "$ping_log"
+        return
+    fi
+
+    wpa_conf=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-conf.XXXXXX")
+    wpa_pidfile=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-pid.XXXXXX")
+    rm -f "$wpa_pidfile"
+
+    clear_dmesg
+
+    if ! write_wpa_config "$wpa_conf" "$AP_SSID" "$AP_PASSWORD"; then
+        {
+            echo "Failed to generate wpa_supplicant config"
+            echo "SSID: $AP_SSID"
+        } > "$connect_cmd_log"
+        echo "wpa_supplicant config generation failed - skipping link check" > "$connect_link_log"
+        echo "wpa_supplicant config generation failed - skipping DHCP" > "$dhcp_log"
+        echo "wpa_supplicant config generation failed - skipping ping" > "$ping_log"
+        echo "wpa_supplicant config generation failed" > "$wpa_log"
+        dmesg > "$connect_log"
+        append_if_nonempty "$connect_log" "connect command output" "$connect_cmd_log"
+        append_if_nonempty "$connect_log" "wpa_supplicant output" "$wpa_log"
+        rm -f "$wpa_conf" "$wpa_pidfile"
+        return
+    fi
+
+    chmod 600 "$wpa_conf"
+    : > "$connect_link_log"
+    : > "$wpa_log"
+
+    echo "Attempting $label WPA/WPA2 connection to '$AP_SSID' for up to 20 seconds..."
+
+    {
+        echo "Connecting to SSID: $AP_SSID"
+        echo "Interface: $iface"
+        echo "Driver: $(driver_for_iface "$iface")"
+        echo "Module: $(module_for_iface "$iface")"
+        echo "Auth: WPA/WPA2-PSK via wpa_supplicant"
+        echo "+ ip link set $iface up"
+        ip link set "$iface" up || true
+        echo "+ timeout 30 wpa_supplicant -B -i $iface -c <temp-conf> -P <pidfile> -f $wpa_log"
+        if timeout 30 wpa_supplicant -B -i "$iface" -c "$wpa_conf" -P "$wpa_pidfile" -f "$wpa_log"; then
+            echo "wpa_supplicant start exit code: 0"
+        else
+            wpa_rc=$?
+            echo "wpa_supplicant start exit code: $wpa_rc"
+        fi
+
+        i=0
+        while [ "$i" -lt 20 ]; do
+            link_snapshot=$(timeout 3 iw dev "$iface" link 2>&1 || true)
+            {
+                echo "=== link poll $i ==="
+                echo "$link_snapshot"
+                echo ""
+            } >> "$connect_link_log"
+
+            if printf '%s\n' "$link_snapshot" | grep -q '^Connected to '; then
+                connected=1
+                break
+            fi
+
+            sleep 1
+            i=$((i + 1))
+        done
+
+        echo "connected: $connected"
+    } > "$connect_cmd_log" 2>&1
+
+    if [ "$connected" -eq 1 ]; then
+        echo "$label association succeeded; requesting DHCP..."
+        run_dhcp_client "$iface" "$dhcp_log"
+    else
+        echo "$label association failed; continuing diagnostics."
+        echo "WPA association failed - skipping DHCP" > "$dhcp_log"
+    fi
+
+    ping_target=$(ip route show dev "$iface" 2>/dev/null | awk '$1 == "default" { print $3; exit }' || true)
+    if [ -z "$ping_target" ]; then
+        ping_target="192.168.1.1"
+    fi
+
+    timeout 10 ping -I "$iface" "$ping_target" -c 3 > "$ping_log" 2>&1 || \
+        echo "ping failed or timed out" >> "$ping_log"
+
+    dmesg > "$connect_log"
+    append_if_nonempty "$connect_log" "iw dev link output" "$connect_link_log"
+    append_if_nonempty "$connect_log" "wpa_supplicant output" "$wpa_log"
+    append_if_nonempty "$connect_log" "connect command output" "$connect_cmd_log"
+    append_if_nonempty "$connect_log" "DHCP output" "$dhcp_log"
+    append_if_nonempty "$connect_log" "ping output" "$ping_log"
+
+    {
+        echo "+ iw dev $iface disconnect"
+        iw dev "$iface" disconnect || true
+        if [ -s "$wpa_pidfile" ]; then
+            echo "+ kill wpa_supplicant pid $(cat "$wpa_pidfile")"
+            kill "$(cat "$wpa_pidfile")" 2>/dev/null || true
+        fi
+    } >> "$connect_cmd_log" 2>&1
+
+    rm -f "$wpa_conf" "$wpa_pidfile"
 }
 
 list_managed_ifaces() {
@@ -725,119 +870,7 @@ dump_rtw88_file rf_dump "$OUTDIR/test-03-rf-dump-after-scan.txt"
 # ============================================================================
 echo "[4/6] Connection attempt..."
 
-if [ -z "$AP_SSID" ]; then
-    echo "No AP credentials provided - skipping connection test"
-    echo "No SSID/password provided - skipping connection test" > "$OUTDIR/test-04-connect-cmd.txt"
-    echo "No SSID/password provided - skipping connection test" > "$OUTDIR/test-04-connect-link.txt"
-    echo "No SSID/password provided - skipping DHCP test" > "$OUTDIR/test-04-dhcp-output.txt"
-    echo "No SSID/password provided - skipping ping test" > "$OUTDIR/test-04-ping-output.txt"
-else
-    CONNECT_CMD_LOG="$OUTDIR/test-04-connect-cmd.txt"
-    WPA_LOG="$OUTDIR/test-04-wpa-supplicant.log"
-    WPA_CONF=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-conf.XXXXXX")
-    WPA_PIDFILE=$(mktemp "${TMPDIR:-/tmp}/rtw88-wpa-pid.XXXXXX")
-    rm -f "$WPA_PIDFILE"
-
-    clear_dmesg
-
-    if ! write_wpa_config "$WPA_CONF" "$AP_SSID" "$AP_PASSWORD"; then
-        {
-            echo "Failed to generate wpa_supplicant config"
-            echo "SSID: $AP_SSID"
-        } > "$CONNECT_CMD_LOG"
-        echo "wpa_supplicant config generation failed - skipping link check" > "$OUTDIR/test-04-connect-link.txt"
-        echo "wpa_supplicant config generation failed - skipping DHCP" > "$OUTDIR/test-04-dhcp-output.txt"
-        echo "wpa_supplicant config generation failed - skipping ping" > "$OUTDIR/test-04-ping-output.txt"
-        echo "wpa_supplicant config generation failed" > "$WPA_LOG"
-        rm -f "$WPA_CONF" "$WPA_PIDFILE"
-    else
-        chmod 600 "$WPA_CONF"
-        CONNECTED=0
-
-        : > "$OUTDIR/test-04-connect-link.txt"
-        : > "$WPA_LOG"
-
-        echo "Attempting WPA/WPA2 connection to '$AP_SSID' for up to 20 seconds..."
-
-        {
-            echo "Connecting to SSID: $AP_SSID"
-            echo "Interface: $IFACE"
-            echo "Auth: WPA/WPA2-PSK via wpa_supplicant"
-            echo "+ ip link set $IFACE up"
-            ip link set "$IFACE" up || true
-            echo "+ timeout 15 wpa_supplicant -B -i $IFACE -c <temp-conf> -P <pidfile> -f $WPA_LOG"
-            if timeout 30 wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
-                echo "wpa_supplicant start exit code: 0"
-            else
-                WPA_RC=$?
-                echo "wpa_supplicant start exit code: $WPA_RC"
-            fi
-
-            i=0
-            while [ "$i" -lt 20 ]; do
-                LINK_SNAPSHOT=$(timeout 3 iw dev "$IFACE" link 2>&1 || true)
-                {
-                    echo "=== link poll $i ==="
-                    echo "$LINK_SNAPSHOT"
-                    echo ""
-                } >> "$OUTDIR/test-04-connect-link.txt"
-
-                if printf '%s\n' "$LINK_SNAPSHOT" | grep -q '^Connected to '; then
-                    CONNECTED=1
-                    break
-                fi
-
-                sleep 1
-                i=$((i + 1))
-            done
-
-            echo "connected: $CONNECTED"
-        } > "$CONNECT_CMD_LOG" 2>&1
-
-        if [ "$CONNECTED" -eq 1 ]; then
-            echo "Association succeeded; requesting DHCP..."
-            run_dhcp_client "$IFACE" "$OUTDIR/test-04-dhcp-output.txt"
-        else
-            echo "Association failed; continuing diagnostics."
-            echo "WPA association failed - skipping DHCP" > "$OUTDIR/test-04-dhcp-output.txt"
-        fi
-
-        PING_TARGET=$(ip route show dev "$IFACE" | awk '$1 == "default" { print $3; exit }')
-        if [ -z "$PING_TARGET" ]; then
-            PING_TARGET="192.168.1.1"
-        fi
-
-        timeout 10 ping -I "$IFACE" "$PING_TARGET" -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
-            echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
-
-        dmesg > "$OUTDIR/test-04-connect-log.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "wpa_supplicant output" "$WPA_LOG"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "connect command output" "$CONNECT_CMD_LOG"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "DHCP output" "$OUTDIR/test-04-dhcp-output.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "ping output" "$OUTDIR/test-04-ping-output.txt"
-
-        {
-            echo "+ iw dev $IFACE disconnect"
-            iw dev "$IFACE" disconnect || true
-            if [ -s "$WPA_PIDFILE" ]; then
-                echo "+ kill wpa_supplicant pid $(cat "$WPA_PIDFILE")"
-                kill "$(cat "$WPA_PIDFILE")" 2>/dev/null || true
-            fi
-        } >> "$CONNECT_CMD_LOG" 2>&1
-
-        rm -f "$WPA_CONF" "$WPA_PIDFILE"
-    fi
-
-    if [ ! -s "$OUTDIR/test-04-connect-log.txt" ]; then
-        dmesg > "$OUTDIR/test-04-connect-log.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "iw dev link output" "$OUTDIR/test-04-connect-link.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "wpa_supplicant output" "$WPA_LOG"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "connect command output" "$CONNECT_CMD_LOG"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "DHCP output" "$OUTDIR/test-04-dhcp-output.txt"
-        append_if_nonempty "$OUTDIR/test-04-connect-log.txt" "ping output" "$OUTDIR/test-04-ping-output.txt"
-    fi
-fi
+run_wpa_connection_test "$IFACE" "$OUTDIR/test-04" "rtw88"
 
 # ============================================================================
 # Test 5: All MAC Registers (Moved up)
@@ -940,6 +973,8 @@ if [ -n "$STAGING_IFACE" ]; then
         echo "staging scan failed or timed out" >> "$OUTDIR/test-06-staging-scan-output.txt"
     dmesg > "$OUTDIR/test-06-staging-scan-log.txt"
 
+    run_wpa_connection_test "$STAGING_IFACE" "$OUTDIR/test-06-staging" "staging"
+
     dump_staging_proc_tree "$STAGING_IFACE" "$OUTDIR/test-06-staging-proc-tree.txt"
     dump_staging_registers "$STAGING_IFACE" "$OUTDIR/test-06-staging-regs.txt"
 else
@@ -952,6 +987,12 @@ else
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-proc-tree.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-iface-up.txt"
     echo "Staging interface not found" > "$OUTDIR/test-06-staging-chan6-cmd.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-cmd.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-link.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-connect-log.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-wpa-supplicant.log"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-dhcp-output.txt"
+    echo "Staging interface not found" > "$OUTDIR/test-06-staging-ping-output.txt"
 fi
 
 dmesg > "$OUTDIR/test-06-staging-dmesg.log"
@@ -972,12 +1013,3 @@ echo ""
 echo "Archive created: $TARFILE"
 echo ""
 echo "Upload $TARFILE for analysis."
-
-if [ -n "$RESTORE_SERVICES" ]; then
-    echo ""
-    for svc in $RESTORE_SERVICES; do
-        echo "Restoring $svc..."
-        systemctl enable "$svc" || true
-        systemctl start "$svc" || true
-    done
-fi
