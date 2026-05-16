@@ -1423,6 +1423,12 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 	int ret;
 
 	bufsz = ALIGN(rx_len, 4);
+	/* RTL8723BS staging pads RX FIFO CMD53 reads to block size once the
+	 * transfer exceeds one SDIO block. Some hosts fail unpadded multi-block
+	 * RX reads with CRC/busy errors.
+	 */
+	if (bufsz > RTW_SDIO_BLOCK_SIZE)
+		bufsz = ALIGN(bufsz, RTW_SDIO_BLOCK_SIZE);
 	pr_info("RX_DEBUG: rx_len=%u, bufsz=%zu, HISR=0x%08x, rx_addr=%u\n",
 		rx_len, bufsz, rtw_read32(rtwdev, REG_SDIO_HISR), rtwsdio->rx_addr);
 
