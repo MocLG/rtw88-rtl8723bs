@@ -481,6 +481,7 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	struct rtw_vif *rtwvif;
 	__le16 fc = hdr->frame_control;
 	bool is_mgmt = ieee80211_is_mgmt(fc);
+	bool fake_tx_status;
 	bool bmc;
 
 	if (sta) {
@@ -499,7 +500,10 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+	fake_tx_status = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			 rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+			 is_mgmt;
+	if ((info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) && !fake_tx_status)
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
 	pkt_info->bmc = bmc;
