@@ -1409,7 +1409,7 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 	tx_data = rtw_sdio_get_tx_data(skb);
 	memset(tx_data, 0, sizeof(*tx_data));
 
-	if (skb->len >= sizeof(*hdr)) {
+	if (skb->len >= sizeof(struct ieee80211_hdr_3addr)) {
 		fc = hdr->frame_control;
 		trace_mgmt = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			     ieee80211_is_mgmt(fc);
