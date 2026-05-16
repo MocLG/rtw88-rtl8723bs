@@ -3,6 +3,7 @@
  */
 
 #include <linux/delay.h>
+#include <linux/jiffies.h>
 #include "main.h"
 #include "sec.h"
 #include "tx.h"
@@ -19,6 +20,7 @@
 #endif
 
 #define RTW8723BS_PRE_AUTH_DEAUTH_WAIT_MS 100
+#define RTW8723BS_PRE_AUTH_DEAUTH_WINDOW_MS 2000
 
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
 {
@@ -47,6 +49,14 @@ static bool rtw_ops_tx_trace_mgmt_needed(__le16 fc)
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
+static bool rtw8723bs_mgd_prepare_is_auth(struct rtw_dev *rtwdev,
+					  struct ieee80211_prep_tx_info *info)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	       info && info->subtype == IEEE80211_STYPE_AUTH;
+}
+
 static bool rtw8723bs_tx_deauth(struct rtw_dev *rtwdev,
 				struct ieee80211_vif *vif,
 				const u8 *da, const u8 *bssid,
@@ -146,13 +156,15 @@ static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
 					      struct ieee80211_prep_tx_info *info)
 {
 	static const u8 zero_addr[ETH_ALEN] = { 0 };
+	struct rtw_vif *rtwvif;
 	const u8 *bssid = NULL;
 
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
-	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
-	    !info || info->subtype != IEEE80211_STYPE_AUTH ||
+	if (!rtw8723bs_mgd_prepare_is_auth(rtwdev, info) ||
+	    !vif ||
 	    test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 		return;
+
+	rtwvif = (struct rtw_vif *)vif->drv_priv;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 	if (!is_zero_ether_addr(vif->cfg.ap_addr))
@@ -175,10 +187,21 @@ static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
 		return;
 	}
 
+	if (ether_addr_equal(rtwvif->pre_auth_deauth_bssid, bssid) &&
+	    time_before(jiffies, rtwvif->pre_auth_deauth_time +
+			msecs_to_jiffies(RTW8723BS_PRE_AUTH_DEAUTH_WINDOW_MS))) {
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: mgd_pre_auth_deauth skip recent bssid=%pM\n",
+			 bssid);
+		return;
+	}
+
 	if (!rtw8723bs_tx_deauth(rtwdev, vif, bssid, bssid, GFP_KERNEL,
 				 "mgd_pre_auth"))
 		return;
 
+	ether_addr_copy(rtwvif->pre_auth_deauth_bssid, bssid);
+	rtwvif->pre_auth_deauth_time = jiffies;
 	msleep(RTW8723BS_PRE_AUTH_DEAUTH_WAIT_MS);
 }
 #endif
@@ -921,7 +944,12 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 #endif
 {
 	struct rtw_dev *rtwdev = hw->priv;
+	bool defer_rfk = false;
 	int ret;
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
+	defer_rfk = rtw8723bs_mgd_prepare_is_auth(rtwdev, info);
+#endif
 
 	mutex_lock(&rtwdev->mutex);
 	rtw_leave_lps_deep(rtwdev);
@@ -936,7 +964,12 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
-	rtw_chip_prepare_tx(rtwdev);
+	if (defer_rfk)
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: defer_auth_rfk need_rfk=%d\n",
+			 rtwdev->need_rfk);
+	else
+		rtw_chip_prepare_tx(rtwdev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_deauth(rtwdev, vif, info);
 #endif
