@@ -766,7 +766,7 @@ else
             echo "+ ip link set $IFACE up"
             ip link set "$IFACE" up || true
             echo "+ timeout 15 wpa_supplicant -B -i $IFACE -c <temp-conf> -P <pidfile> -f $WPA_LOG"
-            if timeout 15 wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
+            if timeout 30 wpa_supplicant -B -i "$IFACE" -c "$WPA_CONF" -P "$WPA_PIDFILE" -f "$WPA_LOG"; then
                 echo "wpa_supplicant start exit code: 0"
             else
                 WPA_RC=$?
@@ -807,7 +807,7 @@ else
             PING_TARGET="192.168.1.1"
         fi
 
-        timeout 5 ping -I "$IFACE" "$PING_TARGET" -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
+        timeout 10 ping -I "$IFACE" "$PING_TARGET" -c 3 > "$OUTDIR/test-04-ping-output.txt" 2>&1 || \
             echo "ping failed or timed out" >> "$OUTDIR/test-04-ping-output.txt"
 
         dmesg > "$OUTDIR/test-04-connect-log.txt"
