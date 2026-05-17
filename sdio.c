@@ -1510,7 +1510,8 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		rtw_info(rtwdev,
 			 "RX_DEBUG: auth_window len=%u fc=0x%04x ftype=%u stype=%u addr1=%pM addr2=%pM addr3=%pM\n",
 			 skb->len, rx_fc,
-			 (rx_fc >> 12) & 3, (rx_fc >> 4) & 0xf,
+			 (rx_fc & IEEE80211_FCTL_FTYPE) >> 2,
+			 (rx_fc & IEEE80211_FCTL_STYPE) >> 4,
 			 rx_hdr->addr1, rx_hdr->addr2, rx_hdr->addr3);
 	}
 
