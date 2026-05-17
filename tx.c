@@ -503,6 +503,17 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
+	if (chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    is_mgmt) {
+		/* RTL8723BS SDIO reports management TX status locally. Asking
+		 * the 8051 firmware for CCX reports here can change normal auth
+		 * descriptors from the staging driver's no-report path.
+		 */
+		pkt_info->report = false;
+		pkt_info->sn = 0;
+	}
+
 	pkt_info->bmc = bmc;
 	rtw_tx_pkt_info_update_sec(rtwdev, pkt_info, skb);
 	pkt_info->tx_pkt_size = skb->len;

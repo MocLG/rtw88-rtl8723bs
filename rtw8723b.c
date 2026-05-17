@@ -1840,21 +1840,21 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	rtw8723b_pwrtrack_init(rtwdev);
 }
 
-static bool rtw8723b_scan_needs_rx_debug(struct rtw_dev *rtwdev)
+static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev)
 {
-	return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	       test_bit(RTW_FLAG_SCANNING, rtwdev->flags);
+	return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
-static void rtw8723b_scan_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
-				     u8 channel, u8 bw)
+static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
+				u8 channel, u8 bw)
 {
-	if (!rtw8723b_scan_needs_rx_debug(rtwdev))
+	if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
 		return;
 
 	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs %s ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
-		 tag, channel, bw, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
+		 "CHAN_DEBUG: 8723bs %s scan=%d ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
+		 tag, test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ? 1 : 0,
+		 channel, bw, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rtw_read8(rtwdev, REG_RF_CTRL),
 		 rtw_read32(rtwdev, REG_FPGA0_RFMOD),
 		 rtw_read32(rtwdev, REG_FPGA1_RFMOD),
@@ -1864,7 +1864,7 @@ static void rtw8723b_scan_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 		 rtw_read32(rtwdev, REG_OFDM0_XAAGC1));
 
 	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs %s BB 0x808=0x%08x 0x80c=0x%08x 0x820=0x%08x 0x824=0x%08x 0x828=0x%08x 0x82c=0x%08x 0x840=0x%08x 0x844=0x%08x 0x850=0x%08x 0x860=0x%08x 0x864=0x%08x 0xa00=0x%08x 0xa04=0x%08x\n",
+		 "CHAN_DEBUG: 8723bs %s BB 0x808=0x%08x 0x80c=0x%08x 0x820=0x%08x 0x824=0x%08x 0x828=0x%08x 0x82c=0x%08x 0x840=0x%08x 0x844=0x%08x 0x850=0x%08x 0x860=0x%08x 0x864=0x%08x 0xa00=0x%08x 0xa04=0x%08x\n",
 		 tag, rtw_read32(rtwdev, 0x808), rtw_read32(rtwdev, 0x80c),
 		 rtw_read32(rtwdev, 0x820), rtw_read32(rtwdev, 0x824),
 		 rtw_read32(rtwdev, 0x828), rtw_read32(rtwdev, 0x82c),
@@ -1874,15 +1874,14 @@ static void rtw8723b_scan_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 		 rtw_read32(rtwdev, 0xa04));
 
 	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs %s RF RF00=0x%08x RF01=0x%08x RF18=0x%08x RFb0=0x%08x\n",
+		 "CHAN_DEBUG: 8723bs %s RF RF00=0x%08x RF01=0x%08x RF18=0x%08x RFb0=0x%08x\n",
 		 tag, rtw_read_rf(rtwdev, RF_PATH_A, 0x00, RFREG_MASK),
 		 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK),
 		 rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK),
 		 rtw_read_rf(rtwdev, RF_PATH_A, 0xb0, RFREG_MASK));
 }
 
-static void rtw8723b_scan_reassert_rx_path(struct rtw_dev *rtwdev,
-					   const char *tag)
+static void rtw8723b_reassert_rx_path(struct rtw_dev *rtwdev, const char *tag)
 {
 	u8 sys_func_before;
 	u8 rf_ctrl_before;
@@ -1891,7 +1890,7 @@ static void rtw8723b_scan_reassert_rx_path(struct rtw_dev *rtwdev,
 	u32 rf_wlint_before;
 	bool changed = false;
 
-	if (!rtw8723b_scan_needs_rx_debug(rtwdev))
+	if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
 		return;
 
 	sys_func_before = rtw_read8(rtwdev, REG_SYS_FUNC_EN);
@@ -1936,7 +1935,7 @@ static void rtw8723b_scan_reassert_rx_path(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs %s reassert_rx SYS_FUNC_EN 0x%02x->0x%02x RF_CTRL 0x%02x->0x%02x FPGA0_RFMOD 0x%08x->0x%08x BB_RX_PATH 0x%08x->0x%08x RF01 0x%08x->0x%08x\n",
+		 "CHAN_DEBUG: 8723bs %s reassert_rx SYS_FUNC_EN 0x%02x->0x%02x RF_CTRL 0x%02x->0x%02x FPGA0_RFMOD 0x%08x->0x%08x BB_RX_PATH 0x%08x->0x%08x RF01 0x%08x->0x%08x\n",
 		 tag, sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rf_ctrl_before, rtw_read8(rtwdev, REG_RF_CTRL),
 		 fpga0_before, rtw_read32(rtwdev, REG_FPGA0_RFMOD),
@@ -2059,13 +2058,13 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 
 	printk("%s begin", __func__);
 
-	rtw8723b_scan_dump_bb_rf(rtwdev, "before_set_channel", channel, bw);
+	rtw8723b_dump_bb_rf(rtwdev, "before_set_channel", channel, bw);
 
 	rtw8723b_set_channel_rf(rtwdev, channel, bw);
 	rtw_set_channel_mac(rtwdev, channel, bw, primary_chan_idx);
 	rtw8723b_set_channel_bb(rtwdev, bw, primary_chan_idx);
-	rtw8723b_scan_reassert_rx_path(rtwdev, "set_channel");
-	rtw8723b_scan_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
+	rtw8723b_reassert_rx_path(rtwdev, "set_channel");
+	rtw8723b_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
 
 	printk("%s end", __func__);
 }
