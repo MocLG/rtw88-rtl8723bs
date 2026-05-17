@@ -32,6 +32,13 @@ void rtw_tx_stats(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	}
 }
 
+static bool rtw_tx_8723bs_mgmt_no_spe_rpt(__le16 fc)
+{
+	return ieee80211_is_auth(fc) ||
+	       ieee80211_is_assoc_req(fc) ||
+	       ieee80211_is_reassoc_req(fc);
+}
+
 void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 			 struct rtw_tx_pkt_info *pkt_info,
 			 struct rtw_tx_desc *tx_desc)
@@ -505,10 +512,10 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 
 	if (chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	    is_mgmt) {
-		/* RTL8723BS SDIO reports management TX status locally in the
-		 * HCI path. Normal staging auth frames do not set SPE_RPT, so
-		 * keep firmware CCX reports out of softmac management frames.
+	    rtw_tx_8723bs_mgmt_no_spe_rpt(fc)) {
+		/* RTL8723BS SDIO reports connect management TX status locally
+		 * in the HCI path. Normal staging auth/assoc frames do not set
+		 * SPE_RPT, so keep firmware CCX reports out of this path.
 		 */
 		pkt_info->report = false;
 		pkt_info->sn = 0;
