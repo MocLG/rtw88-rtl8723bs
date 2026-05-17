@@ -94,12 +94,12 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
-	rtwdev->hal.rcr |= BIT_AMF | BIT_AAP;
-	rtwdev->hal.rcr &= ~(BIT_CBSSID_DATA | BIT_CBSSID_BCN);
+	rtwdev->hal.rcr |= BIT_AMF | BIT_CBSSID_DATA | BIT_CBSSID_BCN;
+	rtwdev->hal.rcr &= ~BIT_AAP;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare_rx rcr=0x%08x\n",
+		 "MGMT_TX_DEBUG: join_prepare_rx target_only rcr=0x%08x\n",
 		 rtwdev->hal.rcr);
 
 	retry_limit = (RTW8723BS_JOIN_RETRY_LIMIT << 8) |
