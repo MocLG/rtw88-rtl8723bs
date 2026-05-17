@@ -19,6 +19,12 @@
 
 #define RTW8723BS_JOIN_RETRY_LIMIT 0x30
 
+static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+}
+
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
 {
 	switch (le16_to_cpu(fc) & IEEE80211_FCTL_STYPE) {
@@ -49,9 +55,8 @@ static bool rtw_ops_tx_trace_mgmt_needed(__le16 fc)
 static bool rtw8723bs_mgd_prepare_is_auth(struct rtw_dev *rtwdev,
 					  struct ieee80211_prep_tx_info *info)
 {
-	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	       info && info->subtype == IEEE80211_STYPE_AUTH;
+	return rtw8723bs_sdio(rtwdev) && info &&
+	       info->subtype == IEEE80211_STYPE_AUTH;
 }
 
 static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
@@ -133,8 +138,7 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 	const char *stype;
 	__le16 fc;
 
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
-	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	if (!rtw8723bs_sdio(rtwdev) ||
 	    skb->len < sizeof(struct ieee80211_hdr_3addr))
 		return;
 
@@ -601,6 +605,16 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 #else
 		if (conf->assoc) {
 #endif
+			if (rtw8723bs_sdio(rtwdev) &&
+			    vif->type == NL80211_IFTYPE_STATION) {
+				rtw_info(rtwdev,
+					 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
+					 rtwvif->mac_id, rtwvif->bssid);
+				rtw_fw_media_status_report(rtwdev,
+							   rtwvif->mac_id,
+							   true);
+			}
+
 			rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_FINISH);
 			rtw_fw_download_rsvd_page(rtwdev);
 			rtw_send_rsvd_page_h2c(rtwdev);

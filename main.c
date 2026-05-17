@@ -471,6 +471,26 @@ static void rtw_sta_rc_work(struct work_struct *work)
 	mutex_unlock(&rtwdev->mutex);
 }
 
+static bool rtw_vif_is_associated(struct ieee80211_vif *vif)
+{
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
+	return vif->cfg.assoc;
+#else
+	return vif->bss_conf.assoc;
+#endif
+}
+
+static bool rtw8723bs_defer_sta_media_status(struct rtw_dev *rtwdev,
+					     struct ieee80211_sta *sta,
+					     struct ieee80211_vif *vif)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	       vif->type == NL80211_IFTYPE_STATION &&
+	       !sta->tdls &&
+	       !rtw_vif_is_associated(vif);
+}
+
 int rtw_sta_add(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 		struct ieee80211_vif *vif)
 {
@@ -496,7 +516,12 @@ int rtw_sta_add(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 	INIT_WORK(&si->rc_work, rtw_sta_rc_work);
 
 	rtw_update_sta_info(rtwdev, si, true);
-	rtw_fw_media_status_report(rtwdev, si->mac_id, true);
+	if (rtw8723bs_defer_sta_media_status(rtwdev, sta, vif))
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: defer media_status connect macid=%u sta=%pM until assoc\n",
+			 si->mac_id, sta->addr);
+	else
+		rtw_fw_media_status_report(rtwdev, si->mac_id, true);
 
 	rtwdev->sta_cnt++;
 	rtwdev->beacon_loss = false;
