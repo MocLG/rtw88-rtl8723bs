@@ -78,8 +78,6 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		return;
 	}
 
-	rtw_fw_media_status_report(rtwdev, 0, false);
-
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
 	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
@@ -91,13 +89,21 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtwvif->net_type = RTW_NET_MGD_LINKED;
 	rtw_vif_port_config(rtwdev, rtwvif,
 			    PORT_SET_BSSID | PORT_SET_NET_TYPE);
+
+	rtw_fw_media_status_report(rtwdev, 0, false);
+
 	rtw_write8(rtwdev, REG_BCN_CTRL,
 		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
-	rtwdev->hal.rcr |= BIT_CBSSID_DATA | BIT_CBSSID_BCN | BIT_AMF;
+	rtwdev->hal.rcr |= BIT_AMF;
+	rtwdev->hal.rcr &= ~(BIT_CBSSID_DATA | BIT_CBSSID_BCN);
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: join_prepare_rx rcr=0x%08x\n",
+		 rtwdev->hal.rcr);
 
 	retry_limit = (RTW8723BS_JOIN_RETRY_LIMIT << 8) |
 		      RTW8723BS_JOIN_RETRY_LIMIT;

@@ -340,7 +340,8 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 		rtw_fw_adaptivity_result(rtwdev, c2h->payload, len);
 		break;
 	default:
-		rtw_dbg(rtwdev, RTW_DBG_FW, "C2H 0x%x isn't handled\n", c2h->id);
+		rtw_info(rtwdev, "C2H_DEBUG: unhandled C2H id=0x%02x seq=0x%02x len=%d\n",
+			 c2h->id, c2h->seq, len);
 		break;
 	}
 
