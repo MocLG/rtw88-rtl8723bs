@@ -86,9 +86,7 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	sec_before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
 
 	ether_addr_copy(rtwvif->bssid, bssid);
-	rtwvif->net_type = RTW_NET_MGD_LINKED;
-	rtw_vif_port_config(rtwdev, rtwvif,
-			    PORT_SET_BSSID | PORT_SET_NET_TYPE);
+	rtw_vif_port_config(rtwdev, rtwvif, PORT_SET_BSSID);
 
 	rtw_fw_media_status_report(rtwdev, 0, false);
 
@@ -115,9 +113,8 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_write16_set(rtwdev, RTW_SEC_CONFIG, sec_bits);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
-		 bssid, old_net_type, rtwvif->net_type, msr_before,
-		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM old_net_type %u (no change) MSR 0x%02x (unchanged) BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 bssid, old_net_type, msr_before, bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
 		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
