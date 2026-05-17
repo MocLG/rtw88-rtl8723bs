@@ -959,12 +959,7 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 #endif
 {
 	struct rtw_dev *rtwdev = hw->priv;
-	bool defer_rfk = false;
 	int ret;
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
-	defer_rfk = rtw8723bs_mgd_prepare_is_auth(rtwdev, info);
-#endif
 
 	mutex_lock(&rtwdev->mutex);
 	rtw_leave_lps_deep(rtwdev);
@@ -979,12 +974,7 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
-	if (defer_rfk)
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: defer_auth_rfk need_rfk=%d\n",
-			 rtwdev->need_rfk);
-	else
-		rtw_chip_prepare_tx(rtwdev);
+	rtw_chip_prepare_tx(rtwdev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif
