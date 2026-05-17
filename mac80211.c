@@ -95,7 +95,7 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
-	rtwdev->hal.rcr |= BIT_AMF;
+	rtwdev->hal.rcr |= BIT_AMF | BIT_AAP;
 	rtwdev->hal.rcr &= ~(BIT_CBSSID_DATA | BIT_CBSSID_BCN);
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
@@ -154,6 +154,16 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 		 !!(rtwdev->hw->conf.flags & IEEE80211_CONF_IDLE), skb->len,
 		 le16_to_cpu(fc), le16_to_cpu(hdr->seq_ctrl),
 		 hdr->addr1, hdr->addr2, hdr->addr3, sta_addr);
+
+	if (ieee80211_is_auth(fc)) {
+		int i, dump_len = min_t(int, skb->len, 48);
+		char hex[256] = {};
+		for (i = 0; i < dump_len; i++)
+			sprintf(hex + i * 3, "%02x ", skb->data[i]);
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: auth_tx_data (%d bytes): %s\n",
+			 dump_len, hex);
+	}
 }
 
 static void rtw_ops_tx(struct ieee80211_hw *hw,

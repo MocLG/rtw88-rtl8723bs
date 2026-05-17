@@ -342,6 +342,13 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 	default:
 		rtw_info(rtwdev, "C2H_DEBUG: unhandled C2H id=0x%02x seq=0x%02x len=%d\n",
 			 c2h->id, c2h->seq, len);
+		if (c2h->id == 0x15 && len > 0 && len <= 8) {
+			int i;
+			char hex[64] = {};
+			for (i = 0; i < len; i++)
+				sprintf(hex + i * 3, "%02x ", c2h->payload[i]);
+			rtw_info(rtwdev, "C2H_DEBUG: id=0x15 payload: %s\n", hex);
+		}
 		break;
 	}
 

@@ -1502,6 +1502,18 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
+
+	if (!test_bit(RTW_FLAG_SCANNING, rtwdev->flags) &&
+	    skb->len >= 24 && skb->len < 128) {
+		struct ieee80211_hdr *rx_hdr = (struct ieee80211_hdr *)skb->data;
+		u16 rx_fc = le16_to_cpu(rx_hdr->frame_control);
+		rtw_info(rtwdev,
+			 "RX_DEBUG: auth_window len=%u fc=0x%04x ftype=%u stype=%u addr1=%pM addr2=%pM addr3=%pM\n",
+			 skb->len, rx_fc,
+			 (rx_fc >> 12) & 3, (rx_fc >> 4) & 0xf,
+			 rx_hdr->addr1, rx_hdr->addr2, rx_hdr->addr3);
+	}
+
 	rtw_sdio_trace_mgmt_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
 
 	/* Defensive: do not hand zero-length SKBs to mac80211; drop and log */
