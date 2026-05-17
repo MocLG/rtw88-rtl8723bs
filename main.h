@@ -973,8 +973,6 @@ struct rtw_vif {
 	u8 mac_id;
 	u8 mac_addr[ETH_ALEN];
 	u8 bssid[ETH_ALEN];
-	u8 pre_auth_deauth_bssid[ETH_ALEN];
-	unsigned long pre_auth_deauth_time;
 	u8 port;
 	u8 bcn_ctrl;
 	struct list_head rsvd_page_list;

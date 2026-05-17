@@ -2,8 +2,6 @@
 /* Copyright(c) 2018-2019  Realtek Corporation
  */
 
-#include <linux/delay.h>
-#include <linux/jiffies.h>
 #include "main.h"
 #include "sec.h"
 #include "tx.h"
@@ -19,8 +17,6 @@
 #include "sar.h"
 #endif
 
-#define RTW8723BS_PRE_AUTH_DEAUTH_WAIT_MS 250
-#define RTW8723BS_PRE_AUTH_DEAUTH_WINDOW_MS 2000
 #define RTW8723BS_JOIN_RETRY_LIMIT 0x30
 
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
@@ -56,49 +52,6 @@ static bool rtw8723bs_mgd_prepare_is_auth(struct rtw_dev *rtwdev,
 	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 	       info && info->subtype == IEEE80211_STYPE_AUTH;
-}
-
-static bool rtw8723bs_tx_deauth(struct rtw_dev *rtwdev,
-				struct ieee80211_vif *vif,
-				const u8 *da, const u8 *bssid,
-				gfp_t gfp, const char *context)
-{
-	struct ieee80211_tx_control control = {};
-	struct ieee80211_tx_info *info;
-	struct ieee80211_mgmt *mgmt;
-	struct sk_buff *skb;
-	unsigned int frame_len;
-	unsigned int headroom;
-
-	if (!vif || !is_valid_ether_addr(da) || !is_valid_ether_addr(bssid))
-		return false;
-
-	frame_len = sizeof(struct ieee80211_hdr_3addr) + sizeof(mgmt->u.deauth);
-	headroom = rtwdev->chip->tx_pkt_desc_sz + 8;
-	skb = alloc_skb(headroom + frame_len, gfp);
-	if (!skb)
-		return false;
-
-	skb_reserve(skb, headroom);
-	mgmt = skb_put_zero(skb, frame_len);
-	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
-					  IEEE80211_STYPE_DEAUTH);
-	memcpy(mgmt->da, da, ETH_ALEN);
-	memcpy(mgmt->sa, vif->addr, ETH_ALEN);
-	memcpy(mgmt->bssid, bssid, ETH_ALEN);
-	mgmt->u.deauth.reason_code = cpu_to_le16(WLAN_REASON_DEAUTH_LEAVING);
-
-	info = IEEE80211_SKB_CB(skb);
-	memset(info, 0, sizeof(*info));
-	info->control.vif = vif;
-
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s_deauth bssid=%pM source=%pM reason=%u\n",
-		 context, mgmt->bssid, mgmt->sa, WLAN_REASON_DEAUTH_LEAVING);
-
-	rtw_tx(rtwdev, &control, skb);
-
-	return true;
 }
 
 static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
@@ -212,20 +165,17 @@ static void rtw_ops_tx(struct ieee80211_hw *hw,
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
-static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
-					      struct ieee80211_vif *vif,
-					      struct ieee80211_prep_tx_info *info)
+static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
+					    struct ieee80211_vif *vif,
+					    struct ieee80211_prep_tx_info *info)
 {
 	static const u8 zero_addr[ETH_ALEN] = { 0 };
-	struct rtw_vif *rtwvif;
 	const u8 *bssid = NULL;
 
 	if (!rtw8723bs_mgd_prepare_is_auth(rtwdev, info) ||
 	    !vif ||
 	    test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 		return;
-
-	rtwvif = (struct rtw_vif *)vif->drv_priv;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 	if (!is_zero_ether_addr(vif->cfg.ap_addr))
@@ -237,7 +187,7 @@ static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
 
 	if (!bssid) {
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: mgd_pre_auth_deauth skip invalid_bssid subtype=0x%04x ap_addr=%pM conf_bssid=%pM\n",
+			 "MGMT_TX_DEBUG: mgd_prepare_auth_join skip invalid_bssid subtype=0x%04x ap_addr=%pM conf_bssid=%pM\n",
 			 info->subtype,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 			 vif->cfg.ap_addr,
@@ -249,23 +199,6 @@ static void rtw8723bs_mgd_prepare_auth_deauth(struct rtw_dev *rtwdev,
 	}
 
 	rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid);
-
-	if (ether_addr_equal(rtwvif->pre_auth_deauth_bssid, bssid) &&
-	    time_before(jiffies, rtwvif->pre_auth_deauth_time +
-			msecs_to_jiffies(RTW8723BS_PRE_AUTH_DEAUTH_WINDOW_MS))) {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: mgd_pre_auth_deauth skip recent bssid=%pM\n",
-			 bssid);
-		return;
-	}
-
-	if (!rtw8723bs_tx_deauth(rtwdev, vif, bssid, bssid, GFP_KERNEL,
-				 "mgd_pre_auth"))
-		return;
-
-	ether_addr_copy(rtwvif->pre_auth_deauth_bssid, bssid);
-	rtwvif->pre_auth_deauth_time = jiffies;
-	msleep(RTW8723BS_PRE_AUTH_DEAUTH_WAIT_MS);
 }
 #endif
 
@@ -1053,7 +986,7 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 	else
 		rtw_chip_prepare_tx(rtwdev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
-	rtw8723bs_mgd_prepare_auth_deauth(rtwdev, vif, info);
+	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif
 out:
 	mutex_unlock(&rtwdev->mutex);
