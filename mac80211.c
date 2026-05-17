@@ -2,6 +2,8 @@
 /* Copyright(c) 2018-2019  Realtek Corporation
  */
 
+#include <linux/delay.h>
+#include <linux/jiffies.h>
 #include "main.h"
 #include "sec.h"
 #include "tx.h"
@@ -90,8 +92,9 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_write8(rtwdev, REG_BCN_CTRL,
 		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
 
+	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
-	rtwdev->hal.rcr |= BIT_CBSSID_DATA | BIT_CBSSID_BCN;
+	rtwdev->hal.rcr |= BIT_CBSSID_DATA | BIT_CBSSID_BCN | BIT_AMF;
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	retry_limit = (RTW8723BS_JOIN_RETRY_LIMIT << 8) |
@@ -164,6 +167,39 @@ static void rtw_ops_tx(struct ieee80211_hw *hw,
 	rtw_tx(rtwdev, control, skb);
 }
 
+static void rtw8723bs_tx_deauth(struct rtw_dev *rtwdev,
+				struct ieee80211_vif *vif,
+				const u8 *bssid)
+{
+	struct ieee80211_tx_control control = {};
+	struct ieee80211_tx_info *info;
+	struct ieee80211_mgmt *mgmt;
+	struct sk_buff *skb;
+	unsigned int frame_len;
+
+	frame_len = sizeof(struct ieee80211_hdr_3addr) + sizeof(mgmt->u.deauth);
+	skb = dev_alloc_skb(frame_len);
+	if (!skb)
+		return;
+
+	mgmt = skb_put_zero(skb, frame_len);
+	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					  IEEE80211_STYPE_DEAUTH);
+	memcpy(mgmt->da, bssid, ETH_ALEN);
+	memcpy(mgmt->sa, vif->addr, ETH_ALEN);
+	memcpy(mgmt->bssid, bssid, ETH_ALEN);
+	mgmt->u.deauth.reason_code = cpu_to_le16(WLAN_REASON_DEAUTH_LEAVING);
+
+	info = IEEE80211_SKB_CB(skb);
+	memset(info, 0, sizeof(*info));
+	info->control.vif = vif;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM\n", bssid);
+
+	rtw_tx(rtwdev, &control, skb);
+}
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 					    struct ieee80211_vif *vif,
@@ -198,6 +234,7 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		return;
 	}
 
+	rtw8723bs_tx_deauth(rtwdev, vif, bssid);
 	rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid);
 }
 #endif

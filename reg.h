@@ -532,6 +532,7 @@
 #define BIT_DISDECMYPKT		BIT(10)
 #define BIT_AICV		BIT(9)
 #define BIT_ACRC32		BIT(8)
+#define BIT_AMF			BIT(13)
 #define BIT_CBSSID_BCN		BIT(7)
 #define BIT_CBSSID_DATA		BIT(6)
 #define BIT_APWRMGT		BIT(5)

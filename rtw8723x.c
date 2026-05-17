@@ -349,7 +349,7 @@ static int __rtw8723x_read_efuse(struct rtw_dev *rtwdev, u8 *log_map)
 #define WLAN_RX_FILTER0		0xFFFF
 #define WLAN_RX_FILTER1		0x400
 #define WLAN_RX_FILTER2		0xFFFF
-#define WLAN_RCR_CFG		0x700060CE
+#define WLAN_RCR_CFG		(0x700060CE | BIT_AMF)
 
 static int __rtw8723x_mac_init(struct rtw_dev *rtwdev)
 {
