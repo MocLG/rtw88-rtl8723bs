@@ -1439,11 +1439,6 @@ static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
 }
 
-static u32 rtw_coex_8723bs_wifi_ant_path(struct rtw_dev *rtwdev)
-{
-	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x280 : 0x0;
-}
-
 static bool rtw_coex_8723bs_ant_is_aux(struct rtw_dev *rtwdev)
 {
 	return !!(rtwdev->efuse.bt_setting & BIT(6));
@@ -1492,7 +1487,7 @@ static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
 						"scan_pta_ant");
 }
 
-static void rtw_coex_8723bs_force_assoc_wifi_ant(struct rtw_dev *rtwdev)
+static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
@@ -1504,15 +1499,15 @@ static void rtw_coex_8723bs_force_assoc_wifi_ant(struct rtw_dev *rtwdev)
 	    !coex_stat->bt_disabled)
 		return;
 
-	ant_target = rtw_coex_8723bs_wifi_ant_path(rtwdev);
+	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 
-	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_BBSW,
-				COEX_SWITCH_TO_WLG);
+	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_PTA,
+				COEX_SWITCH_TO_NOCARE);
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
-						    "assoc_wifi_ant");
+						    "assoc_pta_ant");
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc WiFi ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
 		 ant_target, ant_path, rtw_read32(rtwdev, REG_LED_CFG),
@@ -3130,7 +3125,7 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 
 		rtw_coex_run_coex(rtwdev, COEX_RSN_2GCONSTART);
-		rtw_coex_8723bs_force_assoc_wifi_ant(rtwdev);
+		rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
 		/* To keep TDMA case during connect process,
 		 * to avoid changed by Btinfo and runcoexmechanism
