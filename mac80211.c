@@ -106,7 +106,8 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 				       const u8 *bssid)
 {
 	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
-	enum rtw_net_type sw_net_type = rtwvif->net_type;
+	enum rtw_net_type old_net_type = rtwvif->net_type;
+	u8 bcn_ctrl_before;
 	u32 rcr_before;
 	u16 rxfltmap2_before;
 	u16 retry_before;
@@ -123,6 +124,7 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	}
 
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
+	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
 	retry_before = rtw_read16(rtwdev, REG_RETRY_LIMIT);
@@ -132,7 +134,8 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtwvif->net_type = RTW_NET_MGD_LINKED;
 	rtw_vif_port_config(rtwdev, rtwvif,
 			    PORT_SET_BSSID | PORT_SET_NET_TYPE);
-	rtwvif->net_type = sw_net_type;
+	rtw_write8(rtwdev, REG_BCN_CTRL,
+		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
 
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 	rtwdev->hal.rcr |= BIT_CBSSID_DATA | BIT_CBSSID_BCN;
@@ -148,9 +151,10 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_write16_set(rtwdev, RTW_SEC_CONFIG, sec_bits);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM sw_net_type=%u hw_net_type=%u MSR 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
-		 bssid, sw_net_type, RTW_NET_MGD_LINKED, msr_before,
-		 rtw_read8(rtwdev, REG_CR + 2), rcr_before,
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 bssid, old_net_type, rtwvif->net_type, msr_before,
+		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
+		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
 		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
 		 retry_before, rtw_read16(rtwdev, REG_RETRY_LIMIT),
@@ -677,8 +681,27 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 	}
 
 	if (changed & BSS_CHANGED_BSSID) {
+		bool bssid_cleared = is_zero_ether_addr(conf->bssid);
+
 		ether_addr_copy(rtwvif->bssid, conf->bssid);
 		config |= PORT_SET_BSSID;
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+		    vif->type == NL80211_IFTYPE_STATION && bssid_cleared) {
+			enum rtw_net_type old_net_type = rtwvif->net_type;
+			u8 bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
+
+			rtwvif->aid = 0;
+			rtwvif->net_type = RTW_NET_NO_LINK;
+			config |= PORT_SET_NET_TYPE | PORT_SET_AID;
+			rtw_write8(rtwdev, REG_BCN_CTRL,
+				   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION |
+				   BIT_DIS_ATIM);
+			rtw_info(rtwdev,
+				 "MGMT_TX_DEBUG: bssid_clear net_type %u->%u BCN_CTRL 0x%02x->0x%02x\n",
+				 old_net_type, rtwvif->net_type, bcn_ctrl_before,
+				 rtw_read8(rtwdev, REG_BCN_CTRL));
+		}
 		if (!rtw_core_check_sta_active(rtwdev))
 			rtw_clear_op_chan(rtwdev);
 		else
