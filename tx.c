@@ -43,7 +43,8 @@ void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 		more_data = true;
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    pkt_info->qsel != TX_DESC_QSEL_MGMT)
 		first_seg = true;
 
 	tx_desc->w0 = le32_encode_bits(pkt_info->tx_pkt_size, RTW_TX_DESC_W0_TXPKTSIZE) |
@@ -512,6 +513,10 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = skb->priority;
 	pkt_info->ls = true;
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    is_mgmt)
+		pkt_info->ls = false;
 
 	/* maybe merge with tx status ? */
 	rtw_tx_stats(rtwdev, vif, skb);
