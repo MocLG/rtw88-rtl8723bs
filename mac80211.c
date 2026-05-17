@@ -607,12 +607,21 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 #endif
 			if (rtw8723bs_sdio(rtwdev) &&
 			    vif->type == NL80211_IFTYPE_STATION) {
-				rtw_info(rtwdev,
-					 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
-					 rtwvif->mac_id, rtwvif->bssid);
-				rtw_fw_media_status_report(rtwdev,
-							   rtwvif->mac_id,
-							   true);
+				if (!rtwvif->fw_media_connected) {
+					rtw_info(rtwdev,
+						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
+						 rtwvif->mac_id,
+						 rtwvif->bssid);
+					rtw_fw_media_status_report(rtwdev,
+								   rtwvif->mac_id,
+								   true);
+					rtwvif->fw_media_connected = true;
+				} else {
+					rtw_info(rtwdev,
+						 "MGMT_TX_DEBUG: assoc media_status already connected macid=%u bssid=%pM\n",
+						 rtwvif->mac_id,
+						 rtwvif->bssid);
+				}
 			}
 
 			rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_FINISH);
