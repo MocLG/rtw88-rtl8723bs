@@ -78,6 +78,8 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		return;
 	}
 
+	rtw_fw_media_status_report(rtwdev, 0, false);
+
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
 	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
