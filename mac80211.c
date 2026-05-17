@@ -18,6 +18,9 @@
 #endif
 
 #define RTW8723BS_JOIN_RETRY_LIMIT 0x30
+#define RTW8723BS_AUTH_SYNC_WAIT_FALLBACK_MS 120
+#define RTW8723BS_AUTH_SYNC_WAIT_MIN_MS 80
+#define RTW8723BS_AUTH_SYNC_WAIT_MAX_MS 160
 
 static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 {
@@ -59,12 +62,28 @@ static bool rtw8723bs_mgd_prepare_is_auth(struct rtw_dev *rtwdev,
 	       info->subtype == IEEE80211_STYPE_AUTH;
 }
 
-static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
+static unsigned int rtw8723bs_auth_sync_wait_ms(struct ieee80211_vif *vif)
+{
+	unsigned int wait_ms;
+	u16 beacon_int = vif->bss_conf.beacon_int;
+
+	if (!beacon_int)
+		return RTW8723BS_AUTH_SYNC_WAIT_FALLBACK_MS;
+
+	wait_ms = DIV_ROUND_UP(beacon_int * 1024, 1000);
+	wait_ms += 20;
+
+	return clamp_t(unsigned int, wait_ms, RTW8723BS_AUTH_SYNC_WAIT_MIN_MS,
+		       RTW8723BS_AUTH_SYNC_WAIT_MAX_MS);
+}
+
+static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 				       struct ieee80211_vif *vif,
 				       const u8 *bssid)
 {
 	struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
 	enum rtw_net_type old_net_type = rtwvif->net_type;
+	bool fresh_join;
 	u8 bcn_ctrl_before;
 	u32 rcr_before;
 	u16 rxfltmap2_before;
@@ -78,8 +97,11 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare skip invalid_bssid=%pM\n",
 			 bssid);
-		return;
+		return false;
 	}
+
+	fresh_join = old_net_type != RTW_NET_MGD_LINKED ||
+		     !ether_addr_equal(rtwvif->bssid, bssid);
 
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
 	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
@@ -117,14 +139,16 @@ static void rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_write16_set(rtwdev, RTW_SEC_CONFIG, sec_bits);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
-		 bssid, old_net_type, rtwvif->net_type, msr_before,
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 bssid, fresh_join, old_net_type, rtwvif->net_type, msr_before,
 		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
 		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
 		 retry_before, rtw_read16(rtwdev, REG_RETRY_LIMIT),
 		 sec_before, rtw_read16(rtwdev, RTW_SEC_CONFIG));
+
+	return fresh_join;
 }
 #endif
 
@@ -220,7 +244,18 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		return;
 	}
 
-	rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid);
+	if (rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid)) {
+		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
+
+		/* Staging waits for the target beacon before issuing auth.
+		 * Give this softmac path one beacon interval after programming
+		 * BSSID/MSR/RCR so the MAC can settle on the target BSS.
+		 */
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: join_prepare wait_for_beacon_sync bssid=%pM wait_ms=%u beacon_int=%u\n",
+			 bssid, wait_ms, vif->bss_conf.beacon_int);
+		msleep(wait_ms);
+	}
 }
 #endif
 
