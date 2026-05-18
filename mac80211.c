@@ -194,6 +194,45 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 	}
 }
 
+static void rtw8723bs_tx_pre_auth_deauth(struct rtw_dev *rtwdev,
+					 struct ieee80211_vif *vif,
+					 const u8 *bssid)
+{
+	struct ieee80211_tx_control control = {};
+	struct ieee80211_tx_info *info;
+	struct ieee80211_mgmt *mgmt;
+	struct sk_buff *skb;
+	unsigned int headroom;
+	unsigned int frame_len;
+
+	frame_len = sizeof(struct ieee80211_hdr_3addr) + sizeof(mgmt->u.deauth);
+	headroom = rtwdev->chip->tx_pkt_desc_sz + 8;
+
+	skb = dev_alloc_skb(headroom + frame_len);
+	if (!skb)
+		return;
+
+	skb_reserve(skb, headroom);
+	mgmt = skb_put_zero(skb, frame_len);
+	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					  IEEE80211_STYPE_DEAUTH);
+	memcpy(mgmt->da, bssid, ETH_ALEN);
+	memcpy(mgmt->sa, vif->addr, ETH_ALEN);
+	memcpy(mgmt->bssid, bssid, ETH_ALEN);
+	mgmt->u.deauth.reason_code = cpu_to_le16(WLAN_REASON_DEAUTH_LEAVING);
+
+	info = IEEE80211_SKB_CB(skb);
+	memset(info, 0, sizeof(*info));
+	info->control.vif = vif;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM wait_ms=100\n",
+		 bssid);
+
+	rtw_tx(rtwdev, &control, skb);
+	msleep(100);
+}
+
 static void rtw_ops_tx(struct ieee80211_hw *hw,
 		       struct ieee80211_tx_control *control,
 		       struct sk_buff *skb)
@@ -247,6 +286,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 	if (rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid)) {
 		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
 
+		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
+
 		/* Staging waits for the target beacon before issuing auth.
 		 * Give this softmac path one beacon interval after programming
 		 * BSSID/MSR/RCR so the MAC can settle on the target BSS.
@@ -255,6 +296,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare wait_for_beacon_sync bssid=%pM wait_ms=%u beacon_int=%u\n",
 			 bssid, wait_ms, vif->bss_conf.beacon_int);
 		msleep(wait_ms);
+	} else {
+		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 	}
 }
 #endif
