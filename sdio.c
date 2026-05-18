@@ -1503,6 +1503,11 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	rtw_update_rx_freq_for_invalid(rtwdev, skb, rx_status, pkt_stat);
 	rtw_rx_stats(rtwdev, pkt_stat->vif, skb);
 
+	if (skb->len >= sizeof(struct ieee80211_hdr_3addr))
+		rtw8723bs_auth_sync_rx(rtwdev,
+				       (struct ieee80211_hdr *)skb->data,
+				       skb->len, pkt_stat, rx_status);
+
 	if (!test_bit(RTW_FLAG_SCANNING, rtwdev->flags) &&
 	    skb->len >= 24 && skb->len < 128) {
 		struct ieee80211_hdr *rx_hdr = (struct ieee80211_hdr *)skb->data;

@@ -77,6 +77,100 @@ static unsigned int rtw8723bs_auth_sync_wait_ms(struct ieee80211_vif *vif)
 		       RTW8723BS_AUTH_SYNC_WAIT_MAX_MS);
 }
 
+static void rtw8723bs_auth_sync_start(struct rtw_dev *rtwdev, const u8 *bssid)
+{
+	struct rtw_auth_sync *sync = &rtwdev->auth_sync;
+	unsigned long flags;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	ether_addr_copy(sync->bssid, bssid);
+	sync->seen = false;
+	sync->seen_count = 0;
+	sync->active = true;
+	spin_unlock_irqrestore(&sync->lock, flags);
+}
+
+static void rtw8723bs_auth_sync_stop(struct rtw_dev *rtwdev)
+{
+	struct rtw_auth_sync *sync = &rtwdev->auth_sync;
+	unsigned long flags;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	sync->active = false;
+	spin_unlock_irqrestore(&sync->lock, flags);
+}
+
+static bool rtw8723bs_auth_sync_seen(struct rtw_dev *rtwdev)
+{
+	struct rtw_auth_sync *sync = &rtwdev->auth_sync;
+	unsigned long flags;
+	bool seen;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	seen = sync->seen;
+	spin_unlock_irqrestore(&sync->lock, flags);
+
+	return seen;
+}
+
+static bool rtw8723bs_auth_sync_wait(struct rtw_dev *rtwdev,
+				     unsigned int wait_ms)
+{
+	struct rtw_auth_sync *sync = &rtwdev->auth_sync;
+
+	return wait_event_timeout(sync->wait,
+				  rtw8723bs_auth_sync_seen(rtwdev),
+				  msecs_to_jiffies(wait_ms)) > 0;
+}
+
+void rtw8723bs_auth_sync_rx(struct rtw_dev *rtwdev,
+			    const struct ieee80211_hdr *hdr, u32 len,
+			    const struct rtw_rx_pkt_stat *pkt_stat,
+			    const struct ieee80211_rx_status *rx_status)
+{
+	struct rtw_auth_sync *sync = &rtwdev->auth_sync;
+	const char *stype;
+	unsigned long flags;
+	bool matched = false;
+	u32 seen_count = 0;
+	__le16 fc = hdr->frame_control;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ||
+	    pkt_stat->crc_err || pkt_stat->icv_err)
+		return;
+
+	if (ieee80211_is_beacon(fc))
+		stype = "beacon";
+	else if (ieee80211_is_probe_resp(fc))
+		stype = "probe_resp";
+	else
+		return;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	if (sync->active && ether_addr_equal(hdr->addr3, sync->bssid)) {
+		sync->seen = true;
+		sync->seen_count++;
+		seen_count = sync->seen_count;
+		matched = true;
+	}
+	spin_unlock_irqrestore(&sync->lock, flags);
+
+	if (!matched)
+		return;
+
+	rtw_info(rtwdev,
+		 "MGMT_RX_DEBUG: auth_sync_target stype=%s len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM count=%u rate=%u crc=%d icv=%d freq=%u signal=%d flags=0x%x drv_info=%u shift=%u\n",
+		 stype, len, le16_to_cpu(fc), le16_to_cpu(hdr->seq_ctrl),
+		 hdr->addr1, hdr->addr2, hdr->addr3, seen_count, pkt_stat->rate,
+		 pkt_stat->crc_err, pkt_stat->icv_err, rx_status->freq,
+		 rx_status->signal, (unsigned int)rx_status->flag,
+		 pkt_stat->drv_info_sz, pkt_stat->shift);
+	wake_up(&sync->wait);
+}
+EXPORT_SYMBOL(rtw8723bs_auth_sync_rx);
+
 static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 				       struct ieee80211_vif *vif,
 				       const u8 *bssid)
@@ -285,17 +379,23 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 
 	if (rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid)) {
 		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
+		bool beacon_seen;
 
+		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 
 		/* Staging waits for the target beacon before issuing auth.
-		 * Give this softmac path one beacon interval after programming
-		 * BSSID/MSR/RCR so the MAC can settle on the target BSS.
+		 * Wait until RX confirms a beacon/probe response from the target
+		 * BSSID after BSSID/MSR/RCR have been programmed.
 		 */
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare wait_for_beacon_sync bssid=%pM wait_ms=%u beacon_int=%u\n",
 			 bssid, wait_ms, vif->bss_conf.beacon_int);
-		msleep(wait_ms);
+		beacon_seen = rtw8723bs_auth_sync_wait(rtwdev, wait_ms);
+		rtw8723bs_auth_sync_stop(rtwdev);
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
+			 bssid, beacon_seen, wait_ms);
 	} else {
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM skip_pre_auth_deauth\n",

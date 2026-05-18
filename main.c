@@ -2579,11 +2579,13 @@ int rtw_core_init(struct rtw_dev *rtwdev)
 
 	spin_lock_init(&rtwdev->txq_lock);
 	spin_lock_init(&rtwdev->tx_report.q_lock);
+	spin_lock_init(&rtwdev->auth_sync.lock);
 
 	mutex_init(&rtwdev->mutex);
 	mutex_init(&rtwdev->hal.tx_power_mutex);
 
 	init_waitqueue_head(&rtwdev->coex.wait);
+	init_waitqueue_head(&rtwdev->auth_sync.wait);
 	init_completion(&rtwdev->lps_leave_check);
 	init_completion(&rtwdev->fw_scan_density);
 
