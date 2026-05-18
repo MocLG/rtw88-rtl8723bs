@@ -1956,11 +1956,11 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 		 */
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
 			auth_resp = rtw_sdio_build_8723bs_auth_resp(rtwdev, skb);
+			if (auth_resp)
+				ieee80211_rx_irqsafe(hw, auth_resp);
 			ieee80211_tx_info_clear_status(info);
 			info->flags |= IEEE80211_TX_STAT_ACK;
 			ieee80211_tx_status_irqsafe(hw, skb);
-			if (auth_resp)
-				ieee80211_rx_irqsafe(hw, auth_resp);
 			return;
 		}
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
