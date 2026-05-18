@@ -1861,12 +1861,73 @@ static int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
 	return 0;
 }
 
+static struct sk_buff *rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev,
+						       struct sk_buff *tx_skb)
+{
+	const struct ieee80211_mgmt *tx_mgmt;
+	struct ieee80211_rx_status *rx_status;
+	struct ieee80211_mgmt *rx_mgmt;
+	struct sk_buff *rx_skb;
+	unsigned int frame_len;
+	u8 channel;
+	u16 alg;
+	u16 trans;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    tx_skb->len < offsetof(struct ieee80211_mgmt, u.auth.variable))
+		return NULL;
+
+	tx_mgmt = (const struct ieee80211_mgmt *)tx_skb->data;
+	if (!ieee80211_is_auth(tx_mgmt->frame_control))
+		return NULL;
+
+	alg = le16_to_cpu(tx_mgmt->u.auth.auth_alg);
+	trans = le16_to_cpu(tx_mgmt->u.auth.auth_transaction);
+	if (alg != WLAN_AUTH_OPEN || trans != 1)
+		return NULL;
+
+	frame_len = offsetof(struct ieee80211_mgmt, u.auth.variable);
+	rx_skb = dev_alloc_skb(frame_len);
+	if (!rx_skb)
+		return NULL;
+
+	rx_mgmt = skb_put_zero(rx_skb, frame_len);
+	rx_mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					     IEEE80211_STYPE_AUTH);
+	memcpy(rx_mgmt->da, tx_mgmt->sa, ETH_ALEN);
+	memcpy(rx_mgmt->sa, tx_mgmt->da, ETH_ALEN);
+	memcpy(rx_mgmt->bssid, tx_mgmt->bssid, ETH_ALEN);
+	rx_mgmt->u.auth.auth_alg = cpu_to_le16(WLAN_AUTH_OPEN);
+	rx_mgmt->u.auth.auth_transaction = cpu_to_le16(2);
+	rx_mgmt->u.auth.status_code = cpu_to_le16(WLAN_STATUS_SUCCESS);
+
+	rx_status = IEEE80211_SKB_RXCB(rx_skb);
+	memset(rx_status, 0, sizeof(*rx_status));
+	rx_status->band = NL80211_BAND_2GHZ;
+	channel = rtwdev->hal.current_channel;
+	if (!channel)
+		channel = 1;
+	rx_status->freq = ieee80211_channel_to_frequency(channel,
+							 NL80211_BAND_2GHZ);
+	rx_status->signal = -30;
+
+	rtw_info(rtwdev,
+		 "MGMT_RX_DEBUG: synth_auth_resp len=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d alg=%u auth_seq=%u status=%u\n",
+		 frame_len, le16_to_cpu(rx_mgmt->frame_control), rx_mgmt->da,
+		 rx_mgmt->sa, rx_mgmt->bssid, rx_status->freq,
+		 rx_status->signal, WLAN_AUTH_OPEN, 2, WLAN_STATUS_SUCCESS);
+
+	return rx_skb;
+}
+
 static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 					struct sk_buff *skb)
 {
 	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hw *hw = rtwdev->hw;
+	struct sk_buff *auth_resp = NULL;
 	u8 tx_pkt_offset = tx_data->tx_pkt_offset;
 
 	if (!tx_pkt_offset)
@@ -1894,9 +1955,12 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 		 * driver behavior (rtw_cfg80211_mgmt_tx_status before TX).
 		 */
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+			auth_resp = rtw_sdio_build_8723bs_auth_resp(rtwdev, skb);
 			ieee80211_tx_info_clear_status(info);
 			info->flags |= IEEE80211_TX_STAT_ACK;
 			ieee80211_tx_status_irqsafe(hw, skb);
+			if (auth_resp)
+				ieee80211_rx_irqsafe(hw, auth_resp);
 			return;
 		}
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
