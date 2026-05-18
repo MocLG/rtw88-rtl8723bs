@@ -297,7 +297,9 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 bssid, wait_ms, vif->bss_conf.beacon_int);
 		msleep(wait_ms);
 	} else {
-		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM skip_pre_auth_deauth\n",
+			 bssid);
 	}
 }
 #endif
