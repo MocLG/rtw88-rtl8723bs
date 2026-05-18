@@ -21,7 +21,7 @@
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
-#define RTW8723BS_SYNTH_MLME_DELAY_MS			30
+#define RTW8723BS_SYNTH_MLME_DELAY_MS			120
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
@@ -124,6 +124,123 @@ static bool rtw_sdio_trace_eapol_needed(struct rtw_dev *rtwdev,
 	       rtw_sdio_is_eapol_data(skb);
 }
 
+static bool rtw_sdio_8723bs_mlme_resp_stype(u16 stype)
+{
+	return stype == IEEE80211_STYPE_AUTH ||
+	       stype == IEEE80211_STYPE_ASSOC_RESP ||
+	       stype == IEEE80211_STYPE_REASSOC_RESP;
+}
+
+static void rtw_sdio_8723bs_mlme_resp_seen(struct rtw_dev *rtwdev,
+					   struct ieee80211_hdr *hdr,
+					   u16 fc)
+{
+	struct rtw_mlme_resp_sync *sync = &rtwdev->mlme_resp_sync;
+	unsigned long flags;
+	bool matched = false;
+	u32 seen_count = 0;
+	u16 stype;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    !ieee80211_is_mgmt(hdr->frame_control))
+		return;
+
+	stype = fc & IEEE80211_FCTL_STYPE;
+	if (!rtw_sdio_8723bs_mlme_resp_stype(stype))
+		return;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	if (sync->active && sync->stype == stype &&
+	    ether_addr_equal(sync->bssid, hdr->addr3) &&
+	    ether_addr_equal(sync->addr1, hdr->addr1)) {
+		sync->seen = true;
+		sync->seen_count++;
+		seen_count = sync->seen_count;
+		matched = true;
+	}
+	spin_unlock_irqrestore(&sync->lock, flags);
+
+	if (matched)
+		rtw_info(rtwdev,
+			 "MGMT_RX_DEBUG: real_mlme_resp stype=%s bssid=%pM addr1=%pM count=%u\n",
+			 rtw_sdio_mgmt_stype_name(stype), hdr->addr3,
+			 hdr->addr1, seen_count);
+}
+
+static void rtw_sdio_8723bs_mlme_resp_sync_start(struct rtw_dev *rtwdev,
+						 struct sk_buff *rx_skb)
+{
+	struct rtw_mlme_resp_sync *sync = &rtwdev->mlme_resp_sync;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx_skb->data;
+	unsigned long flags;
+	u16 stype;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    rx_skb->len < sizeof(struct ieee80211_hdr_3addr) ||
+	    !ieee80211_is_mgmt(hdr->frame_control))
+		return;
+
+	stype = le16_to_cpu(hdr->frame_control) & IEEE80211_FCTL_STYPE;
+	if (!rtw_sdio_8723bs_mlme_resp_stype(stype))
+		return;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	ether_addr_copy(sync->bssid, hdr->addr3);
+	ether_addr_copy(sync->addr1, hdr->addr1);
+	sync->stype = stype;
+	sync->seen = false;
+	sync->seen_count = 0;
+	sync->active = true;
+	spin_unlock_irqrestore(&sync->lock, flags);
+}
+
+static bool rtw_sdio_8723bs_mlme_resp_sync_seen(struct rtw_dev *rtwdev,
+						struct sk_buff *rx_skb)
+{
+	struct rtw_mlme_resp_sync *sync = &rtwdev->mlme_resp_sync;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx_skb->data;
+	unsigned long flags;
+	bool seen = false;
+	u16 stype;
+
+	if (rx_skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return false;
+
+	stype = le16_to_cpu(hdr->frame_control) & IEEE80211_FCTL_STYPE;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	if (sync->active && sync->stype == stype &&
+	    ether_addr_equal(sync->bssid, hdr->addr3) &&
+	    ether_addr_equal(sync->addr1, hdr->addr1))
+		seen = sync->seen;
+	spin_unlock_irqrestore(&sync->lock, flags);
+
+	return seen;
+}
+
+static void rtw_sdio_8723bs_mlme_resp_sync_stop(struct rtw_dev *rtwdev,
+						struct sk_buff *rx_skb)
+{
+	struct rtw_mlme_resp_sync *sync = &rtwdev->mlme_resp_sync;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)rx_skb->data;
+	unsigned long flags;
+	u16 stype;
+
+	if (rx_skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return;
+
+	stype = le16_to_cpu(hdr->frame_control) & IEEE80211_FCTL_STYPE;
+
+	spin_lock_irqsave(&sync->lock, flags);
+	if (sync->active && sync->stype == stype &&
+	    ether_addr_equal(sync->bssid, hdr->addr3) &&
+	    ether_addr_equal(sync->addr1, hdr->addr1))
+		sync->active = false;
+	spin_unlock_irqrestore(&sync->lock, flags);
+}
+
 static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 				   struct sk_buff *skb, u32 pkt_offset,
 				   struct rtw_rx_pkt_stat *pkt_stat,
@@ -140,6 +257,8 @@ static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 	if ((fc & IEEE80211_FCTL_FTYPE) != IEEE80211_FTYPE_MGMT ||
 	    !rtw_sdio_trace_mgmt_rx_needed(fc))
 		return;
+
+	rtw_sdio_8723bs_mlme_resp_seen(rtwdev, hdr, fc);
 
 	if ((fc & IEEE80211_FCTL_STYPE) == IEEE80211_STYPE_AUTH &&
 	    skb->len >= offsetof(struct ieee80211_mgmt, u.auth.variable)) {
@@ -2200,12 +2319,27 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 			info->flags |= IEEE80211_TX_STAT_ACK;
 			ieee80211_tx_status_irqsafe(hw, skb);
 			if (mlme_resp) {
+				bool real_seen;
+
+				rtw_sdio_8723bs_mlme_resp_sync_start(rtwdev,
+								     mlme_resp);
 				rtw_info(rtwdev,
 					 "MGMT_RX_DEBUG: defer_synth_resp stype=%s delay_ms=%u\n",
 					 rtw_sdio_mgmt_stype_name(frame_control),
 					 RTW8723BS_SYNTH_MLME_DELAY_MS);
 				msleep(RTW8723BS_SYNTH_MLME_DELAY_MS);
-				ieee80211_rx_irqsafe(hw, mlme_resp);
+				real_seen = rtw_sdio_8723bs_mlme_resp_sync_seen(rtwdev,
+										mlme_resp);
+				rtw_sdio_8723bs_mlme_resp_sync_stop(rtwdev,
+								    mlme_resp);
+				if (real_seen) {
+					rtw_info(rtwdev,
+						 "MGMT_RX_DEBUG: drop_synth_resp stype=%s real_seen=1\n",
+						 rtw_sdio_mgmt_stype_name(frame_control));
+					dev_kfree_skb_any(mlme_resp);
+				} else {
+					ieee80211_rx_irqsafe(hw, mlme_resp);
+				}
 			}
 			return;
 		}

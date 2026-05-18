@@ -28,6 +28,27 @@ static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static void rtw8723bs_auth_rx_filter(struct rtw_dev *rtwdev,
+				     const char *where, bool accept_all)
+{
+	u32 before = rtw_read32(rtwdev, REG_RCR);
+
+	if (accept_all) {
+		rtwdev->hal.rcr |= BIT_AMF | BIT_AAP;
+		rtwdev->hal.rcr &= ~(BIT_CBSSID_DATA | BIT_CBSSID_BCN);
+	} else {
+		rtwdev->hal.rcr |= BIT_AMF | BIT_CBSSID_DATA | BIT_CBSSID_BCN;
+		rtwdev->hal.rcr &= ~BIT_AAP;
+	}
+
+	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s_rx %s RCR 0x%08x->0x%08x hal=0x%08x\n",
+		 where, accept_all ? "accept_all" : "target_only", before,
+		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr);
+}
+
 static void rtw8723bs_config_8021x_sec(struct rtw_dev *rtwdev,
 				       const char *where,
 				       bool tx_bc_default_key)
@@ -235,13 +256,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
-	rtwdev->hal.rcr |= BIT_AMF | BIT_CBSSID_DATA | BIT_CBSSID_BCN;
-	rtwdev->hal.rcr &= ~BIT_AAP;
-	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
-
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare_rx target_only rcr=0x%08x\n",
-		 rtwdev->hal.rcr);
+	rtw8723bs_auth_rx_filter(rtwdev, "join_prepare", true);
 
 	retry_limit = (RTW8723BS_JOIN_RETRY_LIMIT << 8) |
 		      RTW8723BS_JOIN_RETRY_LIMIT;
@@ -763,6 +778,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 #endif
 			if (rtw8723bs_sdio(rtwdev) &&
 			    vif->type == NL80211_IFTYPE_STATION) {
+				rtw8723bs_auth_rx_filter(rtwdev, "assoc",
+							 false);
 				if (!rtwvif->fw_media_connected) {
 					rtw_info(rtwdev,
 						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
@@ -803,6 +820,11 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			 */
 			if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 				rtw_hw_scan_abort(rtwdev);
+
+			if (rtw8723bs_sdio(rtwdev) &&
+			    vif->type == NL80211_IFTYPE_STATION)
+				rtw8723bs_auth_rx_filter(rtwdev, "disassoc",
+							 false);
 
 		}
 
