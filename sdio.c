@@ -21,6 +21,7 @@
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
+#define RTW8723BS_SYNTH_MLME_DELAY_MS			30
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
@@ -2080,17 +2081,19 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 	struct ieee80211_hw *hw = rtwdev->hw;
 	struct sk_buff *mlme_resp = NULL;
 	u8 tx_pkt_offset = tx_data->tx_pkt_offset;
+	bool trace_mgmt = tx_data->flags & RTW_SDIO_TX_TRACE_MGMT;
+	u16 frame_control = tx_data->frame_control;
 
 	if (!tx_pkt_offset)
 		tx_pkt_offset = rtwdev->chip->tx_pkt_desc_sz;
 
 	skb_pull(skb, tx_pkt_offset);
 
-	if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
+	if (trace_mgmt)
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d fake_ack=%d tx_offset=%u skb_len=%u\n",
-			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
-			 tx_data->frame_control, tx_data->sn, tx_data->qsel,
+			 rtw_sdio_mgmt_stype_name(frame_control),
+			 frame_control, tx_data->sn, tx_data->qsel,
 			 tx_data->rate,
 			 !!(info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS),
 			 !!(info->flags & IEEE80211_TX_CTL_NO_ACK),
@@ -2108,11 +2111,17 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
 			mlme_resp = rtw_sdio_build_8723bs_mlme_resp(rtwdev,
 								    skb);
-			if (mlme_resp)
-				ieee80211_rx_irqsafe(hw, mlme_resp);
 			ieee80211_tx_info_clear_status(info);
 			info->flags |= IEEE80211_TX_STAT_ACK;
 			ieee80211_tx_status_irqsafe(hw, skb);
+			if (mlme_resp) {
+				rtw_info(rtwdev,
+					 "MGMT_RX_DEBUG: defer_synth_resp stype=%s delay_ms=%u\n",
+					 rtw_sdio_mgmt_stype_name(frame_control),
+					 RTW8723BS_SYNTH_MLME_DELAY_MS);
+				msleep(RTW8723BS_SYNTH_MLME_DELAY_MS);
+				ieee80211_rx_irqsafe(hw, mlme_resp);
+			}
 			return;
 		}
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
