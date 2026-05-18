@@ -1891,6 +1891,12 @@ static u8 *rtw_sdio_8723bs_put_ie(u8 *pos, const u8 *ie)
 	return pos + len;
 }
 
+static void rtw_sdio_8723bs_put_synth_fcs(struct sk_buff *rx_skb)
+{
+	/* mac80211 trims FCS because rtw88 advertises RX_INCLUDES_FCS. */
+	skb_put_zero(rx_skb, FCS_LEN);
+}
+
 static struct sk_buff *
 rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 {
@@ -1898,7 +1904,7 @@ rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 	struct ieee80211_rx_status *rx_status;
 	struct ieee80211_mgmt *rx_mgmt;
 	struct sk_buff *rx_skb;
-	unsigned int frame_len;
+	size_t frame_len;
 	u16 alg;
 	u16 trans;
 
@@ -1915,7 +1921,7 @@ rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		return NULL;
 
 	frame_len = offsetof(struct ieee80211_mgmt, u.auth.variable);
-	rx_skb = dev_alloc_skb(frame_len);
+	rx_skb = dev_alloc_skb(frame_len + FCS_LEN);
 	if (!rx_skb)
 		return NULL;
 
@@ -1928,15 +1934,17 @@ rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 	rx_mgmt->u.auth.auth_alg = cpu_to_le16(WLAN_AUTH_OPEN);
 	rx_mgmt->u.auth.auth_transaction = cpu_to_le16(2);
 	rx_mgmt->u.auth.status_code = cpu_to_le16(WLAN_STATUS_SUCCESS);
+	rtw_sdio_8723bs_put_synth_fcs(rx_skb);
 
 	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
 	rx_status = IEEE80211_SKB_RXCB(rx_skb);
 
 	rtw_info(rtwdev,
-		 "MGMT_RX_DEBUG: synth_auth_resp len=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d alg=%u auth_seq=%u status=%u\n",
-		 frame_len, le16_to_cpu(rx_mgmt->frame_control), rx_mgmt->da,
-		 rx_mgmt->sa, rx_mgmt->bssid, rx_status->freq,
-		 rx_status->signal, WLAN_AUTH_OPEN, 2, WLAN_STATUS_SUCCESS);
+		 "MGMT_RX_DEBUG: synth_auth_resp len=%zu skb_len=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d alg=%u auth_seq=%u status=%u\n",
+		 frame_len, rx_skb->len, le16_to_cpu(rx_mgmt->frame_control),
+		 rx_mgmt->da, rx_mgmt->sa, rx_mgmt->bssid,
+		 rx_status->freq, rx_status->signal, WLAN_AUTH_OPEN, 2,
+		 WLAN_STATUS_SUCCESS);
 
 	return rx_skb;
 }
@@ -1994,7 +2002,7 @@ rtw_sdio_build_8723bs_assoc_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		frame_len += 2 + sizeof(ext_rates_2g);
 	}
 
-	rx_skb = dev_alloc_skb(frame_len);
+	rx_skb = dev_alloc_skb(frame_len + FCS_LEN);
 	if (!rx_skb)
 		return NULL;
 
@@ -2027,14 +2035,15 @@ rtw_sdio_build_8723bs_assoc_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		memcpy(pos, ext_rates_2g, sizeof(ext_rates_2g));
 		pos += sizeof(ext_rates_2g);
 	}
+	rtw_sdio_8723bs_put_synth_fcs(rx_skb);
 
 	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
 	rx_status = IEEE80211_SKB_RXCB(rx_skb);
 
 	rtw_info(rtwdev,
-		 "MGMT_RX_DEBUG: synth_assoc_resp len=%zu fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d capab=0x%04x status=%u aid=%u rates=%u\n",
-		 frame_len, le16_to_cpu(rx_mgmt->frame_control), rx_mgmt->da,
-		 rx_mgmt->sa, rx_mgmt->bssid, rx_status->freq,
+		 "MGMT_RX_DEBUG: synth_assoc_resp len=%zu skb_len=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d capab=0x%04x status=%u aid=%u rates=%u\n",
+		 frame_len, rx_skb->len, le16_to_cpu(rx_mgmt->frame_control),
+		 rx_mgmt->da, rx_mgmt->sa, rx_mgmt->bssid, rx_status->freq,
 		 rx_status->signal, le16_to_cpu(rx_mgmt->u.assoc_resp.capab_info),
 		 WLAN_STATUS_SUCCESS,
 		 le16_to_cpu(rx_mgmt->u.assoc_resp.aid) & 0x7ff,
