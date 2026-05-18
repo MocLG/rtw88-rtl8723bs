@@ -209,9 +209,11 @@ static void rtw_fw_ra_report_handle(struct rtw_dev *rtwdev, u8 *payload,
 	struct rtw_c2h_ra_rpt *ra_rpt = (struct rtw_c2h_ra_rpt *)payload;
 	struct rtw_fw_iter_ra_data ra_data;
 
-	if (WARN(length < rtwdev->chip->c2h_ra_report_size,
-		 "invalid ra report c2h length %d\n", length))
+	if (length < rtwdev->chip->c2h_ra_report_size) {
+		rtw_warn(rtwdev, "short ra report c2h length %u expected %u\n",
+			 length, rtwdev->chip->c2h_ra_report_size);
 		return;
+	}
 
 	rtwdev->dm_info.tx_rate = u8_get_bits(ra_rpt->rate_sgi,
 					      RTW_C2H_RA_RPT_RATE);

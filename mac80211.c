@@ -28,6 +28,28 @@ static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static void rtw8723bs_config_8021x_sec(struct rtw_dev *rtwdev,
+				       const char *where,
+				       bool tx_bc_default_key)
+{
+	u16 before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
+	u16 sec = before;
+
+	sec |= RTW_SEC_CHK_KEYID | RTW_SEC_TX_DEC_EN | RTW_SEC_RX_DEC_EN;
+	sec &= ~(RTW_SEC_TX_UNI_USE_DK | RTW_SEC_RX_UNI_USE_DK |
+		 RTW_SEC_TX_BC_USE_DK | RTW_SEC_RX_BC_USE_DK);
+
+	if (tx_bc_default_key)
+		sec |= RTW_SEC_TX_BC_USE_DK;
+
+	rtw_write16(rtwdev, RTW_SEC_CONFIG, sec);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s 8021x_sec tx_bc_dk=%d SEC 0x%04x->0x%04x\n",
+		 where, tx_bc_default_key, before,
+		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
+}
+
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
 {
 	switch (le16_to_cpu(fc) & IEEE80211_FCTL_STYPE) {
@@ -185,7 +207,6 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	u16 sec_before;
 	u8 msr_before;
 	u16 retry_limit;
-	u16 sec_bits;
 
 	if (!is_valid_ether_addr(bssid)) {
 		rtw_info(rtwdev,
@@ -227,10 +248,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		      RTW8723BS_JOIN_RETRY_LIMIT;
 	rtw_write16(rtwdev, REG_RETRY_LIMIT, retry_limit);
 
-	sec_bits = RTW_SEC_TX_UNI_USE_DK | RTW_SEC_RX_UNI_USE_DK |
-		   RTW_SEC_TX_DEC_EN | RTW_SEC_RX_DEC_EN |
-		   RTW_SEC_TX_BC_USE_DK | RTW_SEC_RX_BC_USE_DK;
-	rtw_write16_set(rtwdev, RTW_SEC_CONFIG, sec_bits);
+	rtw8723bs_config_8021x_sec(rtwdev, "join_prepare", false);
 
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
@@ -966,6 +984,7 @@ static int rtw_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 {
 	struct rtw_dev *rtwdev = hw->priv;
 	struct rtw_sec_desc *sec = &rtwdev->sec;
+	bool pairwise = key->flags & IEEE80211_KEY_FLAG_PAIRWISE;
 	u8 hw_key_type;
 	u8 hw_key_idx;
 	int ret = 0;
@@ -1002,7 +1021,7 @@ static int rtw_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 	rtw_leave_lps_deep(rtwdev);
 
-	if (key->flags & IEEE80211_KEY_FLAG_PAIRWISE) {
+	if (pairwise) {
 		hw_key_idx = rtw_sec_get_free_cam(sec);
 	} else {
 		/* multiple interfaces? */
@@ -1021,11 +1040,19 @@ static int rtw_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		key->hw_key_idx = hw_key_idx;
 		rtw_sec_write_cam(rtwdev, sec, sta, key,
 				  hw_key_type, hw_key_idx);
+		if (rtw8723bs_sdio(rtwdev) &&
+		    vif && vif->type == NL80211_IFTYPE_STATION)
+			rtw8723bs_config_8021x_sec(rtwdev, "set_key",
+						   !pairwise);
 		break;
 	case DISABLE_KEY:
 		rtw_hci_flush_all_queues(rtwdev, false);
 		rtw_mac_flush_all_queues(rtwdev, false);
 		rtw_sec_clear_cam(rtwdev, sec, key->hw_key_idx);
+		if (rtw8723bs_sdio(rtwdev) &&
+		    vif && vif->type == NL80211_IFTYPE_STATION)
+			rtw8723bs_config_8021x_sec(rtwdev, "disable_key",
+						   false);
 		break;
 	}
 

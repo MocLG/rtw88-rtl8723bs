@@ -22,6 +22,7 @@
 #define RTW_SEC_RX_DEC_EN		BIT(3)
 #define RTW_SEC_TX_BC_USE_DK		BIT(6)
 #define RTW_SEC_RX_BC_USE_DK		BIT(7)
+#define RTW_SEC_CHK_KEYID		BIT(8)
 
 #define RTW_SEC_ENGINE_EN		BIT(9)
 
