@@ -91,6 +91,39 @@ static bool rtw_sdio_trace_mgmt_rx_needed(u16 fc)
 	}
 }
 
+static bool rtw_sdio_is_eapol_data(struct sk_buff *skb)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	unsigned int hdr_len;
+	const u8 *snap;
+	__le16 fc;
+
+	if (skb->len < sizeof(struct ieee80211_hdr_3addr))
+		return false;
+
+	fc = hdr->frame_control;
+	if (!ieee80211_is_data(fc))
+		return false;
+
+	hdr_len = ieee80211_hdrlen(fc);
+	if (skb->len < hdr_len + 8)
+		return false;
+
+	snap = skb->data + hdr_len;
+
+	return snap[0] == 0xaa && snap[1] == 0xaa && snap[2] == 0x03 &&
+	       snap[3] == 0x00 && snap[4] == 0x00 && snap[5] == 0x00 &&
+	       snap[6] == 0x88 && snap[7] == 0x8e;
+}
+
+static bool rtw_sdio_trace_eapol_needed(struct rtw_dev *rtwdev,
+					struct sk_buff *skb)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	       rtw_sdio_is_eapol_data(skb);
+}
+
 static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 				   struct sk_buff *skb, u32 pkt_offset,
 				   struct rtw_rx_pkt_stat *pkt_stat,
@@ -134,6 +167,55 @@ static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 		 pkt_stat->icv_err, pkt_stat->phy_status, rx_status->freq,
 		 rx_status->signal, (unsigned int)rx_status->flag, pkt_offset,
 		 pkt_stat->drv_info_sz, pkt_stat->shift);
+}
+
+static void rtw_sdio_trace_eapol_rx(struct rtw_dev *rtwdev,
+				    struct sk_buff *skb, u32 pkt_offset,
+				    struct rtw_rx_pkt_stat *pkt_stat,
+				    struct ieee80211_rx_status *rx_status)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	u16 fc;
+
+	if (!rtw_sdio_trace_eapol_needed(rtwdev, skb))
+		return;
+
+	fc = le16_to_cpu(hdr->frame_control);
+	rtw_info(rtwdev,
+		 "EAPOL_DEBUG: rx len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u mac_id=%u cam_id=%u decrypted=%d crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
+		 skb->len, fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1,
+		 hdr->addr2, hdr->addr3, pkt_stat->rate, pkt_stat->mac_id,
+		 pkt_stat->cam_id, pkt_stat->decrypted, pkt_stat->crc_err,
+		 pkt_stat->icv_err, pkt_stat->phy_status, rx_status->freq,
+		 rx_status->signal, (unsigned int)rx_status->flag, pkt_offset,
+		 pkt_stat->drv_info_sz, pkt_stat->shift);
+}
+
+static void rtw_sdio_trace_eapol_tx(struct rtw_dev *rtwdev,
+				    struct rtw_tx_pkt_info *pkt_info,
+				    struct sk_buff *skb,
+				    enum rtw_tx_queue_type queue)
+{
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
+	struct rtw_hal *hal = &rtwdev->hal;
+	u16 fc;
+
+	if (!rtw_sdio_trace_eapol_needed(rtwdev, skb))
+		return;
+
+	fc = le16_to_cpu(hdr->frame_control);
+	rtw_info(rtwdev,
+		 "EAPOL_DEBUG: tx len=%u queue=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u\n",
+		 skb->len, queue, fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1,
+		 hdr->addr2, hdr->addr3, pkt_info->rate, pkt_info->rate_id,
+		 pkt_info->bw, pkt_info->mac_id, pkt_info->sn,
+		 pkt_info->report,
+		 !!(info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS),
+		 !!(info->flags & IEEE80211_TX_CTL_NO_ACK),
+		 pkt_info->use_rate, pkt_info->dis_rate_fallback,
+		 pkt_info->sec_type, hal->current_channel,
+		 hal->current_band_width);
 }
 
 static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
@@ -1459,6 +1541,8 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 			 hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M]);
 	}
 
+	rtw_sdio_trace_eapol_tx(rtwdev, pkt_info, skb, queue);
+
 	ret = rtw_sdio_tx_skb_prepare(rtwdev, pkt_info, skb, queue);
 	if (ret)
 		return ret;
@@ -1522,6 +1606,7 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	}
 
 	rtw_sdio_trace_mgmt_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
+	rtw_sdio_trace_eapol_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
 
 	/* Defensive: do not hand zero-length SKBs to mac80211; drop and log */
 	if (skb->len == 0) {
