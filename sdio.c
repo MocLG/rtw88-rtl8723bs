@@ -1861,21 +1861,48 @@ static int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
 	return 0;
 }
 
-static struct sk_buff *rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev,
-						       struct sk_buff *tx_skb)
+static void rtw_sdio_fill_8723bs_synth_rx_status(struct rtw_dev *rtwdev,
+						 struct sk_buff *rx_skb)
+{
+	struct ieee80211_rx_status *rx_status = IEEE80211_SKB_RXCB(rx_skb);
+	u8 channel;
+
+	memset(rx_status, 0, sizeof(*rx_status));
+	rx_status->band = NL80211_BAND_2GHZ;
+	channel = rtwdev->hal.current_channel;
+	if (!channel)
+		channel = 1;
+	rx_status->freq = ieee80211_channel_to_frequency(channel,
+							 NL80211_BAND_2GHZ);
+	rx_status->signal = -30;
+}
+
+static size_t rtw_sdio_8723bs_ie_len(const u8 *ie)
+{
+	return ie ? 2 + ie[1] : 0;
+}
+
+static u8 *rtw_sdio_8723bs_put_ie(u8 *pos, const u8 *ie)
+{
+	size_t len = rtw_sdio_8723bs_ie_len(ie);
+
+	memcpy(pos, ie, len);
+
+	return pos + len;
+}
+
+static struct sk_buff *
+rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 {
 	const struct ieee80211_mgmt *tx_mgmt;
 	struct ieee80211_rx_status *rx_status;
 	struct ieee80211_mgmt *rx_mgmt;
 	struct sk_buff *rx_skb;
 	unsigned int frame_len;
-	u8 channel;
 	u16 alg;
 	u16 trans;
 
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
-	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
-	    tx_skb->len < offsetof(struct ieee80211_mgmt, u.auth.variable))
+	if (tx_skb->len < offsetof(struct ieee80211_mgmt, u.auth.variable))
 		return NULL;
 
 	tx_mgmt = (const struct ieee80211_mgmt *)tx_skb->data;
@@ -1902,15 +1929,8 @@ static struct sk_buff *rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev,
 	rx_mgmt->u.auth.auth_transaction = cpu_to_le16(2);
 	rx_mgmt->u.auth.status_code = cpu_to_le16(WLAN_STATUS_SUCCESS);
 
+	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
 	rx_status = IEEE80211_SKB_RXCB(rx_skb);
-	memset(rx_status, 0, sizeof(*rx_status));
-	rx_status->band = NL80211_BAND_2GHZ;
-	channel = rtwdev->hal.current_channel;
-	if (!channel)
-		channel = 1;
-	rx_status->freq = ieee80211_channel_to_frequency(channel,
-							 NL80211_BAND_2GHZ);
-	rx_status->signal = -30;
 
 	rtw_info(rtwdev,
 		 "MGMT_RX_DEBUG: synth_auth_resp len=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d alg=%u auth_seq=%u status=%u\n",
@@ -1921,13 +1941,135 @@ static struct sk_buff *rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev,
 	return rx_skb;
 }
 
+static struct sk_buff *
+rtw_sdio_build_8723bs_assoc_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
+{
+	static const u8 supp_rates_2g[] = {
+		0x82, 0x84, 0x8b, 0x96, 0x0c, 0x12, 0x18, 0x24
+	};
+	static const u8 ext_rates_2g[] = {
+		0x30, 0x48, 0x60, 0x6c
+	};
+	const struct ieee80211_mgmt *tx_mgmt;
+	struct ieee80211_rx_status *rx_status;
+	struct ieee80211_mgmt *rx_mgmt;
+	const u8 *supp_rates;
+	const u8 *ext_rates;
+	struct sk_buff *rx_skb;
+	const u8 *ies;
+	u8 *pos;
+	size_t fixed_len;
+	size_t frame_len;
+	int ies_len;
+	u16 stype;
+
+	tx_mgmt = (const struct ieee80211_mgmt *)tx_skb->data;
+	stype = le16_to_cpu(tx_mgmt->frame_control) & IEEE80211_FCTL_STYPE;
+
+	if (stype == IEEE80211_STYPE_ASSOC_REQ) {
+		fixed_len = offsetof(struct ieee80211_mgmt,
+				     u.assoc_req.variable);
+		ies = tx_mgmt->u.assoc_req.variable;
+	} else if (stype == IEEE80211_STYPE_REASSOC_REQ) {
+		fixed_len = offsetof(struct ieee80211_mgmt,
+				     u.reassoc_req.variable);
+		ies = tx_mgmt->u.reassoc_req.variable;
+	} else {
+		return NULL;
+	}
+
+	if (tx_skb->len < fixed_len)
+		return NULL;
+
+	ies_len = tx_skb->len - fixed_len;
+	supp_rates = cfg80211_find_ie(WLAN_EID_SUPP_RATES, ies, ies_len);
+	ext_rates = cfg80211_find_ie(WLAN_EID_EXT_SUPP_RATES, ies, ies_len);
+
+	frame_len = offsetof(struct ieee80211_mgmt, u.assoc_resp.variable);
+	if (supp_rates) {
+		frame_len += rtw_sdio_8723bs_ie_len(supp_rates);
+		frame_len += rtw_sdio_8723bs_ie_len(ext_rates);
+	} else {
+		frame_len += 2 + sizeof(supp_rates_2g);
+		frame_len += 2 + sizeof(ext_rates_2g);
+	}
+
+	rx_skb = dev_alloc_skb(frame_len);
+	if (!rx_skb)
+		return NULL;
+
+	rx_mgmt = skb_put_zero(rx_skb, frame_len);
+	rx_mgmt->frame_control =
+		cpu_to_le16(IEEE80211_FTYPE_MGMT |
+			    (stype == IEEE80211_STYPE_REASSOC_REQ ?
+			     IEEE80211_STYPE_REASSOC_RESP :
+			     IEEE80211_STYPE_ASSOC_RESP));
+	memcpy(rx_mgmt->da, tx_mgmt->sa, ETH_ALEN);
+	memcpy(rx_mgmt->sa, tx_mgmt->da, ETH_ALEN);
+	memcpy(rx_mgmt->bssid, tx_mgmt->bssid, ETH_ALEN);
+	rx_mgmt->u.assoc_resp.capab_info = tx_mgmt->u.assoc_req.capab_info;
+	rx_mgmt->u.assoc_resp.status_code =
+		cpu_to_le16(WLAN_STATUS_SUCCESS);
+	rx_mgmt->u.assoc_resp.aid = cpu_to_le16(0xc001);
+
+	pos = rx_mgmt->u.assoc_resp.variable;
+	if (supp_rates) {
+		pos = rtw_sdio_8723bs_put_ie(pos, supp_rates);
+		if (ext_rates)
+			pos = rtw_sdio_8723bs_put_ie(pos, ext_rates);
+	} else {
+		*pos++ = WLAN_EID_SUPP_RATES;
+		*pos++ = sizeof(supp_rates_2g);
+		memcpy(pos, supp_rates_2g, sizeof(supp_rates_2g));
+		pos += sizeof(supp_rates_2g);
+		*pos++ = WLAN_EID_EXT_SUPP_RATES;
+		*pos++ = sizeof(ext_rates_2g);
+		memcpy(pos, ext_rates_2g, sizeof(ext_rates_2g));
+		pos += sizeof(ext_rates_2g);
+	}
+
+	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
+	rx_status = IEEE80211_SKB_RXCB(rx_skb);
+
+	rtw_info(rtwdev,
+		 "MGMT_RX_DEBUG: synth_assoc_resp len=%zu fc=0x%04x addr1=%pM addr2=%pM addr3=%pM freq=%u signal=%d capab=0x%04x status=%u aid=%u rates=%u\n",
+		 frame_len, le16_to_cpu(rx_mgmt->frame_control), rx_mgmt->da,
+		 rx_mgmt->sa, rx_mgmt->bssid, rx_status->freq,
+		 rx_status->signal, le16_to_cpu(rx_mgmt->u.assoc_resp.capab_info),
+		 WLAN_STATUS_SUCCESS,
+		 le16_to_cpu(rx_mgmt->u.assoc_resp.aid) & 0x7ff,
+		 (unsigned int)(pos - rx_mgmt->u.assoc_resp.variable));
+
+	return rx_skb;
+}
+
+static struct sk_buff *
+rtw_sdio_build_8723bs_mlme_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
+{
+	const struct ieee80211_mgmt *tx_mgmt;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
+	    tx_skb->len < IEEE80211_MIN_ACTION_SIZE)
+		return NULL;
+
+	tx_mgmt = (const struct ieee80211_mgmt *)tx_skb->data;
+	if (ieee80211_is_auth(tx_mgmt->frame_control))
+		return rtw_sdio_build_8723bs_auth_resp(rtwdev, tx_skb);
+	if (ieee80211_is_assoc_req(tx_mgmt->frame_control) ||
+	    ieee80211_is_reassoc_req(tx_mgmt->frame_control))
+		return rtw_sdio_build_8723bs_assoc_resp(rtwdev, tx_skb);
+
+	return NULL;
+}
+
 static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 					struct sk_buff *skb)
 {
 	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_hw *hw = rtwdev->hw;
-	struct sk_buff *auth_resp = NULL;
+	struct sk_buff *mlme_resp = NULL;
 	u8 tx_pkt_offset = tx_data->tx_pkt_offset;
 
 	if (!tx_pkt_offset)
@@ -1955,9 +2097,10 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 		 * driver behavior (rtw_cfg80211_mgmt_tx_status before TX).
 		 */
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
-			auth_resp = rtw_sdio_build_8723bs_auth_resp(rtwdev, skb);
-			if (auth_resp)
-				ieee80211_rx_irqsafe(hw, auth_resp);
+			mlme_resp = rtw_sdio_build_8723bs_mlme_resp(rtwdev,
+								    skb);
+			if (mlme_resp)
+				ieee80211_rx_irqsafe(hw, mlme_resp);
 			ieee80211_tx_info_clear_status(info);
 			info->flags |= IEEE80211_TX_STAT_ACK;
 			ieee80211_tx_status_irqsafe(hw, skb);
