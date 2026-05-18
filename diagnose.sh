@@ -329,6 +329,17 @@ choose_ping_target() {
     printf '%s\n' "$target"
 }
 
+wpa_status_for_iface() {
+    local iface="$1"
+
+    if ! command -v wpa_cli >/dev/null 2>&1; then
+        echo "wpa_cli: unavailable"
+        return
+    fi
+
+    timeout 3 wpa_cli -i "$iface" status 2>&1 || true
+}
+
 run_wpa_connection_test() {
     local iface="$1"
     local prefix="$2"
@@ -343,8 +354,13 @@ run_wpa_connection_test() {
     local wpa_conf
     local wpa_pidfile
     local connected=0
+    local associated=0
+    local authorized=0
     local i
     local link_snapshot
+    local station_snapshot
+    local wpa_status
+    local wpa_state
     local ping_target
     local wpa_rc
 
@@ -387,7 +403,7 @@ run_wpa_connection_test() {
     : > "$connect_link_log"
     : > "$wpa_log"
 
-    echo "Attempting $label WPA/WPA2 connection to '$AP_SSID' for up to 20 seconds..."
+    echo "Attempting $label WPA/WPA2 connection to '$AP_SSID' for up to 30 seconds..."
 
     {
         echo "Connecting to SSID: $AP_SSID"
@@ -406,15 +422,31 @@ run_wpa_connection_test() {
         fi
 
         i=0
-        while [ "$i" -lt 20 ]; do
+        while [ "$i" -lt 30 ]; do
             link_snapshot=$(timeout 3 iw dev "$iface" link 2>&1 || true)
+            station_snapshot=$(timeout 3 iw dev "$iface" station dump 2>&1 || true)
+            wpa_status=$(wpa_status_for_iface "$iface")
+            wpa_state=$(printf '%s\n' "$wpa_status" |
+                        awk -F= '$1 == "wpa_state" { print $2; exit }')
             {
                 echo "=== link poll $i ==="
                 echo "$link_snapshot"
                 echo ""
+                echo "=== station poll $i ==="
+                echo "$station_snapshot"
+                echo ""
+                echo "=== wpa_cli poll $i ==="
+                echo "$wpa_status"
+                echo ""
             } >> "$connect_link_log"
 
             if printf '%s\n' "$link_snapshot" | grep -q '^Connected to '; then
+                associated=1
+            fi
+
+            if [ "$wpa_state" = "COMPLETED" ] ||
+               printf '%s\n' "$station_snapshot" | grep -q '^[[:space:]]*authorized:[[:space:]]*yes$'; then
+                authorized=1
                 connected=1
                 break
             fi
@@ -423,24 +455,30 @@ run_wpa_connection_test() {
             i=$((i + 1))
         done
 
+        echo "associated: $associated"
+        echo "authorized: $authorized"
         echo "connected: $connected"
     } > "$connect_cmd_log" 2>&1
 
     if [ "$connected" -eq 1 ]; then
-        echo "$label association succeeded; requesting DHCP..."
+        echo "$label WPA completed; requesting DHCP..."
         run_dhcp_client "$iface" "$dhcp_log"
     else
-        echo "$label association failed; continuing diagnostics."
-        echo "WPA association failed - skipping DHCP" > "$dhcp_log"
+        echo "$label WPA did not complete; continuing diagnostics."
+        echo "WPA did not complete - skipping DHCP" > "$dhcp_log"
     fi
 
     capture_connection_state "$iface" "$state_log"
 
-    ping_target=$(choose_ping_target "$iface" "$dhcp_log")
-    echo "Ping target: $ping_target" >> "$connect_cmd_log"
+    if [ "$connected" -eq 1 ]; then
+        ping_target=$(choose_ping_target "$iface" "$dhcp_log")
+        echo "Ping target: $ping_target" >> "$connect_cmd_log"
 
-    timeout 10 ping -I "$iface" "$ping_target" -c 3 > "$ping_log" 2>&1 || \
-        echo "ping failed or timed out" >> "$ping_log"
+        timeout 10 ping -I "$iface" "$ping_target" -c 3 > "$ping_log" 2>&1 || \
+            echo "ping failed or timed out" >> "$ping_log"
+    else
+        echo "WPA did not complete - skipping ping" > "$ping_log"
+    fi
 
     {
         echo "+ iw dev $iface disconnect"
