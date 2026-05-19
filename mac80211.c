@@ -21,6 +21,7 @@
 #define RTW8723BS_AUTH_SYNC_WAIT_FALLBACK_MS 120
 #define RTW8723BS_AUTH_SYNC_WAIT_MIN_MS 80
 #define RTW8723BS_AUTH_SYNC_WAIT_MAX_MS 160
+#define RTW8723BS_MGMT_DUMP_BYTES 192
 
 static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 {
@@ -247,7 +248,11 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	sec_before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
 
 	ether_addr_copy(rtwvif->bssid, bssid);
-	rtw_vif_port_config(rtwdev, rtwvif, PORT_SET_BSSID);
+	rtwvif->aid = 0;
+	rtwvif->net_type = RTW_NET_MGD_LINKED;
+	rtw_vif_port_config(rtwdev, rtwvif,
+			    PORT_SET_BSSID | PORT_SET_NET_TYPE |
+			    PORT_SET_AID);
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
@@ -265,8 +270,9 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw8723bs_config_8021x_sec(rtwdev, "join_prepare", false);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u (defer) MSR 0x%02x (unchanged) BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
-		 bssid, fresh_join, old_net_type, msr_before, bcn_ctrl_before,
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=defer MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 bssid, fresh_join, old_net_type, rtwvif->net_type,
+		 msr_before, rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
 		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
@@ -308,15 +314,58 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 		 le16_to_cpu(fc), le16_to_cpu(hdr->seq_ctrl),
 		 hdr->addr1, hdr->addr2, hdr->addr3, sta_addr);
 
-	if (ieee80211_is_auth(fc)) {
-		int i, dump_len = min_t(int, skb->len, 48);
-		char hex[256] = {};
+	if (ieee80211_is_auth(fc) ||
+	    ieee80211_is_assoc_req(fc) ||
+	    ieee80211_is_reassoc_req(fc) ||
+	    ieee80211_is_deauth(fc)) {
+		int i, dump_len = min_t(int, skb->len,
+					RTW8723BS_MGMT_DUMP_BYTES);
+		char hex[RTW8723BS_MGMT_DUMP_BYTES * 3 + 1] = {};
+
 		for (i = 0; i < dump_len; i++)
 			sprintf(hex + i * 3, "%02x ", skb->data[i]);
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: auth_tx_data (%d bytes): %s\n",
-			 dump_len, hex);
+			 "MGMT_TX_DEBUG: tx_data stype=%s (%d/%u bytes): %s\n",
+			 stype, dump_len, skb->len, hex);
 	}
+}
+
+static void rtw8723bs_tx_pre_auth_deauth(struct rtw_dev *rtwdev,
+					 struct ieee80211_vif *vif,
+					 const u8 *bssid)
+{
+	struct ieee80211_tx_control control = {};
+	struct ieee80211_tx_info *info;
+	struct ieee80211_mgmt *mgmt;
+	struct sk_buff *skb;
+	unsigned int frame_len;
+	unsigned int headroom;
+
+	frame_len = sizeof(struct ieee80211_hdr_3addr) + sizeof(mgmt->u.deauth);
+	headroom = rtwdev->chip->tx_pkt_desc_sz + 8;
+
+	skb = dev_alloc_skb(headroom + frame_len);
+	if (!skb)
+		return;
+
+	skb_reserve(skb, headroom);
+	mgmt = skb_put_zero(skb, frame_len);
+	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					  IEEE80211_STYPE_DEAUTH);
+	memcpy(mgmt->da, bssid, ETH_ALEN);
+	memcpy(mgmt->sa, vif->addr, ETH_ALEN);
+	memcpy(mgmt->bssid, bssid, ETH_ALEN);
+	mgmt->u.deauth.reason_code = cpu_to_le16(WLAN_REASON_DEAUTH_LEAVING);
+
+	info = IEEE80211_SKB_CB(skb);
+	memset(info, 0, sizeof(*info));
+	info->control.vif = vif;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM wait_ms=100\n",
+		 bssid);
+	rtw_tx(rtwdev, &control, skb);
+	msleep(100);
 }
 
 static void rtw_ops_tx(struct ieee80211_hw *hw,
@@ -374,6 +423,7 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		bool beacon_seen;
 
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
+		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 
 		/* Staging waits for the target beacon before issuing auth.
 		 * Wait until RX confirms a beacon/probe response from the target
