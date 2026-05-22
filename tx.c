@@ -418,7 +418,21 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->seq = seq;
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
-		pkt_info->dis_rate_fallback = false;
+		/* RTL8723BS SDIO connect-management TX path: pin the
+		 * descriptor to exactly DESC_RATE6M with no hardware rate
+		 * fallback by setting DISDATAFB=1. The OFDM-only G rate-id
+		 * (set in rtw_tx_pkt_info_update_rate) already restricts
+		 * fallback to the OFDM ratemask, but logs-rtw88-817fd607
+		 * confirms that even with rate=4/rate_id=7 the AP still
+		 * never responds to auth/assoc on-air. Belt-and-suspenders
+		 * with DISDATAFB=1 ensures every retry transmits at exactly
+		 * 6 Mbps OFDM (no chip-internal rate stepping at all),
+		 * mirroring the effective behaviour of the legacy staging
+		 * driver whose mgmt frames are sent with userate=1 +
+		 * datarate=DESC_RATE6M and a rate-id whose lowest entry is
+		 * already 6 Mbps, so the chip has nothing to fall back to.
+		 */
+		pkt_info->dis_rate_fallback = true;
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
