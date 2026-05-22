@@ -1580,6 +1580,22 @@ static void rtw8723b_init_edca(struct rtw_dev *rtwdev)
 	rtw_write16(rtwdev, REG_SIFS, 0x100a);
 	rtw_write16(rtwdev, REG_SIFS + 2, 0x100a);
 
+	/* RESP_SIFS controls how soon the chip transmits an ACK after
+	 * receiving a unicast frame. The chip default for OFDM (0x0e =
+	 * 14 us) leaves only ~2 us of slack inside the 16 us 802.11
+	 * SIFS window once on-chip processing is included, which is
+	 * enough margin for the AP's RX timer to expire before our ACK
+	 * arrives on air. The legacy rtl8723bs staging driver works
+	 * around this by writing 0x0a0a0808 (CCK = 0x08, OFDM = 0x0a)
+	 * via HW_VAR_RESP_SIFS in update_wireless_mode() right before
+	 * each client join, which is the only path that reliably gets
+	 * Open Auth / Assoc replies from a real AP on this chip. Bake
+	 * the same values in at MAC init so every 8723b variant ACKs
+	 * AP responses fast enough to keep the unicast handshake alive.
+	 */
+	rtw_write16(rtwdev, REG_RESP_SIFS_CCK, 0x0808);
+	rtw_write16(rtwdev, REG_RESP_SIFS_OFDM, 0x0a0a);
+
 	/* TXOP */
 	rtw_write32(rtwdev, REG_EDCA_BE_PARAM, 0x005EA42B);
 	rtw_write32(rtwdev, REG_EDCA_BK_PARAM, 0x0000A44F);
