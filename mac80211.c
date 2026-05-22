@@ -34,19 +34,41 @@ static void rtw8723bs_auth_rx_filter(struct rtw_dev *rtwdev,
 {
 	u32 before = rtw_read32(rtwdev, REG_RCR);
 
-	if (accept_all) {
-		rtwdev->hal.rcr |= BIT_AMF | BIT_AAP;
-		rtwdev->hal.rcr &= ~(BIT_CBSSID_DATA | BIT_CBSSID_BCN);
-	} else {
-		rtwdev->hal.rcr |= BIT_AMF | BIT_CBSSID_DATA | BIT_CBSSID_BCN;
-		rtwdev->hal.rcr &= ~BIT_AAP;
-	}
+	/* Match the legacy rtl8723bs staging driver: keep the chip on
+	 * target-only RCR throughout. Staging's hw_var_set_opmode() for
+	 * STATION_STATE leaves REG_RCR at the _InitWMACSetting() default
+	 * (CBSSID_DATA | CBSSID_BCN | AMF set, AAP clear) and never opens
+	 * it during the auth/assoc window. The earlier 'accept_all'
+	 * variant (caa16f1) cleared CBSSID_DATA | CBSSID_BCN and set AAP
+	 * for the connect window on the assumption that AAP would let
+	 * unicast AP responses through while NO_LINK; in practice on this
+	 * 8723bs SDIO target the AP at -50 dBm still never sends a real
+	 * Auth/Assoc response with that filter, even with byte-identical
+	 * staging TX descriptor, the PTA antenna routing scan uses, and
+	 * the staging-equivalent RESP_SIFS values programmed at MAC init.
+	 *
+	 * AMF=1 + APM=1 (already in WLAN_RCR_CFG = 0x700060CE | BIT_AMF)
+	 * is sufficient to receive auth/assoc responses addressed to our
+	 * STA MAC: AMF gates mgmt frames, APM gates frames whose addr1
+	 * matches REG_MACID, and CBSSID_DATA/CBSSID_BCN do not filter
+	 * mgmt at all (they only narrow data and beacon RX to the BSSID
+	 * already programmed via PORT_SET_BSSID). So leaving the filter
+	 * at target-only across the whole connect window matches staging
+	 * exactly without losing the ability to ACK unicast AP responses.
+	 *
+	 * Both the accept_all=true (join_prepare) and accept_all=false
+	 * (assoc / disassoc) call sites end up here so the RCR converges
+	 * to target-only state on every transition; the parameter is
+	 * preserved so the trace tag distinguishes the call site.
+	 */
+	rtwdev->hal.rcr |= BIT_AMF | BIT_CBSSID_DATA | BIT_CBSSID_BCN;
+	rtwdev->hal.rcr &= ~BIT_AAP;
 
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: %s_rx %s RCR 0x%08x->0x%08x hal=0x%08x\n",
-		 where, accept_all ? "accept_all" : "target_only", before,
+		 where, accept_all ? "join_target_only" : "target_only", before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr);
 }
 
