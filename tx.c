@@ -329,9 +329,29 @@ static void rtw_tx_pkt_info_update_rate(struct rtw_dev *rtwdev,
 					bool ignore_rate)
 {
 	if (rtwdev->hal.current_band_type == RTW_BAND_2G) {
-		pkt_info->rate_id = RTW_RATEID_B_20M;
-		pkt_info->rate = rtw_get_mgmt_rate(rtwdev, skb, DESC_RATE1M,
-						   ignore_rate);
+		/* RTL8723BS SDIO: send connect-management frames (auth /
+		 * assoc-req / reassoc-req) and EAPOL data at 6 Mbps OFDM with
+		 * the BG rate-id, matching the legacy rtl8723bs staging
+		 * driver. The default 1 Mbps CCK reaches some APs but is
+		 * silently ignored on-air by others, including the B/G/N AP
+		 * used for testing here: with the rest of the TX descriptor
+		 * (OWN, FS/LS, qsel, hw-seq) already correct, staging
+		 * connects fine on the same hardware/AP at 6 Mbps OFDM, while
+		 * rtw88 at 1 Mbps CCK never sees a real Auth/Assoc response.
+		 * Pre-association vif->bss_conf.basic_rates is still zero, so
+		 * rtw_get_mgmt_rate would otherwise pick the band-lowest rate
+		 * (1 Mbps); skip that helper here and force OFDM 6M directly.
+		 */
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+			pkt_info->rate_id = RTW_RATEID_BG;
+			pkt_info->rate = DESC_RATE6M;
+		} else {
+			pkt_info->rate_id = RTW_RATEID_B_20M;
+			pkt_info->rate = rtw_get_mgmt_rate(rtwdev, skb,
+							   DESC_RATE1M,
+							   ignore_rate);
+		}
 	} else {
 		pkt_info->rate_id = RTW_RATEID_G;
 		pkt_info->rate = rtw_get_mgmt_rate(rtwdev, skb, DESC_RATE6M,
