@@ -330,21 +330,34 @@ static void rtw_tx_pkt_info_update_rate(struct rtw_dev *rtwdev,
 {
 	if (rtwdev->hal.current_band_type == RTW_BAND_2G) {
 		/* RTL8723BS SDIO: send connect-management frames (auth /
-		 * assoc-req / reassoc-req) and EAPOL data at 6 Mbps OFDM with
-		 * the BG rate-id, matching the legacy rtl8723bs staging
-		 * driver. The default 1 Mbps CCK reaches some APs but is
-		 * silently ignored on-air by others, including the B/G/N AP
-		 * used for testing here: with the rest of the TX descriptor
-		 * (OWN, FS/LS, qsel, hw-seq) already correct, staging
-		 * connects fine on the same hardware/AP at 6 Mbps OFDM, while
-		 * rtw88 at 1 Mbps CCK never sees a real Auth/Assoc response.
-		 * Pre-association vif->bss_conf.basic_rates is still zero, so
-		 * rtw_get_mgmt_rate would otherwise pick the band-lowest rate
-		 * (1 Mbps); skip that helper here and force OFDM 6M directly.
+		 * assoc-req / reassoc-req) and EAPOL data at 6 Mbps OFDM
+		 * with the OFDM-only G rate-id, exactly matching the legacy
+		 * rtl8723bs staging driver. Two pieces matter together:
+		 *
+		 *   1. rate = DESC_RATE6M:  staging calls update_mgnt_tx_rate
+		 *      from update_wireless_mode whenever the AP is not
+		 *      B-only, picking IEEE80211_OFDM_RATE_6MB. rtw88's
+		 *      rtw_get_mgmt_rate falls back to the band-lowest rate
+		 *      (1 Mbps CCK) before association because
+		 *      vif->bss_conf.basic_rates is still 0, so we bypass it
+		 *      here and force 6M OFDM.
+		 *
+		 *   2. rate_id = RTW_RATEID_G (OFDM-only fallback set):
+		 *      staging's update_mgntframe_attrib uses
+		 *      RATEID_IDX_G == RTW_RATEID_G whenever tx_rate is not
+		 *      1 Mbps CCK. rtw88's mgmt path leaves
+		 *      pkt_info->dis_rate_fallback == false on this chip, so
+		 *      the chip is allowed to step down on retry. With the
+		 *      previous BG (CCK+OFDM) rate-id the chip fell back to
+		 *      1 Mbps CCK long-preamble after the first retry, and
+		 *      that low rate is what the test B/G/N AP silently
+		 *      ignores on-air. Restricting fallback to the OFDM-only
+		 *      G set keeps every retry at 6 Mbps OFDM, which staging
+		 *      proves the AP does decode on the same hardware.
 		 */
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-			pkt_info->rate_id = RTW_RATEID_BG;
+			pkt_info->rate_id = RTW_RATEID_G;
 			pkt_info->rate = DESC_RATE6M;
 		} else {
 			pkt_info->rate_id = RTW_RATEID_B_20M;
