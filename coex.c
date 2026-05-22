@@ -1444,11 +1444,6 @@ static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x200;
 }
 
-static u32 rtw_coex_8723bs_wifi_ant_path(struct rtw_dev *rtwdev)
-{
-	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x280 : 0x0;
-}
-
 #define REG_8723BS_BT_COEX_CTRL		0x0039
 #define REG_8723BS_SDIO_ANT_INV		REG_SDIO_H2C
 #define REG_8723BS_BB_ANT_CFG		0x0930
@@ -1492,7 +1487,7 @@ static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
 						"scan_pta_ant");
 }
 
-static void rtw_coex_8723bs_force_assoc_wifi_ant(struct rtw_dev *rtwdev)
+static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
@@ -1504,15 +1499,28 @@ static void rtw_coex_8723bs_force_assoc_wifi_ant(struct rtw_dev *rtwdev)
 	    !coex_stat->bt_disabled)
 		return;
 
-	ant_target = rtw_coex_8723bs_wifi_ant_path(rtwdev);
+	/* logs-rtw88-7dc65d5b: with the previous "WiFi ant" override
+	 * (BB_SEL_BTG=0x0, BBSW/WLG) the AP at -42 dBm never replies
+	 * to auth/assoc on-air, even though the on-chip TX descriptor
+	 * is byte-identical to staging. Scan probe-req at the same
+	 * rate on the same hardware does get replies, and scan runs
+	 * with the PTA antenna path (BB_SEL_BTG=0x200, ctrl=PTA).
+	 *
+	 * Force the same PTA path during the connect window so auth
+	 * TX/RX stays on the known-good antenna routing the chip uses
+	 * for scan. This restores the behaviour that worked before
+	 * a5533c3, which incorrectly assumed the staging driver
+	 * "avoids the associate coex path" for BT-disabled boards.
+	 */
+	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 
-	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_BBSW,
-				COEX_SWITCH_TO_WLG);
+	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_PTA,
+				COEX_SWITCH_TO_NOCARE);
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
-						    "assoc_wifi_ant");
+						    "assoc_pta_ant");
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc WIFI ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
 		 ant_target, ant_path, rtw_read32(rtwdev, REG_LED_CFG),
@@ -2527,17 +2535,17 @@ static void rtw_coex_action_wl_under5g(struct rtw_dev *rtwdev)
 static void rtw_coex_action_wl_only(struct rtw_dev *rtwdev)
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
-	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
 	u8 table_case, tdma_case;
 
 	rtw_dbg(rtwdev, RTW_DBG_COEX, "[BTCoex], %s()\n", __func__);
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	    coex_stat->bt_disabled)
-		rtw_coex_set_ant_path(rtwdev, false, COEX_SET_ANT_WONLY);
-	else
-		rtw_coex_set_ant_path(rtwdev, false, COEX_SET_ANT_2G);
+	/* The 8723bs SDIO + bt_disabled WONLY override (ctrl=BBSW pos=WLG)
+	 * routed BB_SEL_BTG away from the working PTA path used by scan, so
+	 * post-assoc connection-quality TX/RX never reached the AP on-air.
+	 * Keep this on the same PTA antenna routing as scan and the
+	 * connect-window override.
+	 */
+	rtw_coex_set_ant_path(rtwdev, false, COEX_SET_ANT_2G);
 	rtw_coex_set_rf_para(rtwdev, chip->wl_rf_para_rx[0]);
 
 	if (efuse->share_ant) {
@@ -3136,7 +3144,7 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 
 		rtw_coex_run_coex(rtwdev, COEX_RSN_2GCONSTART);
-		rtw_coex_8723bs_force_assoc_wifi_ant(rtwdev);
+		rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
 		/* To keep TDMA case during connect process,
 		 * to avoid changed by Btinfo and runcoexmechanism
