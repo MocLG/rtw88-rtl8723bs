@@ -21,7 +21,19 @@
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
-#define RTW8723BS_SYNTH_MLME_DELAY_MS			120
+/*
+ * RTL8723BS synthetic Auth/Assoc shim wait window. The TX workqueue is a
+ * singlethread workqueue, so this msleep blocks every queued TX (including
+ * the assoc_req that mac80211 issues right after the synth Auth response).
+ * 120 ms was overly conservative: a real Auth/Assoc response from a nearby
+ * AP arrives within a few ms over the air, and the staging driver moves
+ * Auth -> Assoc -> EAPOL within ~20-30 ms total. Holding the TX queue for
+ * 120 ms on every mgmt TX shifted our on-air timing far enough from
+ * staging's that a slow AP could time the STA out before the assoc TX
+ * went out. Drop to 30 ms: still well above the AP's response time, but
+ * keeps the workqueue moving fast enough to mirror staging timing.
+ */
+#define RTW8723BS_SYNTH_MLME_DELAY_MS			30
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
