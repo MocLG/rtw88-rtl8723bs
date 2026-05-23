@@ -2108,12 +2108,6 @@ static u8 *rtw_sdio_8723bs_put_ie(u8 *pos, const u8 *ie)
 	return pos + len;
 }
 
-static void rtw_sdio_8723bs_put_synth_fcs(struct sk_buff *rx_skb)
-{
-	/* mac80211 trims FCS because rtw88 advertises RX_INCLUDES_FCS. */
-	skb_put_zero(rx_skb, FCS_LEN);
-}
-
 static struct sk_buff *
 rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 {
@@ -2138,7 +2132,7 @@ rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		return NULL;
 
 	frame_len = offsetof(struct ieee80211_mgmt, u.auth.variable);
-	rx_skb = dev_alloc_skb(frame_len + FCS_LEN);
+	rx_skb = dev_alloc_skb(frame_len);
 	if (!rx_skb)
 		return NULL;
 
@@ -2151,8 +2145,6 @@ rtw_sdio_build_8723bs_auth_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 	rx_mgmt->u.auth.auth_alg = cpu_to_le16(WLAN_AUTH_OPEN);
 	rx_mgmt->u.auth.auth_transaction = cpu_to_le16(2);
 	rx_mgmt->u.auth.status_code = cpu_to_le16(WLAN_STATUS_SUCCESS);
-	rtw_sdio_8723bs_put_synth_fcs(rx_skb);
-
 	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
 	rx_status = IEEE80211_SKB_RXCB(rx_skb);
 
@@ -2219,7 +2211,7 @@ rtw_sdio_build_8723bs_assoc_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		frame_len += 2 + sizeof(ext_rates_2g);
 	}
 
-	rx_skb = dev_alloc_skb(frame_len + FCS_LEN);
+	rx_skb = dev_alloc_skb(frame_len);
 	if (!rx_skb)
 		return NULL;
 
@@ -2252,8 +2244,6 @@ rtw_sdio_build_8723bs_assoc_resp(struct rtw_dev *rtwdev, struct sk_buff *tx_skb)
 		memcpy(pos, ext_rates_2g, sizeof(ext_rates_2g));
 		pos += sizeof(ext_rates_2g);
 	}
-	rtw_sdio_8723bs_put_synth_fcs(rx_skb);
-
 	rtw_sdio_fill_8723bs_synth_rx_status(rtwdev, rx_skb);
 	rx_status = IEEE80211_SKB_RXCB(rx_skb);
 

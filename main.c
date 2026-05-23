@@ -2682,7 +2682,15 @@ int rtw_register_hw(struct rtw_dev *rtwdev, struct ieee80211_hw *hw)
 	hw->vif_data_size = sizeof(struct rtw_vif);
 
 	ieee80211_hw_set(hw, SIGNAL_DBM);
-	ieee80211_hw_set(hw, RX_INCLUDES_FCS);
+	/*
+	 * RTL8723BS SDIO keeps BIT_APP_FCS clear in its 8723B WMAC RCR setup,
+	 * matching the vendor driver. Advertising RX_INCLUDES_FCS makes
+	 * mac80211 trim four bytes that the chip never appended, corrupting the
+	 * tail IE of beacons/probe responses.
+	 */
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		ieee80211_hw_set(hw, RX_INCLUDES_FCS);
 	ieee80211_hw_set(hw, AMPDU_AGGREGATION);
 	ieee80211_hw_set(hw, MFP_CAPABLE);
 	ieee80211_hw_set(hw, REPORTS_TX_ACK_STATUS);
