@@ -32,6 +32,34 @@ static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static void rtw8723bs_mgd_prepare_post_rfk(struct rtw_dev *rtwdev,
+					   bool rfk_pending)
+{
+	struct rtw_hal *hal = &rtwdev->hal;
+
+	if (!rtw8723bs_sdio(rtwdev) || !rfk_pending)
+		return;
+
+	/* IPS leave programs the operating channel before setting need_rfk.
+	 * Scan then runs RFK before the channel loop, but managed auth runs
+	 * RFK in mgd_prepare_tx() after that connect-channel programming.
+	 * Reapply the channel/tx-power/RX-path state after RFK so auth/assoc
+	 * leaves the RF in the same order that the known-good scan path uses.
+	 */
+	rtw_set_channel(rtwdev);
+	rtwdev->need_rfk = false;
+
+	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: mgd_prepare_tx post_rfk_channel ch=%u bw=%u pri_idx=%u need_rfk=%d RXIGI_A=0x%08x RRSR2=0x%02x SLOT=0x%02x\n",
+		 hal->current_channel, hal->current_band_width,
+		 hal->current_primary_channel_index, rtwdev->need_rfk,
+		 rtw_read32(rtwdev, REG_RXIGI_A),
+		 rtw_read8(rtwdev, REG_RRSR + 2),
+		 rtw_read8(rtwdev, REG_SLOT));
+}
+
 static void rtw8723bs_auth_rx_filter(struct rtw_dev *rtwdev,
 				     const char *where, bool accept_all)
 {
@@ -1391,6 +1419,7 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 #endif
 {
 	struct rtw_dev *rtwdev = hw->priv;
+	bool rfk_pending;
 	int ret;
 
 	mutex_lock(&rtwdev->mutex);
@@ -1406,7 +1435,9 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
+	rfk_pending = rtwdev->need_rfk;
 	rtw_chip_prepare_tx(rtwdev);
+	rtw8723bs_mgd_prepare_post_rfk(rtwdev, rfk_pending);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif
