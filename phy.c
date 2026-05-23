@@ -14,6 +14,8 @@
 #include "sar.h"
 #endif
 
+#define RTW8723BS_RRSR_ACK_PREAMBLE BIT(23)
+
 struct phy_cfg_pair {
 	u32 addr;
 	u32 data;
@@ -662,10 +664,18 @@ static void rtw_phy_rrsr_mask_min_iter(void *data, struct ieee80211_sta *sta)
 static void rtw_phy_rrsr_update(struct rtw_dev *rtwdev)
 {
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	u32 rrsr;
 
 	dm_info->rrsr_mask_min = RRSR_RATE_ORDER_MAX;
 	rtw_iterate_stas(rtwdev, rtw_phy_rrsr_mask_min_iter, rtwdev);
-	rtw_write32(rtwdev, REG_RRSR, dm_info->rrsr_val_init & dm_info->rrsr_mask_min);
+
+	rrsr = dm_info->rrsr_val_init & dm_info->rrsr_mask_min;
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rrsr |= rtw_read32(rtwdev, REG_RRSR) &
+			RTW8723BS_RRSR_ACK_PREAMBLE;
+
+	rtw_write32(rtwdev, REG_RRSR, rrsr);
 }
 
 static void rtw_phy_dpk_track(struct rtw_dev *rtwdev)

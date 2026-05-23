@@ -1439,6 +1439,18 @@ static bool rtw_coex_8723bs_ant_is_aux(struct rtw_dev *rtwdev)
 	return !!(rtwdev->efuse.bt_setting & BIT(6));
 }
 
+static bool rtw_coex_8723bs_sdio(struct rtw_dev *rtwdev)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+}
+
+static bool rtw_coex_8723bs_bt_disabled(struct rtw_dev *rtwdev)
+{
+	return rtw_coex_8723bs_sdio(rtwdev) &&
+	       rtwdev->coex.stat.bt_disabled;
+}
+
 static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 {
 	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x200;
@@ -1494,17 +1506,15 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	u32 ant_target;
 	u32 ant_path;
 
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
-	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO ||
-	    !coex_stat->bt_disabled)
+	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
 		return;
 
 	/* logs-rtw88-7dc65d5b: with the previous "WiFi ant" override
 	 * (BB_SEL_BTG=0x0, BBSW/WLG) the AP at -42 dBm never replies
 	 * to auth/assoc on-air, even though the on-chip TX descriptor
-	 * is byte-identical to staging. Scan probe-req at the same
-	 * rate on the same hardware does get replies, and scan runs
-	 * with the PTA antenna path (BB_SEL_BTG=0x200, ctrl=PTA).
+	 * is byte-identical to staging. The only receive state proven
+	 * healthy for this hardware during scan uses the PTA antenna path
+	 * (BB_SEL_BTG=0x200, ctrl=PTA).
 	 *
 	 * Force the same PTA path during the connect window so auth
 	 * TX/RX stays on the known-good antenna routing the chip uses
@@ -1572,8 +1582,7 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	u32 ant_path;
 	u32 ant_target;
 
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
-	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+	if (!rtw_coex_8723bs_sdio(rtwdev))
 		return;
 
 	/* Start with staging's no-scan workaround: PS-TDMA type 8 with TDMA
@@ -2741,6 +2750,12 @@ static void rtw_coex_run_coex(struct rtw_dev *rtwdev, u8 reason)
 
 	rtw_coex_monitor_bt_enable(rtwdev);
 
+	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
+		rtw_dbg(rtwdev, RTW_DBG_COEX,
+			"[BTCoex], return for 8723bs BT-disabled staging path\n");
+		return;
+	}
+
 	if (coex->manual_control) {
 		rtw_dbg(rtwdev, RTW_DBG_COEX,
 			"[BTCoex], return for Manual CTRL!!\n");
@@ -3052,6 +3067,21 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 	coex->freeze = false;
 	rtw_coex_write_scbd(rtwdev, COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 
+	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
+		if ((type == COEX_SCAN_START_2G) || (type == COEX_SCAN_START)) {
+			coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
+			coex_stat->wl_hi_pri_task2 = true;
+			rtw_coex_8723bs_scan_workaround(rtwdev);
+		} else {
+			coex_stat->wl_hi_pri_task2 = false;
+		}
+
+		rtw_info(rtwdev,
+			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948));
+		return;
+	}
+
 	if (type == COEX_SCAN_START_5G) {
 		coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
 
@@ -3116,6 +3146,23 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 	if (coex->manual_control || coex->stop_dm)
 		return;
 
+	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
+		if (type == COEX_ASSOCIATE_START) {
+			/* Staging returns immediately from ConnectNotify() when BT
+			 * is disabled. Keep the scan-time type-8 PS-TDMA and PTA
+			 * antenna routing instead of running the generic
+			 * wl_not_connected/wl_only coex actions over the join.
+			 */
+			rtw_coex_8723bs_scan_workaround(rtwdev);
+			rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
+		}
+
+		rtw_info(rtwdev,
+			 "COEX_AUTH_DEBUG: 8723bs bt-disabled connect_notify type=%u skip run_coex BB_SEL_BTG=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948));
+		return;
+	}
+
 	rtw_coex_write_scbd(rtwdev, COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 
 	if (type == COEX_ASSOCIATE_5G_START) {
@@ -3170,6 +3217,13 @@ void rtw_coex_media_status_notify(struct rtw_dev *rtwdev, u8 type)
 
 	if (coex->manual_control || coex->stop_dm)
 		return;
+
+	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
+		rtw_info(rtwdev,
+			 "COEX_AUTH_DEBUG: 8723bs bt-disabled media_status type=%u skip run_coex BB_SEL_BTG=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948));
+		return;
+	}
 
 	if (type == COEX_MEDIA_CONNECT_5G) {
 		rtw_dbg(rtwdev, RTW_DBG_COEX, "[BTCoex], %s(): 5G\n", __func__);

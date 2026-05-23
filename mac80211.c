@@ -22,6 +22,9 @@
 #define RTW8723BS_AUTH_SYNC_WAIT_MIN_MS 80
 #define RTW8723BS_AUTH_SYNC_WAIT_MAX_MS 160
 #define RTW8723BS_MGMT_DUMP_BYTES 192
+#define RTW8723BS_ACK_PREAMBLE_SHORT BIT(7)
+#define RTW8723BS_SHORT_SLOT_TIME 9
+#define RTW8723BS_LONG_SLOT_TIME 20
 
 static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 {
@@ -104,6 +107,57 @@ static void rtw8723bs_enable_tsf_update(struct rtw_dev *rtwdev,
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: %s tsf_update BCN_CTRL 0x%02x->0x%02x\n",
 		 where, before, rtw_read8(rtwdev, REG_BCN_CTRL));
+}
+
+static void rtw8723bs_set_ack_preamble(struct rtw_dev *rtwdev,
+				       const char *where,
+				       bool short_preamble)
+{
+	u8 before = rtw_read8(rtwdev, REG_RRSR + 2);
+	u8 after;
+
+	after = before & ~RTW8723BS_ACK_PREAMBLE_SHORT;
+	if (short_preamble)
+		after |= RTW8723BS_ACK_PREAMBLE_SHORT;
+
+	rtw_write8(rtwdev, REG_RRSR + 2, after);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s ack_preamble short=%d RRSR2 0x%02x->0x%02x\n",
+		 where, short_preamble, before, rtw_read8(rtwdev, REG_RRSR + 2));
+}
+
+static void rtw8723bs_set_slot_time(struct rtw_dev *rtwdev,
+				    const char *where,
+				    bool short_slot)
+{
+	u8 slot_time = short_slot ? RTW8723BS_SHORT_SLOT_TIME :
+				    RTW8723BS_LONG_SLOT_TIME;
+	u8 before = rtw_read8(rtwdev, REG_SLOT);
+
+	rtw_write8(rtwdev, REG_SLOT, slot_time);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s slot_time short=%d SLOT 0x%02x->0x%02x\n",
+		 where, short_slot, before, rtw_read8(rtwdev, REG_SLOT));
+}
+
+static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
+				    struct ieee80211_vif *vif,
+				    const char *where)
+{
+	if (!rtw8723bs_sdio(rtwdev) ||
+	    vif->type != NL80211_IFTYPE_STATION)
+		return;
+
+	/* rtl8723bs staging runs update_capinfo() before auth. That programs
+	 * ACK preamble and slot time from the target AP capability bits before
+	 * sending auth/deauth, not only after association.
+	 */
+	rtw8723bs_set_ack_preamble(rtwdev, where,
+				   vif->bss_conf.use_short_preamble);
+	rtw8723bs_set_slot_time(rtwdev, where,
+				vif->bss_conf.use_short_slot);
 }
 
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
@@ -287,6 +341,8 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_vif_port_config(rtwdev, rtwvif,
 			    PORT_SET_BSSID | PORT_SET_NET_TYPE |
 			    PORT_SET_AID);
+
+	rtw8723bs_apply_bss_cap(rtwdev, vif, "join_prepare");
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
@@ -864,8 +920,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			    vif->type == NL80211_IFTYPE_STATION) {
 				rtw8723bs_auth_rx_filter(rtwdev, "assoc",
 							 false);
-				rtw8723bs_enable_tsf_update(rtwdev,
-							    "assoc");
+				rtw8723bs_apply_bss_cap(rtwdev, vif, "assoc");
+				rtw8723bs_enable_tsf_update(rtwdev, "assoc");
 				if (!rtwvif->fw_media_connected) {
 					rtw_info(rtwdev,
 						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
@@ -971,8 +1027,20 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 	if (changed & BSS_CHANGED_MU_GROUPS)
 		rtw_chip_set_gid_table(rtwdev, vif, conf);
 
-	if (changed & BSS_CHANGED_ERP_SLOT)
+	if (changed & BSS_CHANGED_ERP_PREAMBLE) {
+		if (rtw8723bs_sdio(rtwdev) &&
+		    vif->type == NL80211_IFTYPE_STATION)
+			rtw8723bs_set_ack_preamble(rtwdev, "bss_info",
+						   conf->use_short_preamble);
+	}
+
+	if (changed & BSS_CHANGED_ERP_SLOT) {
+		if (rtw8723bs_sdio(rtwdev) &&
+		    vif->type == NL80211_IFTYPE_STATION)
+			rtw8723bs_set_slot_time(rtwdev, "bss_info",
+						conf->use_short_slot);
 		rtw_conf_tx(rtwdev, rtwvif);
+	}
 
 	if (changed & BSS_CHANGED_PS)
 		rtw_recalc_lps(rtwdev, NULL);
