@@ -94,6 +94,18 @@ static void rtw8723bs_config_8021x_sec(struct rtw_dev *rtwdev,
 		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
 }
 
+static void rtw8723bs_enable_tsf_update(struct rtw_dev *rtwdev,
+					const char *where)
+{
+	u8 before = rtw_read8(rtwdev, REG_BCN_CTRL);
+
+	rtw_write8_clr(rtwdev, REG_BCN_CTRL, BIT_DIS_TSF_UDT);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s tsf_update BCN_CTRL 0x%02x->0x%02x\n",
+		 where, before, rtw_read8(rtwdev, REG_BCN_CTRL));
+}
+
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
 {
 	switch (le16_to_cpu(fc) & IEEE80211_FCTL_STYPE) {
@@ -852,6 +864,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			    vif->type == NL80211_IFTYPE_STATION) {
 				rtw8723bs_auth_rx_filter(rtwdev, "assoc",
 							 false);
+				rtw8723bs_enable_tsf_update(rtwdev,
+							    "assoc");
 				if (!rtwvif->fw_media_connected) {
 					rtw_info(rtwdev,
 						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
