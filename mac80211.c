@@ -144,20 +144,69 @@ static void rtw8723bs_set_slot_time(struct rtw_dev *rtwdev,
 
 static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 				    struct ieee80211_vif *vif,
+				    const u8 *bssid,
 				    const char *where)
 {
+	struct ieee80211_bss_conf *conf = &vif->bss_conf;
+	struct cfg80211_bss *lookup_bss = NULL;
+	struct cfg80211_bss *bss = NULL;
+	const char *source = "conf";
+	bool short_preamble;
+	bool short_slot;
+	bool have_cap = false;
+	u16 cap = 0;
+
 	if (!rtw8723bs_sdio(rtwdev) ||
 	    vif->type != NL80211_IFTYPE_STATION)
 		return;
 
 	/* rtl8723bs staging runs update_capinfo() before auth. That programs
 	 * ACK preamble and slot time from the target AP capability bits before
-	 * sending auth/deauth, not only after association.
+	 * sending auth/deauth, not only after association. At mgd_prepare_tx()
+	 * time mac80211 has not yet called ieee80211_handle_bss_capability(),
+	 * so bss_conf.use_short_* still carries the disconnected defaults even
+	 * though the selected scan result already has the AP capabilities.
 	 */
-	rtw8723bs_set_ack_preamble(rtwdev, where,
-				   vif->bss_conf.use_short_preamble);
-	rtw8723bs_set_slot_time(rtwdev, where,
-				vif->bss_conf.use_short_slot);
+	if (conf->bss) {
+		bss = conf->bss;
+		source = "bss_conf";
+	} else if (bssid && is_valid_ether_addr(bssid)) {
+		lookup_bss = cfg80211_get_bss(rtwdev->hw->wiphy, NULL, bssid,
+					      NULL, 0, IEEE80211_BSS_TYPE_ESS,
+					      IEEE80211_PRIVACY_ANY);
+		if (lookup_bss) {
+			bss = lookup_bss;
+			source = "scan_bss";
+		}
+	}
+
+	if (bss) {
+		cap = bss->capability;
+		have_cap = true;
+	} else if (conf->assoc_capability) {
+		cap = conf->assoc_capability;
+		source = "assoc_cap";
+		have_cap = true;
+	}
+
+	if (have_cap) {
+		short_preamble = !!(cap & WLAN_CAPABILITY_SHORT_PREAMBLE);
+		short_slot = !!(cap & WLAN_CAPABILITY_SHORT_SLOT_TIME);
+	} else {
+		short_preamble = conf->use_short_preamble;
+		short_slot = conf->use_short_slot;
+	}
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s bss_cap source=%s valid=%d cap=0x%04x conf_short_preamble=%d conf_short_slot=%d\n",
+		 where, source, have_cap, cap, conf->use_short_preamble,
+		 conf->use_short_slot);
+
+	rtw8723bs_set_ack_preamble(rtwdev, where, short_preamble);
+	rtw8723bs_set_slot_time(rtwdev, where, short_slot);
+
+	if (lookup_bss)
+		cfg80211_put_bss(rtwdev->hw->wiphy, lookup_bss);
 }
 
 static const char *rtw_ops_tx_mgmt_stype_name(__le16 fc)
@@ -342,7 +391,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 			    PORT_SET_BSSID | PORT_SET_NET_TYPE |
 			    PORT_SET_AID);
 
-	rtw8723bs_apply_bss_cap(rtwdev, vif, "join_prepare");
+	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare");
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
@@ -920,7 +969,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			    vif->type == NL80211_IFTYPE_STATION) {
 				rtw8723bs_auth_rx_filter(rtwdev, "assoc",
 							 false);
-				rtw8723bs_apply_bss_cap(rtwdev, vif, "assoc");
+				rtw8723bs_apply_bss_cap(rtwdev, vif, NULL,
+							"assoc");
 				rtw8723bs_enable_tsf_update(rtwdev, "assoc");
 				if (!rtwvif->fw_media_connected) {
 					rtw_info(rtwdev,
