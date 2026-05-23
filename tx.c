@@ -49,16 +49,9 @@ void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 	if (pkt_info->qsel == TX_DESC_QSEL_HIGH)
 		more_data = true;
 
-	/* RTL8723BS SDIO requires the first-segment (FS) bit set on every
-	 * TX descriptor, including management frames. Without FS=1 the chip
-	 * silently drops single-buffer mgmt frames (auth/assoc never reach
-	 * the AP), even though SDIO write_port returns success. The legacy
-	 * staging driver only got away with FS=0 because its hardware path
-	 * differs slightly; rtw88's encode of word0 needs FS=1 for the chip
-	 * to actually transmit. Set unconditionally for 8723bs SDIO.
-	 */
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    pkt_info->qsel != TX_DESC_QSEL_MGMT)
 		first_seg = true;
 
 	tx_desc->w0 = le32_encode_bits(pkt_info->tx_pkt_size, RTW_TX_DESC_W0_TXPKTSIZE) |
@@ -582,10 +575,10 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = skb->priority;
 	pkt_info->ls = true;
-	/* RTL8723BS SDIO needs LS=1 on every descriptor; the previous
-	 * is_mgmt override that forced LS=0 caused single-buffer auth/assoc
-	 * frames to be dropped silently by the chip, never reaching the AP.
-	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    is_mgmt)
+		pkt_info->ls = false;
 
 	/* maybe merge with tx status ? */
 	rtw_tx_stats(rtwdev, vif, skb);
