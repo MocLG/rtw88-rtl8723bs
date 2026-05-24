@@ -1113,17 +1113,47 @@ void rtw_chip_prepare_tx(struct rtw_dev *rtwdev)
 static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
+	struct rtw_efuse *efuse = &rtwdev->efuse;
+	bool ant_aux;
+	u32 pta_path;
+	u32 saved_path;
 
 	if (!rtw_is_8723bs_sdio(rtwdev) || !chip->ops->phy_calibration)
 		return;
 
+	/* logs-rtw88-a34a694f confirmed every TX descriptor / antenna /
+	 * SIFS / RCR knob now matches staging at auth time, but the AP
+	 * still does not reply to our auth on-air. The remaining
+	 * non-staging delta exposed in that run is the BB antenna path
+	 * the chip is on while the IQK one-shot saves and applies its
+	 * matrix. rtw_coex_power_on_setting() runs immediately before
+	 * this helper and puts the chip on the BT/POWERON path
+	 * (BB_SEL_BTG=0x280 for non-aux, 0x0 for aux), so the IQK was
+	 * being calibrated while the chip's read-back state was the BT
+	 * path even though the auth/assoc TX afterward goes out at the
+	 * PTA mux path (BB_SEL_BTG=0x200 / 0x80).
+	 *
+	 * Switch the chip to the PTA mux path that the auth/assoc TX
+	 * will actually use *before* running phy_calibration(), then
+	 * restore whatever path coex_power_on_setting had selected so
+	 * the next coex_init_hw_config() observes the same starting
+	 * state it would have without this helper.
+	 */
+	saved_path = rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG);
+	ant_aux = !!(efuse->bt_setting & BIT(6));
+	pta_path = ant_aux ? 0x80 : 0x200;
+
+	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, pta_path);
+
 	rtw_info(rtwdev,
-		 "RFK_DEBUG: 8723bs SDIO power_on_rfk begin BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
-		 rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG),
+		 "RFK_DEBUG: 8723bs SDIO power_on_rfk begin BB_SEL_BTG=0x%08x saved=0x%08x RXIGI_A=0x%08x\n",
+		 rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG), saved_path,
 		 rtw_read32(rtwdev, REG_RXIGI_A));
 
 	chip->ops->phy_calibration(rtwdev);
 	rtwdev->need_rfk = false;
+
+	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, saved_path);
 
 	rtw_info(rtwdev,
 		 "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
