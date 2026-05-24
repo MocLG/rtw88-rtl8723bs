@@ -1759,30 +1759,25 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 
 	rtw_coex_power_on_setting(rtwdev);
 
-	/* logs-rtw88-a34a694f shows __rtw_coex_init_hw_config() takes the
-	 * non-wifi_only branch on this 8723bs SDIO board even when BT is
-	 * disabled at runtime: rtwdev->efuse.btcoex reflects whether the
-	 * hardware supports BT, not whether BT is currently enabled, so
-	 * wifi_only stays false for any hardware whose efuse advertises
-	 * BT support. As a result coex_init_hw_config() takes
-	 * COEX_SET_ANT_INIT (BBSW + TO_BT, BB_SEL_BTG=0x280) instead of
-	 * the COEX_SET_ANT_WONLY path the staging driver effectively uses
-	 * for BT-disabled boards. The chip then enters auth on a
-	 * not-fully-staging-parity coex state.
+	/* Note: do NOT promote wifi_only=true even when coex_stat.bt_disabled
+	 * is reported. logs-rtw88-d308f56d showed that taking
+	 * __rtw_coex_init_hw_config(wifi_only=true) sets coex->stop_dm=true,
+	 * which short-circuits rtw_coex_scan_notify() /
+	 * rtw_coex_connect_notify() / rtw_coex_media_status_notify() at
+	 * their stop_dm early-return — preventing the 8723bs SDIO
+	 * scan_workaround / force_assoc_pta_ant helpers from running. The
+	 * chip then stays at COEX_SET_ANT_WONLY (BBSW + WLG,
+	 * BB_SEL_BTG=0x00000000) for the entire scan/connect window
+	 * instead of switching to PTA (BB_SEL_BTG=0x00000200), which is
+	 * what staging effectively uses (its scan PsTdma type 8 path
+	 * sets BTC_ANT_PATH_PTA, and its BT-disabled connect_notify is a
+	 * no-op leaving the PTA path in place).
 	 *
-	 * For 8723BS SDIO only, also treat the board as wifi-only at
-	 * runtime when coex monitoring already concluded BT is disabled,
-	 * matching what staging's halbtc8723b1ant code path does for
-	 * BT-disabled boards. Other chips and HCIs are unchanged.
+	 * Keep wifi_only derived from efuse.btcoex so that boards whose
+	 * efuse advertises BT support take the COEX_SET_ANT_INIT path
+	 * (BBSW + TO_BT, 0x280) at init, then let the 8723bs SDIO
+	 * scan_workaround switch to PTA (0x200) for scan/connect.
 	 */
-	if (rtw_is_8723bs_sdio(rtwdev) && !wifi_only &&
-	    rtwdev->coex.stat.bt_disabled) {
-		rtw_info(rtwdev,
-			 "RFK_DEBUG: 8723bs SDIO promote wifi_only=1 (efuse.btcoex=%u bt_disabled=1)\n",
-			 rtwdev->efuse.btcoex);
-		wifi_only = true;
-	}
-
 	rtw_power_on_8723bs_sdio_rfk(rtwdev);
 	rtw_coex_init_hw_config(rtwdev, wifi_only);
 
