@@ -1569,7 +1569,37 @@ static void rtw8723b_init_wmac_setting(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_adaptive_ctrl(struct rtw_dev *rtwdev)
 {
-	rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, 0xffff1);
+	/* REG_RRSR low 20 bits programs the BSS basic rate set the chip
+	 * uses for ACK/CTS rate selection, response duration calculation,
+	 * and CTS-to-self protection. Upstream rtw88 writes 0xffff1 here,
+	 * which advertises 1 Mbps CCK + every 6/9/12/18/24/36/48/54 Mbps
+	 * OFDM rate + MCS0..7 as basic. That is not a 802.11-compliant
+	 * BSS basic rate set and is missing 2/5.5/11 Mbps CCK entirely.
+	 *
+	 * The legacy rtl8723bs staging driver instead programs REG_RRSR
+	 * via HW_VAR_BASIC_RATE at every join, and runs the chosen rates
+	 * through:
+	 *
+	 *   BrateCfg |= (RRSR_11M | RRSR_5_5M | RRSR_1M)        // forced CCK
+	 *   BrateCfg &= (RRSR_24M | RRSR_12M | RRSR_6M |
+	 *                RRSR_CCK_RATES)                         // OFDM allow
+	 *
+	 * giving 0x15F = 1/2/5.5/11 Mbps CCK + 6/12/24 Mbps OFDM, exactly
+	 * the IEEE 802.11g mandatory rates. RRSR_INIT_2G in main.h is the
+	 * same constant 0x15f used by rtw_phy_rrsr_update() once a STA
+	 * exists; bake it in at MAC init too for 8723BS SDIO so the
+	 * basic-rate set is correct from boot, including across the
+	 * pre-association connect window where rtw_update_sta_info() has
+	 * not yet run and rtw_phy_rrsr_update() is still working with the
+	 * default rrsr_val_init of 0.
+	 *
+	 * Other 8723b HCIs (PCIe / USB) keep the upstream 0xffff1 value
+	 * because we have no on-target validation for those.
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, RRSR_INIT_2G);
+	else
+		rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, 0xffff1);
 	rtw_write16(rtwdev, REG_RETRY_LIMIT, 0x3030);
 }
 
@@ -3626,7 +3656,24 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 	 */
 	.hw_feature_report = false,
 
-	.c2h_ra_report_size = 7,	// ?
+	.c2h_ra_report_size = 4,	/* rtw88/rtw8723b_fw.bin v41 emits the
+					 * legacy 8051 4-byte rate report
+					 * (rate_sgi, mac_id, byte2, status).
+					 * Setting this to 7 — like the upstream
+					 * default — caused every C2H_RA_REPORT
+					 * to be dropped with
+					 * "short ra report c2h length 4
+					 * expected 7" on every connect attempt
+					 * (logs-rtw88-ed0c5c34), so the firmware-
+					 * driven rate adaptation feedback path
+					 * never updated si->ra_report. The
+					 * legacy 8051 8723b/8703b/8723d firmware
+					 * uses the same 4-byte format as the
+					 * older 8821a/8812a chips. byte4..bw fall
+					 * back to the per-station defaults in
+					 * rtw_fw_ra_report_iter(), which matches
+					 * what those chips already do safely.
+					 */
 	.old_datarate_fb_limit = true,	/* likely true; see main-line commit c7706b1 */
 
 	.path_div_supported = false,
