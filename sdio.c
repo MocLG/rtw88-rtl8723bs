@@ -1514,14 +1514,18 @@ static int rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	unsigned long data_addr, aligned_addr;
 	struct rtw_tx_desc *pkt_desc;
-	bool fixed_mgmt_offset;
+	bool fixed_8723bs_offset;
 	size_t offset;
 	int ret;
 
-	fixed_mgmt_offset = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-			    queue == RTW_TX_QUEUE_MGMT;
+	fixed_8723bs_offset = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			      (queue == RTW_TX_QUEUE_MGMT ||
+			       queue == RTW_TX_QUEUE_BCN);
 
-	if (fixed_mgmt_offset) {
+	if (fixed_8723bs_offset) {
+		/* 8723BS staging uses TXDESC_OFFSET=40 for both directed
+		 * management TX and reserved-page/beacon downloads.
+		 */
 		ret = rtw_sdio_align_tx_skb(skb, chip->tx_pkt_desc_sz);
 		if (ret)
 			return ret;
@@ -1532,7 +1536,7 @@ static int rtw_sdio_tx_skb_prepare(struct rtw_dev *rtwdev,
 	data_addr = (unsigned long)pkt_desc;
 	aligned_addr = ALIGN(data_addr, RTW_SDIO_DATA_PTR_ALIGN);
 
-	if (!fixed_mgmt_offset && data_addr != aligned_addr) {
+	if (!fixed_8723bs_offset && data_addr != aligned_addr) {
 		/* Ensure that the start of the pkt_desc is always aligned at
 		 * RTW_SDIO_DATA_PTR_ALIGN.
 		 */
