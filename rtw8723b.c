@@ -1861,6 +1861,18 @@ static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev)
 	return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
+{
+	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB ? 0x280 : 0x0;
+
+	/* Staging passes pHalData->ant_path into PHY_IQCalibrate_8723B():
+	 * RF_PATH_A/S1 calibrates with BB_SEL_BTG=0x0 and RF_PATH_B/S0
+	 * calibrates with BB_SEL_BTG=0x280.
+	 */
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x280 : 0x0;
+}
+
 static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 				u8 channel, u8 bw)
 {
@@ -2368,6 +2380,7 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 
 	/* NOTE: this func is ready! */
 
+	bool sdio_iqk = rtw8723b_sdio_needs_rx_path_fix(rtwdev);
 	u8 status;
 	u32 path_sel;
 
@@ -2381,7 +2394,8 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 
 	/* enable path A PA in TX IQK mode */
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_LUTWE, 0x80000, 0x1);
-	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK, 0x20000);
+	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK,
+		     sdio_iqk ? 0x18000 : 0x20000);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G1, RFREG_MASK, 0x0003f);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G2, RFREG_MASK, 0xc7f87);
 
@@ -2395,7 +2409,8 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_TX_IQK_TONE_B, 0x38008c1c);
 	rtw_write32(rtwdev, REG_RX_IQK_TONE_B, 0x38008c1c);
 
-	rtw_write32(rtwdev, REG_TXIQK_PI_A_11N, 0x821403ea);
+	rtw_write32(rtwdev, REG_TXIQK_PI_A_11N,
+		    sdio_iqk ? 0x821303ea : 0x821403ea);
 	rtw_write32(rtwdev, REG_RXIQK_PI_A_11N, 0x28110000);
 	rtw_write32(rtwdev, REG_TXIQK_PI_B, 0x82110000);
 	rtw_write32(rtwdev, REG_RXIQK_PI_B, 0x28110000);
@@ -2407,10 +2422,8 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32_mask(rtwdev, REG_FPGA0_IQK_11N, MASKH3BYTES, 0x808000);
 
 	/* ant switch */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x280);
-	else
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x0);
+	rtw_write32(rtwdev, REG_BB_SEL_BTG,
+		    rtw8723b_iqk_ant_switch_path(rtwdev));
 
 	/* GNT_BT = 0 */
 	rtw_write32(rtwdev, REG_BT_CONTROL_8723B, 0x00000800);
@@ -2445,6 +2458,7 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 
 	/* NOTE: this func is ready! */
 
+	bool sdio_iqk = rtw8723b_sdio_needs_rx_path_fix(rtwdev);
 	u32 reg_e94, reg_e9c, val32, path_sel;
 	u8 status;
 
@@ -2457,7 +2471,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32_mask(rtwdev, REG_FPGA0_IQK_11N, MASKH3BYTES, 0x000000);
 
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_LUTWE, 0x80000, 0x1);
-	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK, 0x30000);
+	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK,
+		     sdio_iqk ? 0x18000 : 0x30000);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G1, RFREG_MASK, 0x0001f);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G2, RFREG_MASK, 0xf7fb7);
 
@@ -2471,7 +2486,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_TX_IQK_TONE_B, 0x38008c1c);
 	rtw_write32(rtwdev, REG_RX_IQK_TONE_B, 0x38008c1c);
 
-	rtw_write32(rtwdev, REG_TXIQK_PI_A_11N, 0x82160ff0);
+	rtw_write32(rtwdev, REG_TXIQK_PI_A_11N,
+		    sdio_iqk ? 0x82130ff0 : 0x82160ff0);
 	rtw_write32(rtwdev, REG_RXIQK_PI_A_11N, 0x28110000);
 	rtw_write32(rtwdev, REG_TXIQK_PI_B, 0x82110000);
 	rtw_write32(rtwdev, REG_RXIQK_PI_B, 0x28110000);
@@ -2483,10 +2499,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32_mask(rtwdev, REG_FPGA0_IQK_11N, MASKH3BYTES, 0x808000);
 
 	/* ant switch */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x280);
-	else
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x0);
+	rtw_write32(rtwdev, REG_BB_SEL_BTG,
+		    rtw8723b_iqk_ant_switch_path(rtwdev));
 
 	/* GNT_BT = 0 (disable BT) */
 	rtw_write32(rtwdev, REG_BT_CONTROL_8723B, 0x00000800);
@@ -2524,7 +2538,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	/* modify RX IQK mode */
 	rtw_write32_mask(rtwdev, REG_FPGA0_IQK_11N, MASKH3BYTES, 0x000000);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_LUTWE, 0x80000, 0x1);
-	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK, 0x30000);
+	rtw_write_rf(rtwdev, RF_PATH_A, RF_RCK_OS, RFREG_MASK,
+		     sdio_iqk ? 0x18000 : 0x30000);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G1, RFREG_MASK, 0x0001f);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G2, RFREG_MASK, 0xf7d77);
 
@@ -2542,7 +2557,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_RX_IQK_TONE_B, 0x38008c1c);
 
 	rtw_write32(rtwdev, REG_TXIQK_PI_A_11N, 0x82110000);
-	rtw_write32(rtwdev, REG_RXIQK_PI_A_11N, 0x2816001f);
+	rtw_write32(rtwdev, REG_RXIQK_PI_A_11N,
+		    sdio_iqk ? 0x2813001f : 0x2816001f);
 	rtw_write32(rtwdev, REG_TXIQK_PI_B, 0x82110000);
 	rtw_write32(rtwdev, REG_RXIQK_PI_B, 0x28110000);
 
@@ -2553,10 +2569,8 @@ static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 	rtw_write32_mask(rtwdev, REG_FPGA0_IQK_11N, MASKH3BYTES, 0x808000);
 
 	/* ant switch */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB)
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x280);
-	else
-		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x0);
+	rtw_write32(rtwdev, REG_BB_SEL_BTG,
+		    rtw8723b_iqk_ant_switch_path(rtwdev));
 
 	/* GNT_BT = 0 */
 	rtw_write32(rtwdev, REG_BT_CONTROL_8723B, 0x00000800);
@@ -2832,8 +2846,8 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 	bt_control = rtw_read32(rtwdev, REG_BT_CONTROL_8723B);
 
 	for (i = IQK_ROUND_0; i <= IQK_ROUND_2; i++) {
-		// TODO
-		rtw8723x_iqk_config_path_ctrl(rtwdev); // no trace of this in vendor driver
+		if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+			rtw8723x_iqk_config_path_ctrl(rtwdev);
 		//rtw8723x_iqk_config_lte_path_gnt(rtwdev, IQK_LTE_WRITE_VAL_8703B);
 
 		rtw8723b_iqk_one_round(rtwdev, result, i, &backup);
@@ -2857,9 +2871,9 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 			rtw_write32(rtwdev, REG_RXIQK_TONE_A_11N, 0x01008c00);
 		}
 
-		// TODO
 		//rtw8723x_iqk_restore_lte_path_gnt(rtwdev, &backup);
-		rtw8723x_iqk_restore_path_ctrl(rtwdev, &backup);
+		if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+			rtw8723x_iqk_restore_path_ctrl(rtwdev, &backup);
 
 		for (j = IQK_ROUND_0; j < i; j++) {
 			good = rtw8723x_iqk_similarity_cmp(rtwdev, result, j, i);
