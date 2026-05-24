@@ -366,6 +366,26 @@ static void rtw_tx_pkt_info_update_rate(struct rtw_dev *rtwdev,
 
 	pkt_info->use_rate = true;
 	pkt_info->dis_rate_fallback = true;
+
+	/* RTL8723BS SDIO 2.4 GHz: match staging exactly. Staging's
+	 * rtl8723b_fill_default_txdesc() leaves disdatafb=0 (the default)
+	 * for both MGNT_FRAMETAG and EAPOL data frames. Combined with
+	 * userate=1 + datarate=DESC_RATE6M and rate-id=G (whose lowest
+	 * entry is already 6 Mbps OFDM), the chip is bounded to 6 Mbps
+	 * OFDM regardless of fallback because there is nothing lower in
+	 * the rate-id ratemask to step down to. The earlier 7dc65d5
+	 * "belt-and-suspenders" DISDATAFB=1 was a deliberate non-staging
+	 * delta, and on this hardware it appears to suppress the chip's
+	 * normal retransmit/ACK-timing behaviour for unicast mgmt
+	 * frames; logs-rtw88-d308f56d still shows the AP never replies
+	 * to auth even after every other staging-parity fix. Restore
+	 * staging-parity disdatafb=0 here for the 8723bs SDIO 2.4 GHz
+	 * mgmt + EAPOL TX path.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    rtwdev->hal.current_band_type == RTW_BAND_2G)
+		pkt_info->dis_rate_fallback = false;
 }
 
 static void rtw_tx_pkt_info_update_sec(struct rtw_dev *rtwdev,
@@ -416,21 +436,27 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->seq = seq;
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
-		/* RTL8723BS SDIO connect-management TX path: pin the
-		 * descriptor to exactly DESC_RATE6M with no hardware rate
-		 * fallback by setting DISDATAFB=1. The OFDM-only G rate-id
-		 * (set in rtw_tx_pkt_info_update_rate) already restricts
-		 * fallback to the OFDM ratemask, but logs-rtw88-817fd607
-		 * confirms that even with rate=4/rate_id=7 the AP still
-		 * never responds to auth/assoc on-air. Belt-and-suspenders
-		 * with DISDATAFB=1 ensures every retry transmits at exactly
-		 * 6 Mbps OFDM (no chip-internal rate stepping at all),
-		 * mirroring the effective behaviour of the legacy staging
-		 * driver whose mgmt frames are sent with userate=1 +
-		 * datarate=DESC_RATE6M and a rate-id whose lowest entry is
-		 * already 6 Mbps, so the chip has nothing to fall back to.
+		/* RTL8723BS SDIO connect-management TX path: match staging
+		 * exactly. Staging's rtl8723b_fill_default_txdesc() for
+		 * MGNT_FRAMETAG leaves disdatafb=0 (default) and relies on
+		 * userate=1 + datarate=DESC_RATE6M + rate-id=G to keep
+		 * every retry at 6 Mbps OFDM, since the OFDM-only G
+		 * ratemask has nothing lower than 6 Mbps to step down to.
+		 *
+		 * The earlier 7dc65d5 "belt-and-suspenders" DISDATAFB=1
+		 * was a deliberate non-staging delta added on the theory
+		 * that pinning rate fallback was harmless. logs-rtw88-
+		 * d308f56d shows the AP at -46 dBm still never replies to
+		 * auth/assoc on-air after every other staging-parity fix,
+		 * so flip this back to staging-parity false and let the
+		 * chip's normal rate-control behave the same way it does
+		 * on the staging driver where this hardware is known to
+		 * authenticate, associate, and DHCP successfully. The
+		 * earlier rtw_tx_pkt_info_update_rate() call also flips
+		 * this to false for 8723bs SDIO 2.4 GHz; reassert it here
+		 * so the mgmt path is unambiguous.
 		 */
-		pkt_info->dis_rate_fallback = true;
+		pkt_info->dis_rate_fallback = false;
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
