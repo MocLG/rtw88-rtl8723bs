@@ -1649,8 +1649,18 @@ static void rtw8723b_init_operation_mode(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 {
+	/* Match staging's _BeaconFunctionEnable() / _InitBeaconParameters() for
+	 * 8723bs SDIO: REG_BCN_CTRL = DIS_TSF_UDT | EN_BCN_FUNCTION |
+	 * DIS_BCNQ_SUB.  DIS_BCNQ_SUB (BIT(1)) tells the chip not to use the
+	 * secondary beacon-queue flow, which is reserved for multi-VAP / mesh
+	 * setups; STA mode never uses it but the bit's default state can leave
+	 * the chip in a half-configured beacon path that interferes with
+	 * non-beacon mgmt TX timing.
+	 */
 	rtw_write16(rtwdev, REG_BCN_CTRL,
-		    BIT_DIS_TSF_UDT | (BIT_DIS_TSF_UDT << 8) | BIT_EN_BCN_FUNCTION);
+		    BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_BCNQ_SUB |
+		    ((BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION |
+		      BIT_DIS_BCNQ_SUB) << 8));
 	rtw_write8(rtwdev, REG_TBTT_PROHIBIT, TBTT_PROHIBIT_SETUP_TIME);
 	rtw_write8(rtwdev, REG_TBTT_PROHIBIT + 1,
 		  TBTT_PROHIBIT_HOLD_TIME_STOP_BCN & 0xff);
@@ -1662,6 +1672,17 @@ static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 	/* Suggested by designer timchen. Change beacon AIFS to the largest number */
 	/* beacause test chip does not contension before sending beacon. by tynli. 2009.11.03 */
 	rtw_write16(rtwdev, REG_BCNTCFG, 0x660F);
+
+	/* Staging's _BeaconFunctionEnable() also writes REG_RD_CTRL+1 = 0x6F.
+	 * The chip default after reset is 0x4F, missing bit 5 of byte 1 (i.e.
+	 * BIT_DIS_LSIG_CFE inside REG_RD_CTRL).  Programming it to 0x6F brings
+	 * the response-delay control into the same state staging uses
+	 * throughout normal STA operation.  rtl8723bs only ever writes
+	 * REG_RD_CTRL+1 from this helper, so apply it here as part of MAC
+	 * init for 8723b regardless of HCI; PCIe/USB happen to ROM-default
+	 * to 0x4F too and need the same correction.
+	 */
+	rtw_write8(rtwdev, REG_RD_CTRL + 1, 0x6F);
 }
 
 static void rtw8723b_init_burst_pkt_len(struct rtw_dev *rtwdev)
@@ -1831,6 +1852,20 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	rtw8723b_init_operation_mode(rtwdev);
 	rtw8723b_init_beacon_parameters(rtwdev);
 	rtw8723b_init_burst_pkt_len(rtwdev);
+
+	/* Match staging's rtl8723bs_hal_init(): program per-AC packet
+	 * lifetime to 256 ms (0x0400, in 256 us units).  The chip ROM
+	 * default is 0x1000 (~1.05 s) and the upstream rtw88 driver
+	 * never writes these for 8723b.  Leaving the long default lets
+	 * the chip queue/retry data frames (including unicast EAPOL on
+	 * the BE/BK queue) for ~1 s before giving up, which is far
+	 * outside the WPA-Supplicant 1-s EAPOL retry window and produces
+	 * out-of-order TX behaviour during the connect window.  Use the
+	 * staging-parity 256 ms value so VO/VI/BE/BK TX matches what
+	 * the legacy rtl8723bs driver does on the same hardware.
+	 */
+	rtw_write16(rtwdev, REG_PKT_VO_VI_LIFE_TIME, 0x0400);
+	rtw_write16(rtwdev, REG_PKT_BE_BK_LIFE_TIME, 0x0400);
 
 	// done in rtw8723b_mac_init
 	// rtw_write8(rtwdev, REG_MISC_CTRL, 0x3); /* CCA */

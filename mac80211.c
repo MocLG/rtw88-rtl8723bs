@@ -426,7 +426,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
 	rtw_write8(rtwdev, REG_BCN_CTRL,
-		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
+		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_BCNQ_SUB);
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
