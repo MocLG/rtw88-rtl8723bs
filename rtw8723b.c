@@ -1866,11 +1866,11 @@ static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB ? 0x280 : 0x0;
 
-	/* Staging passes pHalData->ant_path into PHY_IQCalibrate_8723B():
-	 * RF_PATH_A/S1 calibrates with BB_SEL_BTG=0x0 and RF_PATH_B/S0
-	 * calibrates with BB_SEL_BTG=0x280.
+	/* 8723BS SDIO scan/connect now run through the PTA mux, just like the
+	 * staging BT-disabled scan path leaves them. Run IQK through the same
+	 * mux so the calibration is applied to the path used for auth/assoc TX.
 	 */
-	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x280 : 0x0;
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
 }
 
 static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
@@ -2831,6 +2831,12 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 	u8 i, j;
 
 	rtw_dbg(rtwdev, RTW_DBG_RFK, "[IQK] Start!\n");
+	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+		rtw_info(rtwdev,
+			 "[IQK] 8723bs SDIO ant path current=0x%08x target=0x%08x bt_setting=0x%02x\n",
+			 rtw_read32(rtwdev, REG_BB_SEL_BTG),
+			 rtw8723b_iqk_ant_switch_path(rtwdev),
+			 rtwdev->efuse.bt_setting);
 
 	memset(result, 0, sizeof(result));
 
@@ -2902,8 +2908,10 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 	}
 
 iqk_done:
-	rtw8723b_iqk_fill_a_matrix(rtwdev, result[final_candidate]);
-	rtw8723b_iqk_fill_b_matrix(rtwdev, result[final_candidate]);
+	if (result[final_candidate][IQK_S1_TX_X])
+		rtw8723b_iqk_fill_a_matrix(rtwdev, result[final_candidate]);
+	if (result[final_candidate][IQK_S0_TX_X])
+		rtw8723b_iqk_fill_b_matrix(rtwdev, result[final_candidate]);
 
 	dm_info->iqk.result.s1_x = result[final_candidate][IQK_S1_TX_X];
 	dm_info->iqk.result.s1_y = result[final_candidate][IQK_S1_TX_Y];
