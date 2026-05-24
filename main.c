@@ -1758,6 +1758,31 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 	wifi_only = !rtwdev->efuse.btcoex;
 
 	rtw_coex_power_on_setting(rtwdev);
+
+	/* logs-rtw88-a34a694f shows __rtw_coex_init_hw_config() takes the
+	 * non-wifi_only branch on this 8723bs SDIO board even when BT is
+	 * disabled at runtime: rtwdev->efuse.btcoex reflects whether the
+	 * hardware supports BT, not whether BT is currently enabled, so
+	 * wifi_only stays false for any hardware whose efuse advertises
+	 * BT support. As a result coex_init_hw_config() takes
+	 * COEX_SET_ANT_INIT (BBSW + TO_BT, BB_SEL_BTG=0x280) instead of
+	 * the COEX_SET_ANT_WONLY path the staging driver effectively uses
+	 * for BT-disabled boards. The chip then enters auth on a
+	 * not-fully-staging-parity coex state.
+	 *
+	 * For 8723BS SDIO only, also treat the board as wifi-only at
+	 * runtime when coex monitoring already concluded BT is disabled,
+	 * matching what staging's halbtc8723b1ant code path does for
+	 * BT-disabled boards. Other chips and HCIs are unchanged.
+	 */
+	if (rtw_is_8723bs_sdio(rtwdev) && !wifi_only &&
+	    rtwdev->coex.stat.bt_disabled) {
+		rtw_info(rtwdev,
+			 "RFK_DEBUG: 8723bs SDIO promote wifi_only=1 (efuse.btcoex=%u bt_disabled=1)\n",
+			 rtwdev->efuse.btcoex);
+		wifi_only = true;
+	}
+
 	rtw_power_on_8723bs_sdio_rfk(rtwdev);
 	rtw_coex_init_hw_config(rtwdev, wifi_only);
 
