@@ -407,6 +407,11 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
+		struct ieee80211_vif *vif = tx_info->control.vif;
+		struct cfg80211_bss *bss = NULL;
+		bool short_preamble = false;
+
 		seq = (le16_to_cpu(hdr->seq_ctrl) & IEEE80211_SCTL_SEQ) >> 4;
 		pkt_info->seq = seq;
 		pkt_info->en_hwseq = true;
@@ -430,6 +435,52 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
 		pkt_info->dis_qselseq = true;
+
+		/* Staging's rtl8723b_fill_default_txdesc() sets the chip
+		 * descriptor's DATA_SHORT bit (W5 bit 4) for mgmt frames
+		 * whose `pmlmeinfo->preamble_mode == PREAMBLE_SHORT`,
+		 * i.e. whenever the target AP advertises ShortPreamble in
+		 * its capability info. We mirror that here. The bit's
+		 * primary effect on the chip's TX scheduler is to mark the
+		 * outgoing frame as a short-preamble transmission so the
+		 * chip can short-preamble its CCK preamble and expect a
+		 * short-preamble ACK back from the AP. For OFDM rates
+		 * (rate=DESC_RATE6M for our auth/assoc) the bit does not
+		 * change the OFDM symbol shape but tracks the staging
+		 * default and removes the last "non-staging mgmt
+		 * descriptor delta" against staging-parity for this
+		 * 8723BS SDIO connect window.
+		 *
+		 * Source the short-preamble decision from the same scan
+		 * BSS lookup that rtw8723bs_apply_bss_cap() uses for
+		 * pre-auth ACK preamble / slot-time programming, so the
+		 * descriptor and the MAC ACK programming agree even when
+		 * mac80211 has not yet populated bss_conf.use_short_*.
+		 */
+		if (vif && vif->type == NL80211_IFTYPE_STATION) {
+			if (vif->bss_conf.bss) {
+				short_preamble = !!(vif->bss_conf.bss->capability &
+						    WLAN_CAPABILITY_SHORT_PREAMBLE);
+			} else if (is_valid_ether_addr(vif->bss_conf.bssid)) {
+				bss = cfg80211_get_bss(rtwdev->hw->wiphy, NULL,
+						       vif->bss_conf.bssid,
+						       NULL, 0,
+						       IEEE80211_BSS_TYPE_ESS,
+						       IEEE80211_PRIVACY_ANY);
+				if (bss) {
+					short_preamble = !!(bss->capability &
+							    WLAN_CAPABILITY_SHORT_PREAMBLE);
+					cfg80211_put_bss(rtwdev->hw->wiphy, bss);
+				}
+			}
+
+			if (!short_preamble)
+				short_preamble = vif->bss_conf.use_short_preamble;
+		}
+
+		if (short_preamble)
+			pkt_info->short_gi = 1;
+
 		return;
 	}
 
