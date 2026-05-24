@@ -1556,7 +1556,30 @@ int rtw_fw_write_data_rsvd_page(struct rtw_dev *rtwdev, u16 pg_addr,
 	rtw_write8(rtwdev, REG_BCN_CTRL,
 		   (bckp[2] & ~BIT_EN_BCN_FUNCTION) | BIT_DIS_TSF_UDT);
 
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE) {
+	/* Clear BIT_EN_BCNQ_DL (REG_FWHW_TXQ_CTRL bit 22 == byte+2 bit 6)
+	 * before writing the reserved-page payload. The bit is normally set so
+	 * the chip periodically downloads beacons from the BCN queue and
+	 * transmits them; while we are using the same BCN queue as a
+	 * temporary upload path for the driver reserved page, we need the
+	 * chip to NOT treat the descriptor as a real beacon to be aired,
+	 * otherwise hardware never sets BIT_BCN_VALID and the wait below
+	 * times out with "error beacon valid".
+	 *
+	 * The legacy rtl8723bs staging driver clears this bit
+	 * unconditionally in rtl8723b_download_rsvd_page() (see the
+	 * "Set FWHW_TXQ_CTRL 0x422[6]= 0 to tell Hw the packet is not a
+	 * real beacon frame" comment in hal/rtl8723b_cmd.c). rtw88 was
+	 * doing it only for PCIe, which left 8723BS SDIO with the bit
+	 * still set during the post-assoc reserved-page download and
+	 * caused the BIT_BCN_VALID handshake to fail every time.
+	 *
+	 * Apply the same clear-and-restore for SDIO too. USB is left
+	 * untouched because the upstream driver did not need this and
+	 * we have no on-target validation for that HCI.
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE ||
+	    (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	     rtwdev->chip->id == RTW_CHIP_TYPE_8723B)) {
 		val = rtw_read8(rtwdev, REG_FWHW_TXQ_CTRL + 2);
 		bckp[1] = val;
 		val &= ~(BIT_EN_BCNQ_DL >> 16);
@@ -1587,7 +1610,9 @@ restore:
 	rtw_write16(rtwdev, REG_FIFOPAGE_CTRL_2,
 		    rsvd_pg_head | BIT_BCN_VALID_V1);
 	rtw_write8(rtwdev, REG_BCN_CTRL, bckp[2]);
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE)
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE ||
+	    (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	     rtwdev->chip->id == RTW_CHIP_TYPE_8723B))
 		rtw_write8(rtwdev, REG_FWHW_TXQ_CTRL + 2, bckp[1]);
 	rtw_write8(rtwdev, REG_CR + 1, bckp[0]);
 
