@@ -1523,15 +1523,30 @@ void rtw_add_rsvd_page_sta(struct rtw_dev *rtwdev,
 	rtw_add_rsvd_page(rtwdev, rtwvif, RSVD_LPS_PG_INFO, true);
 }
 
+/* SW_BCN_SEL bit (REG_DWBCN1_CTRL bit 20 == byte +2 bit 4) selects which
+ * port the chip's "SW download beacon" path targets when ENSWBCN is set
+ * during a reserved-page upload.  Clearing this bit picks port 0, which
+ * matches staging's HW_VAR_DL_BCN_SEL handler ("SW_BCN_SEL - Port0") in
+ * rtl8723b_hal_init.c.
+ *
+ * Without this clear, the chip on this 8723b stepping will not emit the
+ * BIT_BCN_VALID acknowledge after the SDIO upload, and the post-assoc
+ * reserved-page download fails with "error beacon valid" every time.
+ */
+#define BIT_OFFSET_DWBCN1_SW_BCN_SEL_PORT0	(20 - 16) /* relative to byte +2 */
+
 int rtw_fw_write_data_rsvd_page(struct rtw_dev *rtwdev, u16 pg_addr,
 				u8 *buf, u32 size)
 {
-	u8 bckp[3];
+	const bool is_8723bs_sdio = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+				    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+	u8 bckp[4];
 	u8 val;
 	u16 rsvd_pg_head;
 	u32 bcn_valid_addr;
 	u32 bcn_valid_mask;
-	int ret;
+	int retry, max_retry;
+	int ret = 0;
 
 	lockdep_assert_held(&rtwdev->mutex);
 
@@ -1539,14 +1554,6 @@ int rtw_fw_write_data_rsvd_page(struct rtw_dev *rtwdev, u16 pg_addr,
 		return -EINVAL;
 
 	bckp[2] = rtw_read8(rtwdev, REG_BCN_CTRL);
-
-	if (rtw_chip_wcpu_8051(rtwdev)) {
-		rtw_write32_set(rtwdev, REG_DWBCN0_CTRL, BIT_BCN_VALID);
-	} else {
-		pg_addr &= BIT_MASK_BCN_HEAD_1_V1;
-		pg_addr |= BIT_BCN_VALID_V1;
-		rtw_write16(rtwdev, REG_FIFOPAGE_CTRL_2, pg_addr);
-	}
 
 	val = rtw_read8(rtwdev, REG_CR + 1);
 	bckp[0] = val;
@@ -1577,19 +1584,23 @@ int rtw_fw_write_data_rsvd_page(struct rtw_dev *rtwdev, u16 pg_addr,
 	 * untouched because the upstream driver did not need this and
 	 * we have no on-target validation for that HCI.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE ||
-	    (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	     rtwdev->chip->id == RTW_CHIP_TYPE_8723B)) {
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE || is_8723bs_sdio) {
 		val = rtw_read8(rtwdev, REG_FWHW_TXQ_CTRL + 2);
 		bckp[1] = val;
 		val &= ~(BIT_EN_BCNQ_DL >> 16);
 		rtw_write8(rtwdev, REG_FWHW_TXQ_CTRL + 2, val);
 	}
 
-	ret = rtw_hci_write_data_rsvd_page(rtwdev, buf, size);
-	if (ret) {
-		rtw_err(rtwdev, "failed to write data to rsvd page\n");
-		goto restore;
+	/* Match staging's rtl8723b_download_rsvd_page(): point the SW beacon
+	 * download path at port 0 (clear BIT_SW_BCN_SEL in REG_DWBCN1_CTRL).
+	 * Without this, BIT_BCN_VALID is never asserted on this 8723b
+	 * stepping after the SDIO upload completes.
+	 */
+	if (is_8723bs_sdio) {
+		val = rtw_read8(rtwdev, REG_DWBCN1_CTRL + 2);
+		bckp[3] = val;
+		val &= ~BIT(BIT_OFFSET_DWBCN1_SW_BCN_SEL_PORT0);
+		rtw_write8(rtwdev, REG_DWBCN1_CTRL + 2, val);
 	}
 
 	if (rtw_chip_wcpu_8051(rtwdev)) {
@@ -1600,19 +1611,57 @@ int rtw_fw_write_data_rsvd_page(struct rtw_dev *rtwdev, u16 pg_addr,
 		bcn_valid_mask = BIT_BCN_VALID_V1;
 	}
 
-	if (!check_hw_ready(rtwdev, bcn_valid_addr, bcn_valid_mask, 1)) {
-		rtw_err(rtwdev, "error beacon valid\n");
+	/* Staging tries up to 100 times in rtl8723b_download_rsvd_page().
+	 * Each retry on this 8723b stepping clears BIT_BCN_VALID and re-runs
+	 * the SDIO upload, then polls for the chip's "upload accepted"
+	 * acknowledge.  Use a much smaller cap here because each
+	 * check_hw_ready() iteration already polls for ~10 ms; staging's
+	 * inner loop is non-delayed yields.
+	 */
+	max_retry = is_8723bs_sdio ? 5 : 1;
+
+	for (retry = 0; retry < max_retry; retry++) {
+		/* Clear BIT_BCN_VALID before each upload so the chip can
+		 * re-assert it once the upload is accepted.
+		 */
+		if (rtw_chip_wcpu_8051(rtwdev)) {
+			rtw_write32_set(rtwdev, REG_DWBCN0_CTRL, BIT_BCN_VALID);
+		} else {
+			u16 head = pg_addr & BIT_MASK_BCN_HEAD_1_V1;
+
+			head |= BIT_BCN_VALID_V1;
+			rtw_write16(rtwdev, REG_FIFOPAGE_CTRL_2, head);
+		}
+
+		ret = rtw_hci_write_data_rsvd_page(rtwdev, buf, size);
+		if (ret) {
+			rtw_err(rtwdev, "failed to write data to rsvd page\n");
+			goto restore;
+		}
+
+		if (check_hw_ready(rtwdev, bcn_valid_addr, bcn_valid_mask, 1)) {
+			ret = 0;
+			break;
+		}
+
 		ret = -EBUSY;
+		if (is_8723bs_sdio)
+			rtw_dbg(rtwdev, RTW_DBG_FW,
+				"rsvd page BCN_VALID retry %d/%d\n",
+				retry + 1, max_retry);
 	}
 
+	if (ret)
+		rtw_err(rtwdev, "error beacon valid\n");
+
 restore:
+	if (is_8723bs_sdio)
+		rtw_write8(rtwdev, REG_DWBCN1_CTRL + 2, bckp[3]);
 	rsvd_pg_head = rtwdev->fifo.rsvd_boundary;
 	rtw_write16(rtwdev, REG_FIFOPAGE_CTRL_2,
 		    rsvd_pg_head | BIT_BCN_VALID_V1);
 	rtw_write8(rtwdev, REG_BCN_CTRL, bckp[2]);
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE ||
-	    (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	     rtwdev->chip->id == RTW_CHIP_TYPE_8723B))
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_PCIE || is_8723bs_sdio)
 		rtw_write8(rtwdev, REG_FWHW_TXQ_CTRL + 2, bckp[1]);
 	rtw_write8(rtwdev, REG_CR + 1, bckp[0]);
 
