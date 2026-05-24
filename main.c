@@ -24,6 +24,7 @@
 #define RTW_SCAN_SDIO_HISR_ERRS (REG_SDIO_HISR_RXERR | \
 				 REG_SDIO_HISR_TXFOVW | \
 				 REG_SDIO_HISR_RXFOVW)
+#define RTW8723BS_REG_BB_SEL_BTG	0x0948
 
 bool rtw_disable_lps_deep_mode;
 EXPORT_SYMBOL(rtw_disable_lps_deep_mode);
@@ -49,7 +50,7 @@ MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
 #define RTW8723BS_SCAN_IGI	0x1e
 
-static bool rtw_scan_is_8723bs(struct rtw_dev *rtwdev)
+static bool rtw_is_8723bs_sdio(struct rtw_dev *rtwdev)
 {
 	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
@@ -59,7 +60,7 @@ static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
 {
 	u32 before;
 
-	if (!rtw_scan_is_8723bs(rtwdev))
+	if (!rtw_is_8723bs_sdio(rtwdev))
 		return;
 
 	before = rtw_read32(rtwdev, REG_RXIGI_A);
@@ -74,7 +75,7 @@ static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
 
 static void rtw_scan_prepare_8723bs_rfk(struct rtw_dev *rtwdev)
 {
-	if (!rtw_scan_is_8723bs(rtwdev) || !rtwdev->need_rfk)
+	if (!rtw_is_8723bs_sdio(rtwdev) || !rtwdev->need_rfk)
 		return;
 
 	rtw_info(rtwdev,
@@ -1091,9 +1092,9 @@ void rtw_set_channel(struct rtw_dev *rtwdev)
 
 	rtw_phy_set_tx_power_level(rtwdev, center_chan);
 
-	/* if the channel isn't set for scanning, we will do RF calibration
-	 * in ieee80211_ops::mgd_prepare_tx(). Performing the calibration
-	 * during scanning on each channel takes too long.
+	/* If the channel isn't set for scanning, most chips do RF calibration
+	 * in ieee80211_ops::mgd_prepare_tx(). 8723BS SDIO keeps staging's
+	 * power-on IQK shape and skips fresh auth-window IQK.
 	 */
 	if (!test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 		rtwdev->need_rfk = true;
@@ -1107,6 +1108,27 @@ void rtw_chip_prepare_tx(struct rtw_dev *rtwdev)
 		rtwdev->need_rfk = false;
 		chip->ops->phy_calibration(rtwdev);
 	}
+}
+
+static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
+{
+	const struct rtw_chip_info *chip = rtwdev->chip;
+
+	if (!rtw_is_8723bs_sdio(rtwdev) || !chip->ops->phy_calibration)
+		return;
+
+	rtw_info(rtwdev,
+		 "RFK_DEBUG: 8723bs SDIO power_on_rfk begin BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
+		 rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG),
+		 rtw_read32(rtwdev, REG_RXIGI_A));
+
+	chip->ops->phy_calibration(rtwdev);
+	rtwdev->need_rfk = false;
+
+	rtw_info(rtwdev,
+		 "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
+		 rtwdev->need_rfk, rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG),
+		 rtw_read32(rtwdev, REG_RXIGI_A));
 }
 
 static void rtw_vif_write_addr(struct rtw_dev *rtwdev, u32 start, u8 *addr)
@@ -1706,6 +1728,7 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 	wifi_only = !rtwdev->efuse.btcoex;
 
 	rtw_coex_power_on_setting(rtwdev);
+	rtw_power_on_8723bs_sdio_rfk(rtwdev);
 	rtw_coex_init_hw_config(rtwdev, wifi_only);
 
 	return 0;
