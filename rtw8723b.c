@@ -1649,18 +1649,22 @@ static void rtw8723b_init_operation_mode(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 {
-	/* Match staging's _BeaconFunctionEnable() / _InitBeaconParameters() for
-	 * 8723bs SDIO: REG_BCN_CTRL = DIS_TSF_UDT | EN_BCN_FUNCTION |
-	 * DIS_BCNQ_SUB.  DIS_BCNQ_SUB (BIT(1)) tells the chip not to use the
-	 * secondary beacon-queue flow, which is reserved for multi-VAP / mesh
-	 * setups; STA mode never uses it but the bit's default state can leave
-	 * the chip in a half-configured beacon path that interferes with
-	 * non-beacon mgmt TX timing.
+	/* Match staging's _InitBeaconParameters() for 8723b: program
+	 * port-0 and port-1 BCN_CTRL with DIS_TSF_UDT | EN_BCN_FUNCTION
+	 * only.
+	 *
+	 * eeffbe2 added DIS_BCNQ_SUB here on the (incorrect) assumption
+	 * that _InitBeaconParameters() set it; staging only sets
+	 * DIS_BCNQ_SUB from _BeaconFunctionEnable(), which is exclusive
+	 * to AP / IBSS modes via rtl8723b_SetBeaconRelatedRegisters().
+	 * STA mode picks up the correct BCN_CTRL value later in
+	 * hw_var_set_opmode(_HW_STATE_STATION_), which writes DIS_ATIM
+	 * instead of DIS_BCNQ_SUB.  Matching staging's init keeps the
+	 * chip BCN_CTRL state consistent across init -> opmode -> join.
 	 */
 	rtw_write16(rtwdev, REG_BCN_CTRL,
-		    BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_BCNQ_SUB |
-		    ((BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION |
-		      BIT_DIS_BCNQ_SUB) << 8));
+		    (BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION) |
+		    ((BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION) << 8));
 	rtw_write8(rtwdev, REG_TBTT_PROHIBIT, TBTT_PROHIBIT_SETUP_TIME);
 	rtw_write8(rtwdev, REG_TBTT_PROHIBIT + 1,
 		  TBTT_PROHIBIT_HOLD_TIME_STOP_BCN & 0xff);
@@ -1673,16 +1677,12 @@ static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 	/* beacause test chip does not contension before sending beacon. by tynli. 2009.11.03 */
 	rtw_write16(rtwdev, REG_BCNTCFG, 0x660F);
 
-	/* Staging's _BeaconFunctionEnable() also writes REG_RD_CTRL+1 = 0x6F.
-	 * The chip default after reset is 0x4F, missing bit 5 of byte 1 (i.e.
-	 * BIT_DIS_LSIG_CFE inside REG_RD_CTRL).  Programming it to 0x6F brings
-	 * the response-delay control into the same state staging uses
-	 * throughout normal STA operation.  rtl8723bs only ever writes
-	 * REG_RD_CTRL+1 from this helper, so apply it here as part of MAC
-	 * init for 8723b regardless of HCI; PCIe/USB happen to ROM-default
-	 * to 0x4F too and need the same correction.
+	/* Note: staging programs REG_RD_CTRL+1 = 0x6F only inside
+	 * _BeaconFunctionEnable() (AP / IBSS path).  STA mode never writes
+	 * this register, so leave it at the chip ROM default (0x4F).
+	 * eeffbe2 incorrectly wrote 0x6F here for all modes, which was a
+	 * non-staging change for the STA-only build we exercise.
 	 */
-	rtw_write8(rtwdev, REG_RD_CTRL + 1, 0x6F);
 }
 
 static void rtw8723b_init_burst_pkt_len(struct rtw_dev *rtwdev)

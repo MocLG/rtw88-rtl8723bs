@@ -425,8 +425,22 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
+	/* Match staging hw_var_set_opmode(_HW_STATE_STATION_):
+	 * BCN_CTRL = DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_ATIM.
+	 *
+	 * eeffbe2 wrongly used DIS_BCNQ_SUB here on the assumption that
+	 * staging's _InitBeaconParameters() / _BeaconFunctionEnable() also
+	 * set DIS_BCNQ_SUB for STA mode.  In fact _BeaconFunctionEnable()
+	 * is only called from rtl8723b_SetBeaconRelatedRegisters(), which
+	 * staging invokes solely from the AP / IBSS join paths via
+	 * beacon_timing_control().  For pure STA mode staging takes
+	 * hw_var_set_opmode() which writes DIS_ATIM (BIT(0)), not
+	 * DIS_BCNQ_SUB (BIT(1)).  Restoring DIS_ATIM keeps us byte-for-byte
+	 * with the legacy rtl8723bs driver during the entire connect
+	 * window.
+	 */
 	rtw_write8(rtwdev, REG_BCN_CTRL,
-		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_BCNQ_SUB);
+		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
 
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
