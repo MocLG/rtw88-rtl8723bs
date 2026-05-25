@@ -501,7 +501,12 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
-		pkt_info->dis_qselseq = true;
+		/* On 8723B the DISQSELSEQ field aliases descriptor OWN
+		 * (W0 bit 31). Staging keeps that bit clear for normal
+		 * host-written SDIO management packets and only sets OWN for
+		 * fake/reserved-page descriptors, so keep auth/assoc/probe
+		 * W0 byte-for-byte aligned with that path.
+		 */
 		return;
 	}
 
