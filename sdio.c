@@ -849,8 +849,16 @@ static u32 rtw_sdio_get_tx_addr(struct rtw_dev *rtwdev, size_t size,
 		txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
 				    REG_SDIO_CMD_ADDR_TXFF_HIGH);
 		break;
-	case RTW_TX_QUEUE_VI:
 	case RTW_TX_QUEUE_VO:
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+			txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
+					    REG_SDIO_CMD_ADDR_TXFF_HIGH);
+			break;
+		}
+		txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
+				    REG_SDIO_CMD_ADDR_TXFF_NORMAL);
+		break;
+	case RTW_TX_QUEUE_VI:
 		txaddr = FIELD_PREP(REG_SDIO_CMD_ADDR_MSK,
 				    REG_SDIO_CMD_ADDR_TXFF_NORMAL);
 		break;
@@ -1021,8 +1029,15 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 			/* high */
 			pages_free = atomic_read(&rtwsdio->free_pg_high);
 			break;
-		case RTW_TX_QUEUE_VI:
 		case RTW_TX_QUEUE_VO:
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+				/* 8723BS staging maps VO to the high queue. */
+				pages_free = atomic_read(&rtwsdio->free_pg_high);
+				break;
+			}
+			pages_free = atomic_read(&rtwsdio->free_pg_normal);
+			break;
+		case RTW_TX_QUEUE_VI:
 			/* normal */
 			pages_free = atomic_read(&rtwsdio->free_pg_normal);
 			break;
