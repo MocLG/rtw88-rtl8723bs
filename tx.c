@@ -316,42 +316,116 @@ static u8 rtw_get_mgmt_rate(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	return __ffs(vif->bss_conf.basic_rates) + lowest_rate;
 }
 
+static bool rtw_tx_8723bs_sdio_2g(struct rtw_dev *rtwdev)
+{
+	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	       rtwdev->hal.current_band_type == RTW_BAND_2G;
+}
+
+static bool rtw_tx_8723bs_rates_have_cck(const u8 *ie)
+{
+	int i;
+
+	if (!ie)
+		return false;
+
+	for (i = 2; i < ie[1] + 2; i++) {
+		switch (ie[i] & 0x7f) {
+		case 2:  /* 1 Mbps */
+		case 4:  /* 2 Mbps */
+		case 11: /* 5.5 Mbps */
+		case 22: /* 11 Mbps */
+			return true;
+		default:
+			break;
+		}
+	}
+
+	return false;
+}
+
+static bool rtw_tx_8723bs_bss_has_cck(struct rtw_dev *rtwdev,
+				      struct ieee80211_vif *vif,
+				      const u8 *bssid,
+				      bool *known)
+{
+	struct cfg80211_bss *bss;
+	const u8 *rates;
+	const u8 *ext_rates;
+	bool has_cck = false;
+
+	*known = false;
+
+	if (!vif || !bssid || !is_valid_ether_addr(bssid))
+		return false;
+
+	bss = cfg80211_get_bss(rtwdev->hw->wiphy, NULL, bssid, NULL, 0,
+			       IEEE80211_BSS_TYPE_ESS, IEEE80211_PRIVACY_ANY);
+	if (!bss)
+		return false;
+
+	rcu_read_lock();
+	rates = ieee80211_bss_get_ie(bss, WLAN_EID_SUPP_RATES);
+	ext_rates = ieee80211_bss_get_ie(bss, WLAN_EID_EXT_SUPP_RATES);
+	if (rates || ext_rates) {
+		*known = true;
+		has_cck = rtw_tx_8723bs_rates_have_cck(rates) ||
+			  rtw_tx_8723bs_rates_have_cck(ext_rates);
+	}
+	rcu_read_unlock();
+
+	cfg80211_put_bss(rtwdev->hw->wiphy, bss);
+
+	return has_cck;
+}
+
+static void rtw_tx_8723bs_sdio_rate(struct rtw_dev *rtwdev,
+				    struct rtw_tx_pkt_info *pkt_info,
+				    struct sk_buff *skb)
+{
+	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
+	struct ieee80211_vif *vif = tx_info->control.vif;
+	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
+	const u8 *bssid = NULL;
+	bool known = false;
+	bool has_cck = true;
+
+	if (ieee80211_is_data(hdr->frame_control) ||
+	    ieee80211_is_mgmt(hdr->frame_control))
+		bssid = hdr->addr1;
+
+	has_cck = rtw_tx_8723bs_bss_has_cck(rtwdev, vif, bssid, &known);
+	if (!known && vif && vif->bss_conf.basic_rates)
+		has_cck = vif->bss_conf.basic_rates & 0xf;
+	else if (!known)
+		has_cck = true;
+
+	if (has_cck) {
+		pkt_info->rate_id = RTW_RATEID_B_20M;
+		pkt_info->rate = DESC_RATE1M;
+	} else {
+		pkt_info->rate_id = RTW_RATEID_G;
+		pkt_info->rate = DESC_RATE6M;
+	}
+}
+
 static void rtw_tx_pkt_info_update_rate(struct rtw_dev *rtwdev,
 					struct rtw_tx_pkt_info *pkt_info,
 					struct sk_buff *skb,
 					bool ignore_rate)
 {
 	if (rtwdev->hal.current_band_type == RTW_BAND_2G) {
-		/* RTL8723BS SDIO: send connect-management frames (auth /
-		 * assoc-req / reassoc-req) and EAPOL data at 6 Mbps OFDM
-		 * with the OFDM-only G rate-id, exactly matching the legacy
-		 * rtl8723bs staging driver. Two pieces matter together:
-		 *
-		 *   1. rate = DESC_RATE6M:  staging calls update_mgnt_tx_rate
-		 *      from update_wireless_mode whenever the AP is not
-		 *      B-only, picking IEEE80211_OFDM_RATE_6MB. rtw88's
-		 *      rtw_get_mgmt_rate falls back to the band-lowest rate
-		 *      (1 Mbps CCK) before association because
-		 *      vif->bss_conf.basic_rates is still 0, so we bypass it
-		 *      here and force 6M OFDM.
-		 *
-		 *   2. rate_id = RTW_RATEID_G (OFDM-only fallback set):
-		 *      staging's update_mgntframe_attrib uses
-		 *      RATEID_IDX_G == RTW_RATEID_G whenever tx_rate is not
-		 *      1 Mbps CCK. rtw88's mgmt path leaves
-		 *      pkt_info->dis_rate_fallback == false on this chip, so
-		 *      the chip is allowed to step down on retry. With the
-		 *      previous BG (CCK+OFDM) rate-id the chip fell back to
-		 *      1 Mbps CCK long-preamble after the first retry, and
-		 *      that low rate is what the test B/G/N AP silently
-		 *      ignores on-air. Restricting fallback to the OFDM-only
-		 *      G set keeps every retry at 6 Mbps OFDM, which staging
-		 *      proves the AP does decode on the same hardware.
+		/* RTL8723BS SDIO follows the legacy driver's tx_rate rule:
+		 * the initial scan default is 1 Mbps CCK, and join-time
+		 * update_wireless_mode() keeps 1 Mbps whenever the selected
+		 * BSS rate set includes CCK. Only pure-G BSSes use 6 Mbps
+		 * OFDM. The target AP advertises B/G/N rates, and staging's
+		 * scan gets Probe Responses while rtw88's former blanket 6M/G
+		 * probe requests did not.
 		 */
-		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-			pkt_info->rate_id = RTW_RATEID_G;
-			pkt_info->rate = DESC_RATE6M;
+		if (rtw_tx_8723bs_sdio_2g(rtwdev)) {
+			rtw_tx_8723bs_sdio_rate(rtwdev, pkt_info, skb);
 		} else {
 			pkt_info->rate_id = RTW_RATEID_B_20M;
 			pkt_info->rate = rtw_get_mgmt_rate(rtwdev, skb,
@@ -367,24 +441,11 @@ static void rtw_tx_pkt_info_update_rate(struct rtw_dev *rtwdev,
 	pkt_info->use_rate = true;
 	pkt_info->dis_rate_fallback = true;
 
-	/* RTL8723BS SDIO 2.4 GHz: match staging exactly. Staging's
-	 * rtl8723b_fill_default_txdesc() leaves disdatafb=0 (the default)
-	 * for both MGNT_FRAMETAG and EAPOL data frames. Combined with
-	 * userate=1 + datarate=DESC_RATE6M and rate-id=G (whose lowest
-	 * entry is already 6 Mbps OFDM), the chip is bounded to 6 Mbps
-	 * OFDM regardless of fallback because there is nothing lower in
-	 * the rate-id ratemask to step down to. The earlier 7dc65d5
-	 * "belt-and-suspenders" DISDATAFB=1 was a deliberate non-staging
-	 * delta, and on this hardware it appears to suppress the chip's
-	 * normal retransmit/ACK-timing behaviour for unicast mgmt
-	 * frames; logs-rtw88-d308f56d still shows the AP never replies
-	 * to auth even after every other staging-parity fix. Restore
-	 * staging-parity disdatafb=0 here for the 8723bs SDIO 2.4 GHz
-	 * mgmt + EAPOL TX path.
+	/* RTL8723BS SDIO 2.4 GHz: staging leaves disdatafb=0 for
+	 * MGNT_FRAMETAG and EAPOL/ARP data frames. Keep the descriptor's
+	 * rate-fallback control byte-for-byte aligned with that path.
 	 */
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	    rtwdev->hal.current_band_type == RTW_BAND_2G)
+	if (rtw_tx_8723bs_sdio_2g(rtwdev))
 		pkt_info->dis_rate_fallback = false;
 }
 
@@ -431,25 +492,10 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->seq = seq;
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
-		/* RTL8723BS SDIO connect-management TX path: match staging
-		 * exactly. Staging's rtl8723b_fill_default_txdesc() for
-		 * MGNT_FRAMETAG leaves disdatafb=0 (default) and relies on
-		 * userate=1 + datarate=DESC_RATE6M + rate-id=G to keep
-		 * every retry at 6 Mbps OFDM, since the OFDM-only G
-		 * ratemask has nothing lower than 6 Mbps to step down to.
-		 *
-		 * The earlier 7dc65d5 "belt-and-suspenders" DISDATAFB=1
-		 * was a deliberate non-staging delta added on the theory
-		 * that pinning rate fallback was harmless. logs-rtw88-
-		 * d308f56d shows the AP at -46 dBm still never replies to
-		 * auth/assoc on-air after every other staging-parity fix,
-		 * so flip this back to staging-parity false and let the
-		 * chip's normal rate-control behave the same way it does
-		 * on the staging driver where this hardware is known to
-		 * authenticate, associate, and DHCP successfully. The
-		 * earlier rtw_tx_pkt_info_update_rate() call also flips
-		 * this to false for 8723bs SDIO 2.4 GHz; reassert it here
-		 * so the mgmt path is unambiguous.
+		/* RTL8723BS SDIO connect-management TX path: staging leaves
+		 * disdatafb=0 for MGNT_FRAMETAG and lets the selected rate-id
+		 * define the retry set. The rate itself is chosen above from
+		 * the same CCK-vs-pure-G rule as staging's tx_rate.
 		 */
 		pkt_info->dis_rate_fallback = false;
 		pkt_info->retry_limit_en = true;
