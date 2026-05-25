@@ -1499,6 +1499,27 @@ static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
 						"scan_pta_ant");
 }
 
+static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
+					const char *tag)
+{
+	u32 before;
+
+	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
+		return;
+
+	/* The BT-disabled 8723BS path still uses the PTA mux. Auth/probe TX is
+	 * now 1 Mbps CCK for B/G/N APs, so keep CCK TX/RX on the same high
+	 * priority side as ACK/beacon traffic while scan/join is in progress.
+	 */
+	before = rtw_read32(rtwdev, REG_BT_COEX_TABLE_H);
+	rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_TX_CCK, high);
+	rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_RX_CCK, high);
+
+	rtw_info(rtwdev,
+		 "COEX_AUTH_DEBUG: 8723bs cck_pri %s high=%d COEX_H 0x%08x->0x%08x\n",
+		 tag, high, before, rtw_read32(rtwdev, REG_BT_COEX_TABLE_H));
+}
+
 static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
@@ -1526,14 +1547,16 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 
 	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_PTA,
 				COEX_SWITCH_TO_NOCARE);
+	rtw_coex_8723bs_set_cck_pri(rtwdev, true, "assoc_pta");
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
 						    "assoc_pta_ant");
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
-		 ant_target, ant_path, rtw_read32(rtwdev, REG_LED_CFG),
+		 ant_target, ant_path, rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
+		 rtw_read32(rtwdev, REG_LED_CFG),
 		 rtw_read8(rtwdev, REG_8723BS_SDIO_ANT_INV),
 		 rtw_read8(rtwdev, 0x64), rtw_read8(rtwdev, 0x765),
 		 rtw_read8(rtwdev, 0x67), rtw_read8(rtwdev, 0x76e));
@@ -1602,17 +1625,20 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	if (!coex_stat->bt_disabled)
 		rtw_coex_8723bs_apply_scan_table(rtwdev);
+	else
+		rtw_coex_8723bs_set_cck_pri(rtwdev, true, "scan_pta");
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 "pta", rtw_coex_8723bs_ant_is_aux(rtwdev),
 		 coex_stat->bt_disabled ? "keep" : "2",
 		 coex_stat->bt_disabled, efuse->bt_setting, efuse->share_ant,
 		 efuse->rfe_option, ant_target, ant_path,
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE0),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE1),
+		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
 		 rtw_read32(rtwdev, 0x4c),
 		 rtw_read8(rtwdev, REG_8723BS_SDIO_ANT_INV),
 		 rtw_read8(rtwdev, 0x64),
