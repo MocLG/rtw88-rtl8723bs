@@ -2221,16 +2221,6 @@ struct rtw_auth_sync {
 	u32 seen_count;
 };
 
-struct rtw_mlme_resp_sync {
-	spinlock_t lock;
-	u8 bssid[ETH_ALEN];
-	u8 addr1[ETH_ALEN];
-	u16 stype;
-	bool active;
-	bool seen;
-	u32 seen_count;
-};
-
 struct rtw_dev {
 	struct ieee80211_hw *hw;
 	struct device *dev;
@@ -2239,7 +2229,6 @@ struct rtw_dev {
 
 	struct rtw_hw_scan_info scan_info;
 	struct rtw_auth_sync auth_sync;
-	struct rtw_mlme_resp_sync mlme_resp_sync;
 	const struct rtw_chip_info *chip;
 	struct rtw_hal hal;
 	struct rtw_fifo_conf fifo;

@@ -2653,7 +2653,6 @@ int rtw_core_init(struct rtw_dev *rtwdev)
 	spin_lock_init(&rtwdev->txq_lock);
 	spin_lock_init(&rtwdev->tx_report.q_lock);
 	spin_lock_init(&rtwdev->auth_sync.lock);
-	spin_lock_init(&rtwdev->mlme_resp_sync.lock);
 
 	mutex_init(&rtwdev->mutex);
 	mutex_init(&rtwdev->hal.tx_power_mutex);
