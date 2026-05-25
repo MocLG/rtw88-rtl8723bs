@@ -832,10 +832,9 @@ static const struct rtw_page_table page_table_8723b[] = {
 	{12, 2, 2, 0, 1},
 };
 
-/* TODO: check this table */
 static const struct rtw_rqpn rqpn_table_8723b[] = {
-	/* SDIO */
-	{RTW_DMA_MAPPING_NORMAL, RTW_DMA_MAPPING_NORMAL,
+	/* SDIO: 3-out-pipe staging maps VO/MG/HI to the high queue. */
+	{RTW_DMA_MAPPING_HIGH, RTW_DMA_MAPPING_NORMAL,
 	 RTW_DMA_MAPPING_LOW, RTW_DMA_MAPPING_LOW,
 	 RTW_DMA_MAPPING_HIGH, RTW_DMA_MAPPING_HIGH},
 	/* PCIE */
