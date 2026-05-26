@@ -105,25 +105,41 @@ static void rtw8723bs_auth_rx_filter(struct rtw_dev *rtwdev,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr);
 }
 
-static void rtw8723bs_config_8021x_sec(struct rtw_dev *rtwdev,
-				       const char *where,
-				       bool tx_bc_default_key)
+static void rtw8723bs_config_sec_cfg(struct rtw_dev *rtwdev,
+				     const char *where)
 {
 	u16 before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
 	u16 sec = before;
 
 	sec |= RTW_SEC_CHK_KEYID | RTW_SEC_TX_DEC_EN | RTW_SEC_RX_DEC_EN;
-	sec &= ~(RTW_SEC_TX_UNI_USE_DK | RTW_SEC_RX_UNI_USE_DK |
-		 RTW_SEC_TX_BC_USE_DK | RTW_SEC_RX_BC_USE_DK);
-
-	if (tx_bc_default_key)
-		sec |= RTW_SEC_TX_BC_USE_DK;
 
 	rtw_write16(rtwdev, RTW_SEC_CONFIG, sec);
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s 8021x_sec tx_bc_dk=%d SEC 0x%04x->0x%04x\n",
-		 where, tx_bc_default_key, before,
+		 "MGMT_TX_DEBUG: %s sec_cfg SEC 0x%04x->0x%04x\n",
+		 where, before,
+		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
+}
+
+static void rtw8723bs_config_default_key_search(struct rtw_dev *rtwdev,
+						const char *where,
+						bool enable)
+{
+	u16 before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
+	u16 sec = before;
+
+	if (enable)
+		sec |= RTW_SEC_TX_BC_USE_DK | RTW_SEC_TX_UNI_USE_DK |
+		       RTW_SEC_RX_UNI_USE_DK;
+	else
+		sec &= ~(RTW_SEC_TX_UNI_USE_DK | RTW_SEC_RX_UNI_USE_DK |
+			 RTW_SEC_TX_BC_USE_DK | RTW_SEC_RX_BC_USE_DK);
+
+	rtw_write16(rtwdev, RTW_SEC_CONFIG, sec);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s dk_cfg enable=%d SEC 0x%04x->0x%04x\n",
+		 where, enable, before,
 		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
 }
 
@@ -450,7 +466,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		      RTW8723BS_JOIN_RETRY_LIMIT;
 	rtw_write16(rtwdev, REG_RETRY_LIMIT, retry_limit);
 
-	rtw8723bs_config_8021x_sec(rtwdev, "join_prepare", false);
+	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=defer MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
@@ -1309,18 +1325,19 @@ static int rtw_ops_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		rtw_sec_write_cam(rtwdev, sec, sta, key,
 				  hw_key_type, hw_key_idx);
 		if (rtw8723bs_sdio(rtwdev) &&
-		    vif && vif->type == NL80211_IFTYPE_STATION)
-			rtw8723bs_config_8021x_sec(rtwdev, "set_key",
-						   !pairwise);
+		    vif && vif->type == NL80211_IFTYPE_STATION && !pairwise)
+			rtw8723bs_config_default_key_search(rtwdev, "set_key",
+							    true);
 		break;
 	case DISABLE_KEY:
 		rtw_hci_flush_all_queues(rtwdev, false);
 		rtw_mac_flush_all_queues(rtwdev, false);
 		rtw_sec_clear_cam(rtwdev, sec, key->hw_key_idx);
 		if (rtw8723bs_sdio(rtwdev) &&
-		    vif && vif->type == NL80211_IFTYPE_STATION)
-			rtw8723bs_config_8021x_sec(rtwdev, "disable_key",
-						   false);
+		    vif && vif->type == NL80211_IFTYPE_STATION && !pairwise)
+			rtw8723bs_config_default_key_search(rtwdev,
+							    "disable_key",
+							    false);
 		break;
 	}
 
