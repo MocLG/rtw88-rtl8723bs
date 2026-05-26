@@ -2050,6 +2050,75 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 	ieee80211_tx_status_irqsafe(hw, skb);
 }
 
+static bool rtw_sdio_8723bs_mgmt_needs_ofdm_retry(struct rtw_dev *rtwdev,
+						  struct sk_buff *skb)
+{
+	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
+	struct ieee80211_hdr *hdr;
+	__le16 fc;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B)
+		return false;
+
+	if (!(tx_data->flags & RTW_SDIO_TX_TRACE_MGMT))
+		return false;
+
+	if (tx_data->rate != DESC_RATE1M)
+		return false;
+
+	fc = cpu_to_le16(tx_data->frame_control);
+	if (!ieee80211_is_auth(fc) &&
+	    !ieee80211_is_assoc_req(fc) &&
+	    !ieee80211_is_reassoc_req(fc))
+		return false;
+
+	if (skb->len < tx_data->tx_pkt_offset + sizeof(struct ieee80211_hdr_3addr))
+		return false;
+
+	hdr = (struct ieee80211_hdr *)(skb->data + tx_data->tx_pkt_offset);
+
+	return !is_multicast_ether_addr(hdr->addr1);
+}
+
+static void rtw_sdio_8723bs_mgmt_ofdm_retry(struct rtw_dev *rtwdev,
+					    struct sk_buff *skb,
+					    enum rtw_tx_queue_type queue)
+{
+	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
+	struct rtw_tx_desc *tx_desc = (struct rtw_tx_desc *)skb->data;
+	__le32 w1 = tx_desc->w1;
+	__le32 w4 = tx_desc->w4;
+	__le32 w7 = tx_desc->w7;
+	u8 rate = tx_data->rate;
+	int ret;
+
+	if (!rtw_sdio_8723bs_mgmt_needs_ofdm_retry(rtwdev, skb))
+		return;
+
+	le32p_replace_bits(&tx_desc->w1, RTW_RATEID_G,
+			   RTW_TX_DESC_W1_RATE_ID);
+	le32p_replace_bits(&tx_desc->w4, DESC_RATE6M,
+			   RTW_TX_DESC_W4_DATARATE);
+	rtw_tx_fill_txdesc_checksum(rtwdev, NULL, tx_desc);
+	tx_data->rate = DESC_RATE6M;
+
+	ret = rtw_sdio_write_port(rtwdev, skb, queue);
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: alt_rate stype=%s primary_rate=%u primary_rate_id=%u alt_rate=%u alt_rate_id=%u ret=%d desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+		 DESC_RATE1M, RTW_RATEID_B_20M, DESC_RATE6M, RTW_RATEID_G,
+		 ret, le32_to_cpu(tx_desc->w0), le32_to_cpu(tx_desc->w1),
+		 le32_to_cpu(tx_desc->w2), le32_to_cpu(tx_desc->w3),
+		 le32_to_cpu(tx_desc->w4), le32_to_cpu(tx_desc->w5),
+		 le32_to_cpu(tx_desc->w6), le32_to_cpu(tx_desc->w7),
+		 le32_to_cpu(tx_desc->w8), le32_to_cpu(tx_desc->w9));
+
+	tx_desc->w1 = w1;
+	tx_desc->w4 = w4;
+	tx_desc->w7 = w7;
+	tx_data->rate = rate;
+}
+
 static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 				     enum rtw_tx_queue_type queue)
 {
@@ -2067,6 +2136,7 @@ static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 		return ret;
 	}
 
+	rtw_sdio_8723bs_mgmt_ofdm_retry(rtwdev, skb, queue);
 	rtw_sdio_indicate_tx_status(rtwdev, skb);
 
 	return 0;
