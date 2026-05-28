@@ -56,6 +56,8 @@ static bool rtw_is_8723bs_sdio(struct rtw_dev *rtwdev)
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static void rtw8723bs_reapply_pg_txagc(struct rtw_dev *rtwdev, u8 channel);
+
 static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
 {
 	u32 before;
@@ -1092,12 +1094,49 @@ void rtw_set_channel(struct rtw_dev *rtwdev)
 
 	rtw_phy_set_tx_power_level(rtwdev, center_chan);
 
+	rtw8723bs_reapply_pg_txagc(rtwdev, center_chan);
+
 	/* If the channel isn't set for scanning, most chips do RF calibration
 	 * in ieee80211_ops::mgd_prepare_tx(). 8723BS SDIO keeps staging's
 	 * power-on IQK shape and skips fresh auth-window IQK.
 	 */
 	if (!test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 		rtwdev->need_rfk = true;
+}
+
+static void rtw8723bs_reapply_pg_txagc(struct rtw_dev *rtwdev, u8 channel)
+{
+	const struct rtw_rfe_def *rfe_def;
+
+	if (!rtw_is_8723bs_sdio(rtwdev))
+		return;
+
+	rfe_def = rtw_get_rfe_def(rtwdev);
+	if (!rfe_def || !rfe_def->phy_pg_tbl)
+		return;
+
+	/* rtw_phy_set_tx_power_level() computes TXAGC from efuse base
+	 * indices and hal->tx_pwr_by_rate_offset_2g (which stays 0 after
+	 * init because the PG table writes directly to hardware registers
+	 * and never populates the hal structs).  The result overwrites the
+	 * staging-equivalent per-rate TXAGC values that the PG table loaded
+	 * during board init, producing a flat TXAGC for all rates within
+	 * each section (CCK/OFDM/HT).
+	 *
+	 * Re-apply the PG table after every channel change so the chip's
+	 * TXAGC registers carry the per-rate offsets that staging's
+	 * PHY_SetTxPowerLevel8723B() produces.  The efuse base is still
+	 * applied by rtw_phy_set_tx_power_level(); this only restores the
+	 * per-rate deltas that rtw88's generic TX-power framework loses.
+	 */
+	rtw_load_table(rtwdev, rfe_def->phy_pg_tbl);
+
+	rtw_info(rtwdev,
+		 "TXAGC_DEBUG: 8723bs reapply_pg ch=%u scan=%d txagc_1m=0x%02x txagc_6m=0x%02x txagc_54m=0x%02x\n",
+		 channel, !!test_bit(RTW_FLAG_SCANNING, rtwdev->flags),
+		 (u8)(rtw_read32(rtwdev, 0xe08) >> 8),
+		 (u8)rtw_read32(rtwdev, 0xe00),
+		 (u8)(rtw_read32(rtwdev, 0xe04) >> 24));
 }
 
 void rtw_chip_prepare_tx(struct rtw_dev *rtwdev)
