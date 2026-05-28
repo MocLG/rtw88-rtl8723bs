@@ -50,6 +50,34 @@ MODULE_PARM_DESC(debug_mask, "Debugging mask");
 
 #define RTW8723BS_SCAN_IGI	0x1e
 
+struct rtw8723bs_txagc_entry {
+	u8 rate;
+	u8 pwr_idx;
+};
+
+static const struct rtw8723bs_txagc_entry rtw8723bs_pg_txagc[] = {
+	{ DESC_RATE1M, 0x38 },
+	{ DESC_RATE2M, 0x36 },
+	{ DESC_RATE5_5M, 0x34 },
+	{ DESC_RATE11M, 0x32 },
+	{ DESC_RATE6M, 0x44 },
+	{ DESC_RATE9M, 0x44 },
+	{ DESC_RATE12M, 0x42 },
+	{ DESC_RATE18M, 0x40 },
+	{ DESC_RATE24M, 0x38 },
+	{ DESC_RATE36M, 0x36 },
+	{ DESC_RATE48M, 0x32 },
+	{ DESC_RATE54M, 0x28 },
+	{ DESC_RATEMCS0, 0x44 },
+	{ DESC_RATEMCS1, 0x42 },
+	{ DESC_RATEMCS2, 0x40 },
+	{ DESC_RATEMCS3, 0x38 },
+	{ DESC_RATEMCS4, 0x36 },
+	{ DESC_RATEMCS5, 0x34 },
+	{ DESC_RATEMCS6, 0x30 },
+	{ DESC_RATEMCS7, 0x26 },
+};
+
 static bool rtw_is_8723bs_sdio(struct rtw_dev *rtwdev)
 {
 	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
@@ -1106,37 +1134,42 @@ void rtw_set_channel(struct rtw_dev *rtwdev)
 
 static void rtw8723bs_reapply_pg_txagc(struct rtw_dev *rtwdev, u8 channel)
 {
-	const struct rtw_rfe_def *rfe_def;
+	struct rtw_hal *hal = &rtwdev->hal;
+	u8 path;
+	int i;
 
 	if (!rtw_is_8723bs_sdio(rtwdev))
 		return;
 
-	rfe_def = rtw_get_rfe_def(rtwdev);
-	if (!rfe_def || !rfe_def->phy_pg_tbl)
+	if (hal->current_band_type != RTW_BAND_2G)
 		return;
 
-	/* rtw_phy_set_tx_power_level() computes TXAGC from efuse base
-	 * indices and hal->tx_pwr_by_rate_offset_2g (which stays 0 after
-	 * init because the PG table writes directly to hardware registers
-	 * and never populates the hal structs).  The result overwrites the
-	 * staging-equivalent per-rate TXAGC values that the PG table loaded
-	 * during board init, producing a flat TXAGC for all rates within
-	 * each section (CCK/OFDM/HT).
-	 *
-	 * Re-apply the PG table after every channel change so the chip's
-	 * TXAGC registers carry the per-rate offsets that staging's
-	 * PHY_SetTxPowerLevel8723B() produces.  The efuse base is still
-	 * applied by rtw_phy_set_tx_power_level(); this only restores the
-	 * per-rate deltas that rtw88's generic TX-power framework loses.
+	/* rtw_load_table() parses BB PG tables into the by-rate cache; it does
+	 * not write TXAGC registers.  Restore the staging 8723BS PG bytes after
+	 * the generic channel power update, then push the cache through the
+	 * chip TXAGC writer so diagnostics and hardware agree.
 	 */
-	rtw_load_table(rtwdev, rfe_def->phy_pg_tbl);
+	mutex_lock(&hal->tx_power_mutex);
+	for (path = 0; path < hal->rf_path_num && path < RTW_RF_PATH_MAX; path++) {
+		for (i = 0; i < ARRAY_SIZE(rtw8723bs_pg_txagc); i++) {
+			const struct rtw8723bs_txagc_entry *entry;
+
+			entry = &rtw8723bs_pg_txagc[i];
+			hal->tx_pwr_tbl[path][entry->rate] = entry->pwr_idx;
+		}
+	}
+	rtwdev->chip->ops->set_tx_power_index(rtwdev);
+	mutex_unlock(&hal->tx_power_mutex);
 
 	rtw_info(rtwdev,
-		 "TXAGC_DEBUG: 8723bs reapply_pg ch=%u scan=%d txagc_1m=0x%02x txagc_6m=0x%02x txagc_54m=0x%02x\n",
+		 "TXAGC_DEBUG: 8723bs reapply_pg ch=%u scan=%d pwr_idx_1m=0x%02x pwr_idx_6m=0x%02x pwr_idx_54m=0x%02x txagc_1m=0x%02x txagc_6m=0x%02x txagc_54m=0x%02x\n",
 		 channel, !!test_bit(RTW_FLAG_SCANNING, rtwdev->flags),
-		 (u8)(rtw_read32(rtwdev, 0xe08) >> 8),
-		 (u8)rtw_read32(rtwdev, 0xe00),
-		 (u8)(rtw_read32(rtwdev, 0xe04) >> 24));
+		 (u8)hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE1M],
+		 (u8)hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M],
+		 (u8)hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE54M],
+		 rtw_read32_mask(rtwdev, 0xe08, 0x0000ff00),
+		 rtw_read32_mask(rtwdev, 0xe00, 0x000000ff),
+		 rtw_read32_mask(rtwdev, 0xe04, 0xff000000));
 }
 
 void rtw_chip_prepare_tx(struct rtw_dev *rtwdev)
