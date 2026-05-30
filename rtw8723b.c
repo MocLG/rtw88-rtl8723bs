@@ -1312,6 +1312,11 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
 	rtw_write16_set(rtwdev, REG_CR, MAC_TRX_ENABLE | BIT_MAC_SEC_EN |
 	BIT_32K_CAL_TMR_EN);
+
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_write16_set(rtwdev, REG_PWR_DATA, BIT(11));
+
+	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL, 0);
 }
 
 /* vendor: hal/rtl8723b/rtl8723b_phycfg.c
