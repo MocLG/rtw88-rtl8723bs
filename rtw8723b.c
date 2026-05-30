@@ -2209,28 +2209,18 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 
 		/* RF_WLINT (0x01) is the RF wireless-interface register.
 		 * Bits 0-1 gate the TX/RX data path into the BB; if they
-		 * are set to 0x03 (from a prior IQK or coex PHASE_COEX_INIT
-		 * run), the chip can receive beacons but cannot transmit.
-		 * Staging always leaves this register at 0x0780 after
-		 * power-on, and never changes bits 0-1.
+		 * are set to 0x03 (from a prior IQK or coex run), the chip
+		 * may not be able to transmit.  Staging always leaves this
+		 * register at 0x0780 after power-on.
 		 *
-		 * The reassert_rx_path check above writes 0x0780 when it
-		 * sees a mismatch, but on this 8723B SDIO stepping the
-		 * write may not propagate through the RF 3-wire bus unless
-		 * the RF_CTRL bits are actually toggled (0→7), not just
-		 * re-written with the already-present value (7→7 which is
-		 * a no-op).  The 8822c/8821c/8723d driver also uses a
-		 * 5→7 toggle in its set_channel path for exactly this
-		 * reason.
-		 *
-		 * Issue a clean RF-bus reset: clear all RF_CTRL bits to
-		 * stop the RF state machine, wait for the bus to quiesce,
-		 * then re-assert RF_EN | RF_RSTB | RF_SDM_RSTB (0x07)
-		 * which matches staging's power-on init value, then write
-		 * RF_WLINT=0x0780 while the bus is freshly armed.
+		 * Re-write REG_RF_CTRL (0x07) to re-arm the RF block
+		 * after the BB/RF channel path may have touched it, then
+		 * write the known-good RF_WLINT value.  Clear REG_RF_CTRL
+		 * to 0 is explicitly avoided here — that fully disables
+		 * the RF frontend (RF_EN=0, RF in reset), and on this
+		 * 8723B SDIO stepping the RF does not recover from a
+		 * cold disable at every channel switch.
 		 */
-		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(1000, 1100);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   WLAN_RF_CTRL_ENABLE | BIT_RF_RSTB |
 			   BIT_RF_SDM_RSTB);
@@ -3083,25 +3073,6 @@ out:
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G2, RFREG_MASK, 0xe6177);
 	rtw_write_rf(rtwdev, RF_PATH_A, 0xed, 0x20, 0x1);
 	rtw_write_rf(rtwdev, RF_PATH_A, 0x43, RFREG_MASK, 0x300bd);
-
-	/* On 8723B SDIO, the IQK test-tone writes can leave RF_WLINT
-	 * with bits 0-1 set (0x783 instead of 0x780), gating the TX
-	 * data path at the RF level.  The existing restores above do
-	 * not touch RF_WLINT.  Toggle REG_RF_CTRL (0→7) to reset the
-	 * RF 3-wire bus state machine, then write the staging power-on
-	 * value 0x0780 so that subsequent set_channel calls start with
-	 * a clean TX path.
-	 */
-	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
-		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(1000, 1100);
-		rtw_write8(rtwdev, REG_RF_CTRL,
-			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-		usleep_range(1000, 1100);
-		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
-			     0x0780);
-	}
-
 
 	// TODO: vendor code:  do we need it?
 	// 	if(*(p_dm->p_mp_mode)) {

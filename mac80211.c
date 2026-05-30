@@ -1473,17 +1473,17 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		rtw_chip_prepare_tx(rtwdev);
 	/* On 8723BS SDIO, RF_WLINT (register 0x01) may hold stale
 	 * bits 0-1 from a prior IQK or coex init run that silently
-	 * gate the RF TX data path.  The reassert_rx_path hammer
-	 * inside set_channel writes the staging value 0x0780 when
-	 * it fires, but on this stepping the RF 3-wire bus ignores
-	 * writes unless REG_RF_CTRL is toggled.  Clear and re-arm
-	 * RF_CTRL (0→7), then flush RF_WLINT immediately before the
-	 * auth/deauth frames so the join attempt runs with the
-	 * known-good value.
+	 * gate the RF TX data path.  Write the staging power-on value
+	 * 0x0780 immediately before the auth/deauth frames so the
+	 * join attempt runs with the known-good value.
+	 *
+	 * We re-write REG_RF_CTRL (0x07) to re-arm the RF block
+	 * but deliberately avoid writing 0 — that fully disables
+	 * the RF frontend (RF_EN=0, RF in reset), and on this 8723B
+	 * SDIO stepping the RF does not recover from a cold disable
+	 * during the auth window.
 	 */
 	if (rtw8723bs_sdio(rtwdev)) {
-		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(1000, 1100);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
 		usleep_range(1000, 1100);
