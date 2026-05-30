@@ -1241,10 +1241,10 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 	 * power-on value.
 	 */
 	rtw_write8(rtwdev, REG_RF_CTRL, 0);
-	usleep_range(10, 11);
+	usleep_range(1000, 1100);
 	rtw_write8(rtwdev, REG_RF_CTRL,
 		   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-	usleep_range(10, 11);
+	usleep_range(1000, 1100);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
 
 	rtw_info(rtwdev,

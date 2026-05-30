@@ -1483,10 +1483,10 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 	 */
 	if (rtw8723bs_sdio(rtwdev)) {
 		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
 			     0x0780);
 	}

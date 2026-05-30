@@ -1950,12 +1950,12 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 
 	/* 8723B LCK runs after the RF table load in staging's
 	 * PHY_RFConfig8723B, before later per-band calibrations.
-	 * Run it here to match that ordering on SDIO where the
-	 * RF path needs explicit VCO/PLL calibration before the
-	 * first channel switch.
+	 * NOTE: Enabling LCK here corrupts the RF path on SDIO
+	 * and prevents RX from working; keep commented out.
+	 * LCK still runs inside IQK on the PTA antenna path.
 	 */
-	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev))
-		rtw8723b_lck(rtwdev);
+	// if (rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+	//	rtw8723b_lck(rtwdev);
 
 	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x50);
 	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x20);
@@ -2230,11 +2230,11 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 		 * RF_WLINT=0x0780 while the bus is freshly armed.
 		 */
 		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   WLAN_RF_CTRL_ENABLE | BIT_RF_RSTB |
 			   BIT_RF_SDM_RSTB);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
 			     0x0780);
 	}
@@ -3094,10 +3094,10 @@ out:
 	 */
 	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
 		rtw_write8(rtwdev, REG_RF_CTRL, 0);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-		usleep_range(10, 11);
+		usleep_range(1000, 1100);
 		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
 			     0x0780);
 	}
