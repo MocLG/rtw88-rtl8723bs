@@ -1300,6 +1300,8 @@ static void rtw8723b_spur_cal(struct rtw_dev *rtwdev, u8 channel)
  */
 static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 {
+	u32 value32;
+
 	/* these two are also done in card_enable_flow
 	 * we cab probably remove them
 	 */
@@ -1314,8 +1316,27 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	rtw_write16_set(rtwdev, REG_CR, MAC_TRX_ENABLE | BIT_MAC_SEC_EN |
 	BIT_32K_CAL_TMR_EN);
 
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		rtw_write16_set(rtwdev, REG_PWR_DATA, BIT(11));
+
+		/* Re-assert PAPE_WLBT_SEL (bit 29) and LNAON_WLBT_SEL (bit 28)
+		 * in REG_PAD_CTRL1 after mac_power_on.  Both bits signal the
+		 * chip's pad mux to route the PA-PE (power-amplifier
+		 * power-enable) and LNA-ON (low-noise-amplifier on) control
+		 * signals to the WLAN block, which is required for any active
+		 * TX via the DPDT antenna switch path.
+		 *
+		 * Also assert BIT_SW_DPDT_SEL_DATA (bit 0) for the SDIO
+		 * external antenna-switch routing.  Staging programs bit 0 at
+		 * power-on as part of the DPDT init; with the bit clear the
+		 * switch may default to the BT antenna port, leaving on-air
+		 * TX unrouteable even though the chip MAC/BB drains frames
+		 * normally.
+		 */
+		value32 = rtw_read32(rtwdev, REG_PAD_CTRL1);
+		value32 |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
+		rtw_write32(rtwdev, REG_PAD_CTRL1, value32);
+	}
 
 	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
 }
@@ -2165,6 +2186,15 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 	rtw_set_channel_mac(rtwdev, channel, bw, primary_chan_idx);
 	rtw8723b_set_channel_bb(rtwdev, bw, primary_chan_idx);
 	rtw8723b_reassert_rx_path(rtwdev, "set_channel");
+
+	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
+		/* BB/RF channel path can clear pad-control bits; re-assert */
+		u32 pad = rtw_read32(rtwdev, REG_PAD_CTRL1);
+
+		pad |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
+		rtw_write32(rtwdev, REG_PAD_CTRL1, pad);
+	}
+
 	rtw8723b_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
 
 	printk("%s end", __func__);
@@ -3548,7 +3578,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		}
 
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
-		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x0);
+		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x1);
 		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
 
 		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);

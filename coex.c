@@ -1551,6 +1551,9 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
 						    "assoc_pta_ant");
 
+	/* Keep external DPDT switch routed to WiFi side for auth/assoc TX */
+	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
+
 	rtw_info(rtwdev,
 		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
@@ -1630,6 +1633,12 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 		rtw_coex_8723bs_set_cck_pri(rtwdev, true, "scan_pta");
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
+
+	/* Re-assert the external DPDT switch: keep BIT(0) of REG_PAD_CTRL1
+	 * set so the external RF switch routes air-side TX to the WiFi
+	 * antenna, matching what staging programs at power-on.
+	 */
+	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
 
 	rtw_info(rtwdev,
 		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
