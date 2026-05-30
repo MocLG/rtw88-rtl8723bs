@@ -1230,6 +1230,23 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 
 	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, saved_path);
 
+	/* IQK writes RF test-tone registers and the post-IQK restore
+	 * in phy_calibration rewrites RF_LUTWE / RF_RCK_OS / RF_TXPA
+	 * but does not touch RF_WLINT (0x01).  On this 8723B SDIO
+	 * stepping the RF 3-wire bus often ignores direct RF_WLINT
+	 * writes unless REG_RF_CTRL is toggled first.  Issue a
+	 * clean RF-bus reset (0→7) and write RF_WLINT=0x0780 while
+	 * the bus is freshly armed, so that coex_init_hw_config
+	 * below and all later set_channel calls observe the staging
+	 * power-on value.
+	 */
+	rtw_write8(rtwdev, REG_RF_CTRL, 0);
+	usleep_range(10, 11);
+	rtw_write8(rtwdev, REG_RF_CTRL,
+		   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
+	usleep_range(10, 11);
+	rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
+
 	rtw_info(rtwdev,
 		 "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
 		 rtwdev->need_rfk, rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG),

@@ -1475,11 +1475,15 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 	 * bits 0-1 from a prior IQK or coex init run that silently
 	 * gate the RF TX data path.  The reassert_rx_path hammer
 	 * inside set_channel writes the staging value 0x0780 when
-	 * it fires, but on this stepping the write can be transient.
-	 * Flush it one more time immediately before the auth/deauth
-	 * frames so the join attempt runs with the known-good value.
+	 * it fires, but on this stepping the RF 3-wire bus ignores
+	 * writes unless REG_RF_CTRL is toggled.  Clear and re-arm
+	 * RF_CTRL (0→7), then flush RF_WLINT immediately before the
+	 * auth/deauth frames so the join attempt runs with the
+	 * known-good value.
 	 */
 	if (rtw8723bs_sdio(rtwdev)) {
+		rtw_write8(rtwdev, REG_RF_CTRL, 0);
+		usleep_range(10, 11);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
 		usleep_range(10, 11);

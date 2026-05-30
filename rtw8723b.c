@@ -1344,6 +1344,8 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 /* vendor: hal/rtl8723b/rtl8723b_phycfg.c
  * function: PHY_BBConfig8723B
  */
+static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev);
+
 static void rtw8723b_phy_bb_config(struct rtw_dev *rtwdev)
 {
 	/* NOTE: this func is ready! */
@@ -1359,9 +1361,14 @@ static void rtw8723b_phy_bb_config(struct rtw_dev *rtwdev)
 	else
 		rtw_write32(rtwdev, REG_BB_SEL_BTG, 0x280);
 
-	rtw_write8_set(rtwdev, REG_RF_CTRL,
-		       BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-	usleep_range(10, 11);
+	/* Staging writes REG_RF_CTRL as a full 8-bit write (0x07), NOT
+	 * as a read-modify-write.  If other bits are spuriously set the
+	 * OR-based write preserves them, which can leave the RF bus in
+	 * an unexpected state on this stepping.
+	 */
+	rtw_write8(rtwdev, REG_RF_CTRL,
+		   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
+	usleep_range(1000, 1100);
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
 	rtw_write8(rtwdev, REG_SYS_FUNC_EN,
 		   BIT_FEN_PPLL | BIT_FEN_PCIEA | BIT_FEN_DIO_PCIE |
@@ -1941,8 +1948,14 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 // 	// rtwdev->dm_info.cck_pd_default = rtw_read8(rtwdev, REG_CSRATIO) & 0x1f;
 // 	// rtw_write16_set(rtwdev, REG_TXDMA_OFFSET_CHK, BIT_DROP_DATA_EN);
 
-	/* 8723B LCK ran after the RF table load in rtw8723b_phy_rf_config(). */
-	//rtw8723b_lck(rtwdev);
+	/* 8723B LCK runs after the RF table load in staging's
+	 * PHY_RFConfig8723B, before later per-band calibrations.
+	 * Run it here to match that ordering on SDIO where the
+	 * RF path needs explicit VCO/PLL calibration before the
+	 * first channel switch.
+	 */
+	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+		rtw8723b_lck(rtwdev);
 
 	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x50);
 	rtw_write32_mask(rtwdev, REG_OFDM0_XAAGC1, MASKBYTE0, 0x20);
@@ -2203,10 +2216,21 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 		 *
 		 * The reassert_rx_path check above writes 0x0780 when it
 		 * sees a mismatch, but on this 8723B SDIO stepping the
-		 * write may not propagate through the RF 3-wire bus until
-		 * RF_CTRL BIT(0) is re-toggled.  Issue a fresh,
-		 * unconditional write here as a belt-and-suspenders.
+		 * write may not propagate through the RF 3-wire bus unless
+		 * the RF_CTRL bits are actually toggled (0→7), not just
+		 * re-written with the already-present value (7→7 which is
+		 * a no-op).  The 8822c/8821c/8723d driver also uses a
+		 * 5→7 toggle in its set_channel path for exactly this
+		 * reason.
+		 *
+		 * Issue a clean RF-bus reset: clear all RF_CTRL bits to
+		 * stop the RF state machine, wait for the bus to quiesce,
+		 * then re-assert RF_EN | RF_RSTB | RF_SDM_RSTB (0x07)
+		 * which matches staging's power-on init value, then write
+		 * RF_WLINT=0x0780 while the bus is freshly armed.
 		 */
+		rtw_write8(rtwdev, REG_RF_CTRL, 0);
+		usleep_range(10, 11);
 		rtw_write8(rtwdev, REG_RF_CTRL,
 			   WLAN_RF_CTRL_ENABLE | BIT_RF_RSTB |
 			   BIT_RF_SDM_RSTB);
@@ -3059,6 +3083,24 @@ out:
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_TXPA_G2, RFREG_MASK, 0xe6177);
 	rtw_write_rf(rtwdev, RF_PATH_A, 0xed, 0x20, 0x1);
 	rtw_write_rf(rtwdev, RF_PATH_A, 0x43, RFREG_MASK, 0x300bd);
+
+	/* On 8723B SDIO, the IQK test-tone writes can leave RF_WLINT
+	 * with bits 0-1 set (0x783 instead of 0x780), gating the TX
+	 * data path at the RF level.  The existing restores above do
+	 * not touch RF_WLINT.  Toggle REG_RF_CTRL (0→7) to reset the
+	 * RF 3-wire bus state machine, then write the staging power-on
+	 * value 0x0780 so that subsequent set_channel calls start with
+	 * a clean TX path.
+	 */
+	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
+		rtw_write8(rtwdev, REG_RF_CTRL, 0);
+		usleep_range(10, 11);
+		rtw_write8(rtwdev, REG_RF_CTRL,
+			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
+		usleep_range(10, 11);
+		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
+			     0x0780);
+	}
 
 
 	// TODO: vendor code:  do we need it?
