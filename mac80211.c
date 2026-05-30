@@ -1471,6 +1471,21 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 	rfk_pending = rtwdev->need_rfk;
 	if (!rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
 		rtw_chip_prepare_tx(rtwdev);
+	/* On 8723BS SDIO, RF_WLINT (register 0x01) may hold stale
+	 * bits 0-1 from a prior IQK or coex init run that silently
+	 * gate the RF TX data path.  The reassert_rx_path hammer
+	 * inside set_channel writes the staging value 0x0780 when
+	 * it fires, but on this stepping the write can be transient.
+	 * Flush it one more time immediately before the auth/deauth
+	 * frames so the join attempt runs with the known-good value.
+	 */
+	if (rtw8723bs_sdio(rtwdev)) {
+		rtw_write8(rtwdev, REG_RF_CTRL,
+			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
+		usleep_range(10, 11);
+		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
+			     0x0780);
+	}
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif

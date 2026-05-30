@@ -2193,6 +2193,26 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 
 		pad |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
 		rtw_write32(rtwdev, REG_PAD_CTRL1, pad);
+
+		/* RF_WLINT (0x01) is the RF wireless-interface register.
+		 * Bits 0-1 gate the TX/RX data path into the BB; if they
+		 * are set to 0x03 (from a prior IQK or coex PHASE_COEX_INIT
+		 * run), the chip can receive beacons but cannot transmit.
+		 * Staging always leaves this register at 0x0780 after
+		 * power-on, and never changes bits 0-1.
+		 *
+		 * The reassert_rx_path check above writes 0x0780 when it
+		 * sees a mismatch, but on this 8723B SDIO stepping the
+		 * write may not propagate through the RF 3-wire bus until
+		 * RF_CTRL BIT(0) is re-toggled.  Issue a fresh,
+		 * unconditional write here as a belt-and-suspenders.
+		 */
+		rtw_write8(rtwdev, REG_RF_CTRL,
+			   WLAN_RF_CTRL_ENABLE | BIT_RF_RSTB |
+			   BIT_RF_SDM_RSTB);
+		usleep_range(10, 11);
+		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
+			     0x0780);
 	}
 
 	rtw8723b_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
