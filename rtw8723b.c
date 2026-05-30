@@ -97,6 +97,7 @@
 #define REG_B_RXIQI			0x0c1c
 
 #define REG_NAV_UPPER			0x0652
+#define REG_EARLY_MODE_CONTROL_8723B	0x04D0
 
 /* TODO: check if these or equivalent are present in rtw88 */
 #define BCNQ_PAGE_NUM_8723B     	0x08
@@ -1316,7 +1317,7 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
 		rtw_write16_set(rtwdev, REG_PWR_DATA, BIT(11));
 
-	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL, 0);
+	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
 }
 
 /* vendor: hal/rtl8723b/rtl8723b_phycfg.c
@@ -1701,8 +1702,11 @@ static void rtw8723b_init_burst_pkt_len(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_antenna_selection(struct rtw_dev *rtwdev)
 {
-	/* Let 8051 take control antenna settting */
-	rtw_write8(rtwdev, REG_LEDCFG2, WLAN_ANT_SEL);
+	/* Let 8051 take control antenna settting.  Staging writes BIT(7)
+	 * only; WLAN_ANT_SEL (0x82) also sets BIT(1) which is part of
+	 * LED2_CM and is not part of the antenna-control contract.
+	 */
+	rtw_write8(rtwdev, REG_LEDCFG2, BIT(7));
 }
 
 #define RF_AC	0x00
