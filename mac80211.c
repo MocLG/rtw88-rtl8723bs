@@ -431,14 +431,23 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	ether_addr_copy(rtwvif->bssid, bssid);
 	rtwvif->aid = 0;
-	/* Keep MSR at NO_LINK during the auth/assoc window, matching
-	 * staging's hw_var_set_opmode(_HW_STATE_STATION_) which does not
-	 * set MGD_LINKED until after association completes.  Setting
-	 * MGD_LINKED before auth can cause the 8051 firmware on this
-	 * 8723B stepping to suppress management TX, expecting the chip
-	 * to be in a fully-associated state with beacon timing locked.
+	/* Set MSR to station state before auth, matching staging's
+	 * set_msr(WIFI_FW_STATION_STATE) in start_clnt_join().  The 8051
+	 * firmware on 8723BS SDIO uses the Media Status Register to gate
+	 * unicast management TX: with MSR=NO_LINK (0x00) the firmware
+	 * silently discards frames whose BMC bit is 0 (unicast auth/
+	 * assoc), while broadcast frames (BMC=1, e.g. probe requests)
+	 * are transmitted regardless.  Staging sets MSR=0x02 before
+	 * issuing auth in start_clnt_join() and the same AP/hardware
+	 * combination connects successfully.
+	 *
+	 * The rollback to NO_LINK is handled by rtw_vif_assoc_changed()
+	 * when BSS_CHANGED_ASSOC fires with conf->assoc=false (after
+	 * auth timeout or wpa_supplicant disconnect).
 	 */
-	rtw_vif_port_config(rtwdev, rtwvif, PORT_SET_BSSID | PORT_SET_AID);
+	rtwvif->net_type = RTW_NET_MGD_LINKED;
+	rtw_vif_port_config(rtwdev, rtwvif,
+			    PORT_SET_BSSID | PORT_SET_AID | PORT_SET_NET_TYPE);
 
 	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare");
 

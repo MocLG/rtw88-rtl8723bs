@@ -32,13 +32,6 @@ void rtw_tx_stats(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	}
 }
 
-static bool rtw_tx_8723bs_mgmt_no_spe_rpt(__le16 fc)
-{
-	return ieee80211_is_auth(fc) ||
-	       ieee80211_is_assoc_req(fc) ||
-	       ieee80211_is_reassoc_req(fc);
-}
-
 void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 			 struct rtw_tx_pkt_info *pkt_info,
 			 struct rtw_tx_desc *tx_desc)
@@ -642,16 +635,18 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
-	if (chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	    rtw_tx_8723bs_mgmt_no_spe_rpt(fc)) {
-		/* RTL8723BS SDIO reports connect management TX status locally
-		 * in the HCI path. Normal staging auth/assoc frames do not set
-		 * SPE_RPT, so keep firmware CCX reports out of this path.
-		 */
-		pkt_info->report = false;
-		pkt_info->sn = 0;
-	}
+	/* Note: do NOT clear SPE_RPT for auth/assoc frames on 8723BS SDIO.
+	 * Staging's dump_mgntframe_and_wait_ack() sets ack_report=1 which
+	 * renders as spe_rpt=1 in the TX descriptor for unicast management
+	 * frames (auth, assoc_req, reassoc_req).  The 8051 firmware on this
+	 * stepping uses SPE_RPT as a per-descriptor gate for unicast TX:
+	 * without it, frames with BMC=0 (unicast management) are silently
+	 * discarded even though the SDIO FIFO drains, while broadcast frames
+	 * (BMC=1, probe requests) are transmitted regardless.
+	 *
+	 * The host-side fake TX ACK path in rtw_sdio_indicate_tx_status()
+	 * still handles the missing CCX completion report correctly.
+	 */
 
 	pkt_info->bmc = bmc;
 	rtw_tx_pkt_info_update_sec(rtwdev, pkt_info, skb);
