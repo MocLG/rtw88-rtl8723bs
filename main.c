@@ -1213,18 +1213,26 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 	if (!rtw_is_8723bs_sdio(rtwdev) || !chip->ops->phy_calibration)
 		return;
 
+	ant_aux = !!(efuse->bt_setting & BIT(6));
+	pta_path = ant_aux ? 0x80 : 0x200;
+
 	if (rtwdev->initial_rfk_done) {
 		rtw_info(rtwdev,
 			 "RFK_DEBUG: 8723bs SDIO skip IPS-leave IQK (already done) RF01=0x%08x\n",
 			 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK));
 
+		/* The chip may be on the BT path (BB_SEL_BTG=0x280) where
+		 * RF 3-wire writes fail silently.  Switch to the PTA path
+		 * temporarily so this RF_WLINT write succeeds, then restore.
+		 */
+		saved_path = rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG);
+		rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, pta_path);
 		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
+		rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, saved_path);
 		return;
 	}
 
 	saved_path = rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG);
-	ant_aux = !!(efuse->bt_setting & BIT(6));
-	pta_path = ant_aux ? 0x80 : 0x200;
 
 	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, pta_path);
 

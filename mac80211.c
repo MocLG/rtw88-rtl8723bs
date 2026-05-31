@@ -420,8 +420,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 		return false;
 	}
 
-	fresh_join = old_net_type != RTW_NET_MGD_LINKED ||
-		     !ether_addr_equal(rtwvif->bssid, bssid);
+	fresh_join = !ether_addr_equal(rtwvif->bssid, bssid);
 
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
 	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
@@ -432,10 +431,14 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	ether_addr_copy(rtwvif->bssid, bssid);
 	rtwvif->aid = 0;
-	rtwvif->net_type = RTW_NET_MGD_LINKED;
-	rtw_vif_port_config(rtwdev, rtwvif,
-			    PORT_SET_BSSID | PORT_SET_NET_TYPE |
-			    PORT_SET_AID);
+	/* Keep MSR at NO_LINK during the auth/assoc window, matching
+	 * staging's hw_var_set_opmode(_HW_STATE_STATION_) which does not
+	 * set MGD_LINKED until after association completes.  Setting
+	 * MGD_LINKED before auth can cause the 8051 firmware on this
+	 * 8723B stepping to suppress management TX, expecting the chip
+	 * to be in a fully-associated state with beacon timing locked.
+	 */
+	rtw_vif_port_config(rtwdev, rtwvif, PORT_SET_BSSID | PORT_SET_AID);
 
 	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare");
 

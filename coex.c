@@ -1659,6 +1659,40 @@ static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
 }
 
+/**
+ * rtw_coex_8723bs_ensure_pta_path() - Minimal PTA antenna path for RF writes
+ * @rtwdev: rtw device
+ *
+ * On 8723BS SDIO, after IPS leave or power-on init the chip may be on
+ * the BT antenna path (BB_SEL_BTG=0x280) where RF register writes
+ * silently fail.  Call this before rtw_set_channel() to restore the
+ * PTA path (0x200 or 0x80) so that subsequent RF channel/programming
+ * writes reach the chip correctly.
+ *
+ * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
+ * DPDT routing.  It performs no firmware H2C, coex table, or TDMA
+ * changes; those are covered by scan_workaround / force_assoc_pta_ant
+ * later in the connect window.
+ */
+void rtw_coex_8723bs_ensure_pta_path(struct rtw_dev *rtwdev)
+{
+	u32 pta_path;
+
+	if (!rtw_coex_8723bs_sdio(rtwdev))
+		return;
+
+	pta_path = rtw_coex_8723bs_pta_ant_path(rtwdev);
+
+	rtw_info(rtwdev,
+		 "[BTCoex], 8723bs ensure PTA path target=0x%08x\n",
+		 pta_path);
+
+	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
+	rtw_coex_8723bs_write_bb_sel_btg(rtwdev, pta_path,
+					 "ips_set_channel");
+	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
+}
+
 #define case_ALGO(src) \
 	case COEX_ALGO_##src: return #src
 

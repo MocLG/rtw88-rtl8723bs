@@ -19,6 +19,15 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		rtw_err(rtwdev, "leave idle state failed\n");
 
 	rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
+
+	/* For 8723BS SDIO: after coex_init_hw_config the chip is on the
+	 * BT antenna path (BB_SEL_BTG=0x280) where RF register writes
+	 * silently fail.  Switch to the PTA mux path before set_channel
+	 * so RF channel and programming registers are written on the
+	 * path that scan/auth/assoc actually use.
+	 */
+	rtw_coex_8723bs_ensure_pta_path(rtwdev);
+
 	rtw_set_channel(rtwdev);
 
 	return ret;
