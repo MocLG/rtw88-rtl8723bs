@@ -18,15 +18,39 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 	if (ret)
 		rtw_err(rtwdev, "leave idle state failed\n");
 
-	rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/* On 8723BS SDIO, the BT-side coex init inside
+		 * rtw_power_on and rtw_coex_ips_notify switches the
+		 * chip to BT antenna path (BB_SEL_BTG=0x280), which
+		 * corrupts the RF 3-wire bus.  A simple
+		 * ensure_pta_path() / BB_SEL_BTG write is not
+		 * sufficient to restore the RF bus after the BT path
+		 * init; the next set_channel still silently fails its
+		 * RF_WLINT write and leaves RF01 at 0x781.
+		 *
+		 * Run the same PS-TDMA / coex-table / PTA setup that
+		 * the scan path uses before set_channel, matching the
+		 * flow that demonstrably produces working probe
+		 * requests (-31 dBm on air).  Skip the generic
+		 * COEX_IPS_LEAVE notify which would re-run the
+		 * BT-path init.
+		 */
+		rtwdev->coex.stat.wl_under_ips = false;
+		rtw_coex_write_scbd(rtwdev,
+				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
+		rtw_coex_8723bs_scan_workaround(rtwdev);
+	} else {
+		rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
 
-	/* For 8723BS SDIO: after coex_init_hw_config the chip is on the
-	 * BT antenna path (BB_SEL_BTG=0x280) where RF register writes
-	 * silently fail.  Switch to the PTA mux path before set_channel
-	 * so RF channel and programming registers are written on the
-	 * path that scan/auth/assoc actually use.
-	 */
-	rtw_coex_8723bs_ensure_pta_path(rtwdev);
+		/* For 8723BS SDIO: after coex_init_hw_config the chip is on the
+		 * BT antenna path (BB_SEL_BTG=0x280) where RF register writes
+		 * silently fail.  Switch to the PTA mux path before set_channel
+		 * so RF channel and programming registers are written on the
+		 * path that scan/auth/assoc actually use.
+		 */
+		rtw_coex_8723bs_ensure_pta_path(rtwdev);
+	}
 
 	rtw_set_channel(rtwdev);
 

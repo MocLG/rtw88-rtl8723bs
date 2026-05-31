@@ -1221,14 +1221,17 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 			 "RFK_DEBUG: 8723bs SDIO skip IPS-leave IQK (already done) RF01=0x%08x\n",
 			 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK));
 
-		/* The chip may be on the BT path (BB_SEL_BTG=0x280) where
-		 * RF 3-wire writes fail silently.  Switch to the PTA path
-		 * temporarily so this RF_WLINT write succeeds, then restore.
+		/* Skip the full IQK cycle.  Switch to the PTA antenna path
+		 * (BB_SEL_BTG=0x200) and leave the chip there so that
+		 * subsequent RF register writes in set_channel succeed.
+		 * The coex_init_hw_config that normally follows and would
+		 * switch to BT path (0x280) is skipped for IPS-leave
+		 * power-on (see rtw_power_on).  The scan_workaround in
+		 * rtw_ips_pwr_up will then do a full PTA + coex-table
+		 * setup before the first set_channel.
 		 */
-		saved_path = rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG);
 		rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, pta_path);
 		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
-		rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, saved_path);
 		return;
 	}
 
@@ -1871,8 +1874,31 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 	 * (BBSW + TO_BT, 0x280) at init, then let the 8723bs SDIO
 	 * scan_workaround switch to PTA (0x200) for scan/connect.
 	 */
-	rtw_power_on_8723bs_sdio_rfk(rtwdev);
-	rtw_coex_init_hw_config(rtwdev, wifi_only);
+	/* Skip BT-path coex init during IPS-leave power-on for 8723BS SDIO.
+	 * __rtw_coex_init_hw_config() (called by rtw_coex_init_hw_config)
+	 * sets BB_SEL_BTG=0x280 (BT path), which corrupts the RF 3-wire bus
+	 * so subsequent RF register writes fail.  The PTA path and coex table
+	 * are restored by rtw_coex_8723bs_scan_workaround() in rtw_ips_pwr_up
+	 * before the first set_channel, matching the scan path flow.
+	 *
+	 * Snapshot initial_rfk_done before rtw_power_on_8723bs_sdio_rfk()
+	 * because that call sets it to true on the first power-on.
+	 */
+	{
+		bool ips_wake = rtwdev->initial_rfk_done &&
+				rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+				rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+
+		rtw_power_on_8723bs_sdio_rfk(rtwdev);
+
+		if (ips_wake) {
+			/* IPS leave: skip BT-path init, PTA will be set up by
+			 * scan_workaround() in rtw_ips_pwr_up().
+			 */
+		} else {
+			rtw_coex_init_hw_config(rtwdev, wifi_only);
+		}
+	}
 
 	return 0;
 

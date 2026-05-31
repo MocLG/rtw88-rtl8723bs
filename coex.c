@@ -1602,7 +1602,7 @@ static void rtw_coex_8723bs_apply_scan_table(struct rtw_dev *rtwdev)
 	rtw_coex_set_table(rtwdev, true, 0x5a5a5a5a, 0x5a5a5a5a);
 }
 
-static void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
+void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_dm *coex_dm = &rtwdev->coex.dm;
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
