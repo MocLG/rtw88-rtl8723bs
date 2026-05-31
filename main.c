@@ -1185,6 +1185,23 @@ void rtw_chip_prepare_tx(struct rtw_dev *rtwdev)
 	}
 }
 
+/*
+ * logs-rtw88-8c33ac74 (air_capture.pcap) proves that 8723bs SDIO probe
+ * requests from the first scan ARE transmitted on-air at -31 to -78 dBm,
+ * showing the TX path fundamentally works after the initial power-on IQK.
+ * However auth frames sent after IPS-leave power_on are NEVER visible in
+ * the same capture — even though scan_workaround later fixes the obvious
+ * RF01 (0x783→0x780) and RFb0 (0xeffe0→0xdffe0) corruptions.  The IQK
+ * run during every IPS-leave power_on corrupts deeper RF state that the
+ * coex helpers do not restore, collapsing the TX output.
+ *
+ * Staging's sdio_halinit.c runs PHY_IQCalibrate_8723B() only during
+ * initial hal_init, never during IPS leave.  Match that: run IQK exactly
+ * once during the first rtw_power_on(), then skip it on subsequent
+ * power_on calls (which happen during IPS leave).  When skipping, flush
+ * RF_WLINT back to the known-good value so the chip does not start with
+ * bits 0-1 set (which gate the RF data path on this stepping).
+ */
 static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
@@ -1196,24 +1213,15 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 	if (!rtw_is_8723bs_sdio(rtwdev) || !chip->ops->phy_calibration)
 		return;
 
-	/* logs-rtw88-a34a694f confirmed every TX descriptor / antenna /
-	 * SIFS / RCR knob now matches staging at auth time, but the AP
-	 * still does not reply to our auth on-air. The remaining
-	 * non-staging delta exposed in that run is the BB antenna path
-	 * the chip is on while the IQK one-shot saves and applies its
-	 * matrix. rtw_coex_power_on_setting() runs immediately before
-	 * this helper and puts the chip on the BT/POWERON path
-	 * (BB_SEL_BTG=0x280 for non-aux, 0x0 for aux), so the IQK was
-	 * being calibrated while the chip's read-back state was the BT
-	 * path even though the auth/assoc TX afterward goes out at the
-	 * PTA mux path (BB_SEL_BTG=0x200 / 0x80).
-	 *
-	 * Switch the chip to the PTA mux path that the auth/assoc TX
-	 * will actually use *before* running phy_calibration(), then
-	 * restore whatever path coex_power_on_setting had selected so
-	 * the next coex_init_hw_config() observes the same starting
-	 * state it would have without this helper.
-	 */
+	if (rtwdev->initial_rfk_done) {
+		rtw_info(rtwdev,
+			 "RFK_DEBUG: 8723bs SDIO skip IPS-leave IQK (already done) RF01=0x%08x\n",
+			 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK));
+
+		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK, 0x0780);
+		return;
+	}
+
 	saved_path = rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG);
 	ant_aux = !!(efuse->bt_setting & BIT(6));
 	pta_path = ant_aux ? 0x80 : 0x200;
@@ -1229,6 +1237,8 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 	rtwdev->need_rfk = false;
 
 	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, saved_path);
+
+	rtwdev->initial_rfk_done = true;
 
 	rtw_info(rtwdev,
 		 "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",

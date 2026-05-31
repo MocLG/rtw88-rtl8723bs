@@ -2295,6 +2295,7 @@ struct rtw_dev {
 	struct rtw_wow_param wow;
 
 	bool need_rfk;
+	bool initial_rfk_done;
 	struct completion fw_scan_density;
 	bool ap_active;
 
