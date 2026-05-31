@@ -1,6 +1,6 @@
 #!/bin/bash
 # RTL8723BS rtw88 Driver Diagnostic Script
-# Usage: sudo ./diagnose.sh [SSID PASSWORD]
+# Usage: sudo ./diagnose.sh [SSID] [PASSWORD]
 #   SSID PASSWORD - optional WPA/WPA2-PSK AP credentials for connection test
 
 set -e
@@ -15,7 +15,7 @@ if [ "$#" -gt 0 ] && [ "$#" -ne 2 ]; then
 fi
 
 if [ "$#" -eq 2 ] && { [ -z "$AP_SSID" ] || [ -z "$AP_PASSWORD" ]; }; then
-    echo "Usage: sudo ./diagnose.sh [SSID PASSWORD]"
+    echo "Usage: sudo ./diagnose.sh [SSID] [PASSWORD]"
     echo "SSID and password must both be non-empty."
     exit 1
 fi
