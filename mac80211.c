@@ -1468,27 +1468,25 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
-	rfk_pending = rtwdev->need_rfk;
-	if (!rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
-		rtw_chip_prepare_tx(rtwdev);
-	/* On 8723BS SDIO, RF_WLINT (register 0x01) may hold stale
-	 * bits 0-1 from a prior IQK or coex init run that silently
-	 * gate the RF TX data path.  Write the staging power-on value
-	 * 0x0780 immediately before the auth/deauth frames so the
-	 * join attempt runs with the known-good value.
-	 *
-	 * We re-write REG_RF_CTRL (0x07) to re-arm the RF block
-	 * but deliberately avoid writing 0 — that fully disables
-	 * the RF frontend (RF_EN=0, RF in reset), and on this 8723B
-	 * SDIO stepping the RF does not recover from a cold disable
-	 * during the auth window.
+
+	/* For 8723BS SDIO: after coex switches to the PTA antenna path
+	 * (BB_SEL_BTG=0x200), re-apply the current channel so RF
+	 * registers get correct values on the PTA routing.  During scan
+	 * each dwell set_channel naturally runs after the PTA switch.
+	 * During connect the earlier set_channel (in the IPS-leave
+	 * rtw_power_on path) ran on the BT path (BB_SEL_BTG=0x280),
+	 * where RF writes silently fail — leaving RF01 at 0x783 with
+	 * the TX/RX data path gated.  Auth/deauth frames reach the
+	 * SDIO FIFO and drain, but no RF energy reaches the antenna.
 	 */
 	if (rtw8723bs_sdio(rtwdev)) {
-		rtw_write8(rtwdev, REG_RF_CTRL,
-			   BIT_RF_EN | BIT_RF_RSTB | BIT_RF_SDM_RSTB);
-		usleep_range(1000, 1100);
-		rtw_write_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK,
-			     0x0780);
+		rtw_set_channel(rtwdev);
+		rtwdev->need_rfk = false;
+		rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
+	} else {
+		rfk_pending = rtwdev->need_rfk;
+		if (!rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
+			rtw_chip_prepare_tx(rtwdev);
 	}
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
