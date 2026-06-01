@@ -485,37 +485,20 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->seq = seq;
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
-		/* RTL8723BS SDIO connect-management TX path: staging leaves
-		 * disdatafb=0 for MGNT_FRAMETAG and lets the selected rate-id
-		 * define the retry set. The rate itself is chosen above from
-		 * the same CCK-vs-pure-G rule as staging's tx_rate.
-		 */
 		pkt_info->dis_rate_fallback = false;
 		/* NAVUSEHDR: staging's rtl8723b_fill_default_txdesc() sets
 		 * NAV_USE_HDR for MGNT_FRAMETAG so the firmware uses the
-		 * 802.11 Duration field from the header rather than computing
-		 * its own NAV duration.
+		 * 802.11 Duration field from the header.
 		 */
 		pkt_info->nav_use_hdr = true;
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
-		/* On 8723B the DISQSELSEQ field aliases descriptor OWN
-		 * (W0 bit 31). Staging keeps that bit clear for normal
-		 * host-written SDIO management packets and only sets OWN for
-		 * fake/reserved-page descriptors, so keep auth/assoc/probe
-		 * W0 byte-for-byte aligned with that path.
+		/* Staging's dump_mgntframe_and_wait_ack() sets ack_report=1
+		 * which renders SPE_RPT=1 in the descriptor for
+		 * auth/assoc/reassoc.  rtw_tx_report_enable() above already
+		 * sets pkt_info->report and sn for TX-status tracking.
 		 */
-		/* Clear SPE_RPT and TX-report SN for management frames.
-		 * The v41 firmware silently discards unicast management
-		 * frames when W2 SPE_RPT=1 or W6 SW_DEFINE is non-zero:
-		 * SDIO FIFO drains but no RF energy reaches the antenna.
-		 * Broadcast probe requests (BMC=1, SPE_RPT=0, sn=0) are
-		 * transmitted correctly, and the host-side fake ACK path
-		 * in sdio.c already handles TX-status callbacks.
-		 */
-		pkt_info->report = false;
-		pkt_info->sn = 0;
 		return;
 	}
 
@@ -648,41 +631,11 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
-	    !(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	      !bmc && is_mgmt))
+	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
 		rtw_tx_report_enable(rtwdev, pkt_info);
-
-	/* For 8723BS SDIO unicast management frames we deliberately keep
-	 * SPE_RPT=0 (W2 bit 19 = 0) and sn=0 (W6 SW_DEFINE = 0), matching
-	 * the known-working broadcast probe-request descriptor.  The v41
-	 * firmware on this stepping silently discards ALL BMC=0 management
-	 * frames — the host SDIO FIFO drains but no RF energy reaches the
-	 * antenna.  Broadcast probe requests (BMC=1) work on air at
-	 * -28..-31 dBm.  Even with SPE_RPT=0 and sn=0, unicast management
-	 * frames (auth, deauth, assoc) with BMC=0 remain absent from air
-	 * captures (confirmed in logs-rtw88-4870b817).
-	 *
-	 * The host-side fake ACK path in rtw_sdio_indicate_tx_status()
-	 * still reports MT_TX_STATUS_ACKED via the info->flags path;
-	 * it does not depend on SPE_RPT or CCX C2H reports.  EAPOL data
-	 * TX (non-mgmt path) keeps normal SPE_RPT=1.
-	 *
-	 * Workaround: override pkt_info->bmc = true for management frames
-	 * on this chip.  This forces the firmware to use its broadcast TX
-	 * path which demonstrably transmits.  The 802.11 header addressing
-	 * (addr1/addr2/addr3) remains correct — only the firmware-internal
-	 * TX path selection changes.
-	 */
 
 	pkt_info->bmc = bmc;
 	rtw_tx_pkt_info_update_sec(rtwdev, pkt_info, skb);
-
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	    is_mgmt)
-		pkt_info->bmc = true;
 	pkt_info->tx_pkt_size = skb->len;
 	pkt_info->offset = chip->tx_pkt_desc_sz;
 	pkt_info->qsel = skb->priority;
