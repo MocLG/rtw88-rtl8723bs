@@ -799,6 +799,49 @@ u32 rtl8723bs_hal_init(struct adapter *padapter)
 	/*  Init BT hw config. */
 	hal_btcoex_InitHwConfig(padapter, false);
 
+	{
+		u32 rcr, bcn_ctrl, rrsr, cr, resp_sifs, rxfltmap0, rxfltmap1, rxfltmap2;
+		u32 secfg, rqpn, fwhw_txq_ctrl, retry_limit, slot_val, early_mode, txpause;
+		u32 sys_func, pad_ctrl1, bb_sel_btg, rf_ctrl, rf_chnlbw;
+
+		rcr = rtw_read32(padapter, REG_RCR);
+		bcn_ctrl = rtw_read8(padapter, REG_BCN_CTRL);
+		rrsr = rtw_read32(padapter, REG_RRSR);
+		cr = rtw_read32(padapter, REG_CR);
+		resp_sifs = rtw_read32(padapter, REG_RESP_SIFS_CCK);
+		rxfltmap0 = rtw_read16(padapter, REG_RXFLTMAP0);
+		rxfltmap1 = rtw_read16(padapter, REG_RXFLTMAP1);
+		rxfltmap2 = rtw_read16(padapter, REG_RXFLTMAP2);
+		secfg = rtw_read32(padapter, REG_SECCFG);
+		rqpn = rtw_read32(padapter, REG_RQPN);
+		fwhw_txq_ctrl = rtw_read32(padapter, REG_FWHW_TXQ_CTRL);
+		retry_limit = rtw_read16(padapter, REG_RL);
+		slot_val = rtw_read8(padapter, REG_SLOT);
+		txpause = rtw_read8(padapter, REG_TXPAUSE);
+		sys_func = rtw_read16(padapter, REG_SYS_FUNC_EN);
+		pad_ctrl1 = rtw_read32(padapter, REG_PAD_CTRL1_8723B);
+		bb_sel_btg = rtw_read32(padapter, 0x948);
+		rf_ctrl = rtw_read8(padapter, 0x1F); /* REG_RF_CTRL */
+		rf_chnlbw = PHY_QueryRFReg_8723B(padapter, RF_PATH_A, 0x18, 0xFFFFF);
+		early_mode = rtw_read16(padapter, REG_EARLY_MODE_CONTROL);
+
+		printk(KERN_INFO "staging_regs: hal_init_done "
+		       "SYS_FUNC_EN=0x%04x REG_CR=0x%08x BCN_CTRL=0x%02x "
+		       "RCR=0x%08x RRSR=0x%08x RESP_SIFS=0x%08x "
+		       "RXFLTMAP=0x%04x/0x%04x/0x%04x "
+		       "SECCFG=0x%08x RQPN=0x%08x FWHW_TXQ_CTRL=0x%08x "
+		       "RETRY_LIMIT=0x%04x SLOT=0x%02x TXPAUSE=0x%02x "
+		       "EARLY_MODE=0x%04x PAD_CTRL1=0x%08x BB_SEL_BTG=0x%08x "
+		       "RF_CTRL=0x%02x RF_CHNLBW=0x%05x\n",
+		       sys_func, cr, bcn_ctrl,
+		       rcr, rrsr, resp_sifs,
+		       rxfltmap0, rxfltmap1, rxfltmap2,
+		       secfg, rqpn, fwhw_txq_ctrl,
+		       retry_limit, slot_val, txpause,
+		       early_mode, pad_ctrl1, bb_sel_btg,
+		       rf_ctrl, rf_chnlbw);
+	}
+
 	printk(KERN_INFO "staging_init: %s done\n", __func__);
 	return _SUCCESS;
 }
