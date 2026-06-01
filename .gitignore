@@ -103,7 +103,6 @@ backup_drivers.tar
 .idea
 .vscode
 .vs
-rtl8723bs-staging
 rtw88_debug.log
 debug-logs*
 logs-rtw88*
