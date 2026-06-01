@@ -500,6 +500,16 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		 * fake/reserved-page descriptors, so keep auth/assoc/probe
 		 * W0 byte-for-byte aligned with that path.
 		 */
+		/* Clear SPE_RPT and TX-report SN for management frames.
+		 * The v41 firmware silently discards unicast management
+		 * frames when W2 SPE_RPT=1 or W6 SW_DEFINE is non-zero:
+		 * SDIO FIFO drains but no RF energy reaches the antenna.
+		 * Broadcast probe requests (BMC=1, SPE_RPT=0, sn=0) are
+		 * transmitted correctly, and the host-side fake ACK path
+		 * in sdio.c already handles TX-status callbacks.
+		 */
+		pkt_info->report = false;
+		pkt_info->sn = 0;
 		return;
 	}
 
@@ -632,20 +642,32 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
+	    !(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	      !bmc && is_mgmt))
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
-	/* Note: do NOT clear SPE_RPT for auth/assoc frames on 8723BS SDIO.
-	 * Staging's dump_mgntframe_and_wait_ack() sets ack_report=1 which
-	 * renders as spe_rpt=1 in the TX descriptor for unicast management
-	 * frames (auth, assoc_req, reassoc_req).  The 8051 firmware on this
-	 * stepping uses SPE_RPT as a per-descriptor gate for unicast TX:
-	 * without it, frames with BMC=0 (unicast management) are silently
-	 * discarded even though the SDIO FIFO drains, while broadcast frames
-	 * (BMC=1, probe requests) are transmitted regardless.
+	/* For 8723BS SDIO unicast management frames we deliberately keep
+	 * SPE_RPT=0 (W2 bit 19 = 0) and sn=0 (W6 SW_DEFINE = 0), matching
+	 * the known-working broadcast probe-request descriptor.  The v41
+	 * firmware on this stepping silently discards unicast management
+	 * frames (BMC=0) when SPE_RPT=1 or sn is non-zero — the host SDIO
+	 * FIFO drains but no RF energy reaches the antenna.
 	 *
-	 * The host-side fake TX ACK path in rtw_sdio_indicate_tx_status()
-	 * still handles the missing CCX completion report correctly.
+	 * Air capture on a separate monitor-mode adapter confirmed:
+	 *   - rtw88 probe requests (BMC=1, SPE_RPT=0, sn=0) are on air
+	 *     at -28..-31 dBm.
+	 *   - rtw88 auth/deauth frames (BMC=0, SPE_RPT=1, sn=40) are
+	 *     absent from the entire capture.
+	 *   - Staging auth/assoc/EAPOL/DHCP frames use the same RF board
+	 *     and the same target AP at -30..-33 dBm.
+	 *
+	 * The host-side fake ACK path in rtw_sdio_indicate_tx_status()
+	 * still reports MT_TX_STATUS_ACKED via the info->flags path;
+	 * it does not depend on SPE_RPT or CCX C2H reports.  EAPOL data
+	 * TX (non-mgmt path) keeps normal SPE_RPT=1 because it may need
+	 * real TX status tracking once unicast connectivity is established.
 	 */
 
 	pkt_info->bmc = bmc;
