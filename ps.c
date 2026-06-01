@@ -54,6 +54,32 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 
 	rtw_set_channel(rtwdev);
 
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/* On 8723BS SDIO, the first set_channel after an IPS-leave
+		 * power-on cycle may produce incorrect RF00 PLL/VCO values
+		 * because rtw_coex_power_on_setting() wrote RF registers on
+		 * the BT antenna path (BB_SEL_BTG=0x280) during power_on,
+		 * corrupting the RF 3-wire bus state.  The scan_workaround
+		 * call above switches to the PTA path and restores coex
+		 * state, but the first RF channel write still reads back
+		 * incorrect RF00 because the bus has not fully settled.
+		 *
+		 * On the scan path, two consecutive set_channels for
+		 * different dwell channels always converge to the correct
+		 * RF00 value (the second one has a clean baseline).  The
+		 * mgd_prepare_tx path only gets one set_channel call per
+		 * auth attempt, so the auth frame is transmitted at the
+		 * wrong RF frequency and the AP never decodes it.
+		 *
+		 * Workaround: after a settling delay, run set_channel a
+		 * second time so the RF PLL re-locks from a clean baseline
+		 * and RF00 converges to the correct per-channel value.
+		 */
+		usleep_range(1500, 2000);
+		rtw_set_channel(rtwdev);
+	}
+
 	return ret;
 }
 

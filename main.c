@@ -1853,51 +1853,52 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 
 	wifi_only = !rtwdev->efuse.btcoex;
 
-	rtw_coex_power_on_setting(rtwdev);
-
-	/* Note: do NOT promote wifi_only=true even when coex_stat.bt_disabled
-	 * is reported. logs-rtw88-d308f56d showed that taking
-	 * __rtw_coex_init_hw_config(wifi_only=true) sets coex->stop_dm=true,
-	 * which short-circuits rtw_coex_scan_notify() /
-	 * rtw_coex_connect_notify() / rtw_coex_media_status_notify() at
-	 * their stop_dm early-return — preventing the 8723bs SDIO
-	 * scan_workaround / force_assoc_pta_ant helpers from running. The
-	 * chip then stays at COEX_SET_ANT_WONLY (BBSW + WLG,
-	 * BB_SEL_BTG=0x00000000) for the entire scan/connect window
-	 * instead of switching to PTA (BB_SEL_BTG=0x00000200), which is
-	 * what staging effectively uses (its scan PsTdma type 8 path
-	 * sets BTC_ANT_PATH_PTA, and its BT-disabled connect_notify is a
-	 * no-op leaving the PTA path in place).
-	 *
-	 * Keep wifi_only derived from efuse.btcoex so that boards whose
-	 * efuse advertises BT support take the COEX_SET_ANT_INIT path
-	 * (BBSW + TO_BT, 0x280) at init, then let the 8723bs SDIO
-	 * scan_workaround switch to PTA (0x200) for scan/connect.
-	 */
-	/* Skip BT-path coex init during IPS-leave power-on for 8723BS SDIO.
-	 * __rtw_coex_init_hw_config() (called by rtw_coex_init_hw_config)
-	 * sets BB_SEL_BTG=0x280 (BT path), which corrupts the RF 3-wire bus
-	 * so subsequent RF register writes fail.  The PTA path and coex table
-	 * are restored by rtw_coex_8723bs_scan_workaround() in rtw_ips_pwr_up
-	 * before the first set_channel, matching the scan path flow.
-	 *
-	 * Snapshot initial_rfk_done before rtw_power_on_8723bs_sdio_rfk()
+	/*
+	 * Snapshot initial_rfk_done BEFORE rtw_power_on_8723bs_sdio_rfk()
 	 * because that call sets it to true on the first power-on.
+	 * If initial_rfk_done was already true before this call, we
+	 * are waking from IPS (power-save) — the chip was running, then
+	 * powered down, and is now being re-initialised from scratch.
+	 *
+	 * On 8723BS SDIO IPS leave we skip the entire BT-side coex init
+	 * chain (rtw_coex_power_on_setting, rtw_coex_init_hw_config)
+	 * because those functions write RF registers on the BT antenna
+	 * path (BB_SEL_BTG=0x280).  On this stepping the RF 3-wire bus
+	 * writes fail silently on the BT path, leaving the RF PLL/VCO
+	 * in a partially corrupted state that the subsequent
+	 * scan_workaround PTA switch cannot fully recover.
+	 *
+	 * The scan_workaround (called from rtw_ips_pwr_up after
+	 * rtw_power_on returns) re-establishes the PTA antenna path,
+	 * PS-TDMA configuration, coex table, and CCK priority — exactly
+	 * the same setup the scan path uses successfully on this
+	 * hardware.  The coex state is therefore correctly configured
+	 * without the BT-path writes.
+	 *
+	 * See section 22d of the porting notes for air-capture data
+	 * backing this approach.
 	 */
 	{
 		bool ips_wake = rtwdev->initial_rfk_done &&
 				rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 				rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 
+		if (!ips_wake) {
+			/* Initial boot only: full BT-side init and coex
+			 * hardware configuration.
+			 */
+			rtw_coex_power_on_setting(rtwdev);
+		}
+
 		rtw_power_on_8723bs_sdio_rfk(rtwdev);
 
-		if (ips_wake) {
-			/* IPS leave: skip BT-path init, PTA will be set up by
-			 * scan_workaround() in rtw_ips_pwr_up().
-			 */
-		} else {
+		if (!ips_wake) {
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
 		}
+		/* ips_wake: skip BT-path init entirely; PTA + coex
+		 * state will be re-established by
+		 * rtw_coex_8723bs_scan_workaround() in rtw_ips_pwr_up().
+		 */
 	}
 
 	return 0;
