@@ -995,7 +995,6 @@ echo "[5/6] Dump all MAC registers..."
 # Test 6: Staging Driver Comparison
 # ============================================================================
 echo "[6/6] Build and test staging driver..."
-echo "Building staging driver from local rtl8723bs-staging tree..."
 
 clear_dmesg
 
@@ -1007,19 +1006,29 @@ ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
 unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
-# 2. Build the local staging driver copy
+# 2. Build the local staging driver copy (skip if .ko already exists)
 STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
 STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
-{
-    echo "+ make clean in staging tree"
-    make -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m clean
-    echo ""
-    echo "+ make in staging tree"
-    make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
-} > "$STAGING_BUILD_LOG" 2>&1 || {
-    echo "ERROR: staging build failed; see $STAGING_BUILD_LOG"
-    exit 1
-}
+STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
+
+if [ -n "$STAGING_KO" ]; then
+    echo "Staging driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
+    echo "Remove the .ko or run 'make clean' in staging tree to force rebuild." >> "$STAGING_BUILD_LOG"
+else
+    echo "Building staging driver from local rtl8723bs-staging tree..."
+    {
+        echo "+ make in staging tree"
+        make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
+    } > "$STAGING_BUILD_LOG" 2>&1 || {
+        echo "ERROR: staging build failed; see $STAGING_BUILD_LOG"
+        exit 1
+    }
+    STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
+    if [ -z "$STAGING_KO" ]; then
+        echo "ERROR: staging .ko not found after build" >> "$STAGING_BUILD_LOG"
+        STAGING_IFACE=""
+    fi
+fi
 
 # 3. Record existing managed interfaces before loading staging
 BEFORE_STAGING=$(list_managed_ifaces || true)
@@ -1030,9 +1039,8 @@ modprobe -r r8723bs 2>/dev/null || true
 modprobe -r rtl8723bs 2>/dev/null || true  # older kernel name
 sleep 1
 STAGING_LOAD_LOG="$OUTDIR/test-06-staging-load.txt"
-STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
 if [ -z "$STAGING_KO" ]; then
-    echo "ERROR: staging .ko not found after build" >> "$STAGING_LOAD_LOG"
+    echo "ERROR: staging .ko not found" >> "$STAGING_LOAD_LOG"
     STAGING_IFACE=""
 else
     echo "+ insmod $STAGING_KO" >> "$STAGING_LOAD_LOG"
