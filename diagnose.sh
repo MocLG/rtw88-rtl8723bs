@@ -89,6 +89,7 @@ RTW88_BUILD_MODULES="rtw_core rtw_8723x rtw_8723b rtw_sdio rtw_8723bs"
 RTW88_UNLOAD_MODULES="rtw_8723bs rtw_sdio rtw_8723b rtw_8723x rtw_core"
 
 OUTDIR="logs-rtw88-$GIT_HASH"
+REPO_ROOT="$PWD"
 TARFILE="diagnostic-$GIT_HASH.tar.gz"
 rm -f "$TARFILE"
 if [ -e "$OUTDIR" ]; then
@@ -993,7 +994,8 @@ echo "[5/6] Dump all MAC registers..."
 # ============================================================================
 # Test 6: Staging Driver Comparison
 # ============================================================================
-echo "[6/6] Check staging driver..."
+echo "[6/6] Build and test staging driver..."
+echo "Building staging driver from local rtl8723bs-staging tree..."
 
 clear_dmesg
 
@@ -1005,14 +1007,38 @@ ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
 unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
-# 2. Record existing managed interfaces before loading staging
+# 2. Build the local staging driver copy
+STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
+STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
+{
+    echo "+ make clean in staging tree"
+    make -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m clean
+    echo ""
+    echo "+ make in staging tree"
+    make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
+} > "$STAGING_BUILD_LOG" 2>&1 || {
+    echo "ERROR: staging build failed; see $STAGING_BUILD_LOG"
+    exit 1
+}
+
+# 3. Record existing managed interfaces before loading staging
 BEFORE_STAGING=$(list_managed_ifaces || true)
 BEFORE_STAGING_IW_DEV=$(iw dev 2>&1 || true)
 
-# 3. Load Staging
+# 4. Unload any system-installed staging driver, then load locally built one
+modprobe -r r8723bs 2>/dev/null || true
+modprobe -r rtl8723bs 2>/dev/null || true  # older kernel name
+sleep 1
 STAGING_LOAD_LOG="$OUTDIR/test-06-staging-load.txt"
-modprobe r8723bs > "$STAGING_LOAD_LOG" 2>&1 || \
-    echo "Staging driver r8723bs failed to load" >> "$STAGING_LOAD_LOG"
+STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
+if [ -z "$STAGING_KO" ]; then
+    echo "ERROR: staging .ko not found after build" >> "$STAGING_LOAD_LOG"
+    STAGING_IFACE=""
+else
+    echo "+ insmod $STAGING_KO" >> "$STAGING_LOAD_LOG"
+    insmod "$STAGING_KO" >> "$STAGING_LOAD_LOG" 2>&1 || \
+        echo "Staging driver r8723bs failed to load" >> "$STAGING_LOAD_LOG"
+fi
 sleep 3
 
 # 4. Find the NEW interface spawned by staging
