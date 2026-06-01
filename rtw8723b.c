@@ -3725,7 +3725,7 @@ static const struct rtw_chip_ops rtw8723b_ops = {
 const struct rtw_chip_info rtw8723b_hw_spec = {
 	.ops = &rtw8723b_ops,
 	.id = RTW_CHIP_TYPE_8723B,
-	.fw_name = "rtw88/rtw8723b_fw.bin",
+	.fw_name = "rtlwifi/rtl8723bs_nic.bin",
 	.wlan_cpu = RTW_WCPU_8051,
 	.tx_pkt_desc_sz = 40,
 	.tx_buf_desc_sz = 16,
@@ -3869,7 +3869,7 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 };
 EXPORT_SYMBOL(rtw8723b_hw_spec);
 
-MODULE_FIRMWARE("rtw88/rtw8723b_fw.bin");
+MODULE_FIRMWARE("rtlwifi/rtl8723bs_nic.bin");
 MODULE_FIRMWARE("rtw88/rtw8723b_wow_fw.bin");
 
 MODULE_AUTHOR("Luka Gejak <luka.gejak@linux.dev>");
