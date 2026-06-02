@@ -4002,7 +4002,7 @@ void start_clnt_join(struct adapter *padapter)
 	int beacon_timeout;
 
 	printk(KERN_INFO "staging_mlme: %s entry bssid=%pM channel=%d\n",
-	       __func__, pnetwork->MacAddress, pnetwork->Configuration.DSConfig);
+	       __func__, pnetwork->mac_address, pnetwork->configuration.ds_config);
 
 	/* update wireless mode */
 	update_wireless_mode(padapter);
