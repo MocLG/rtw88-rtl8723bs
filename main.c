@@ -1899,6 +1899,56 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		 * state will be re-established by
 		 * rtw_coex_8723bs_scan_workaround() in rtw_ips_pwr_up().
 		 */
+
+		/* Log init-done register state (matching staging's
+		 * staging_regs: hal_init_done).  Only the first power-on
+		 * is logged to avoid flooding the log on every IPS leave.
+		 */
+		if (!ips_wake) {
+			u32 rcr_in, rrsr_in, cr_in, resp_sifs_in;
+			u16 rxfltmap0_in, rxfltmap1_in, rxfltmap2_in;
+			u32 secfg_in, rqpn_in;
+			u32 fwhw_txq_ctrl_in;
+			u16 retry_limit_in;
+			u8 slot_val_in, txpause_in;
+			u16 sys_func_in;
+			u32 pad_ctrl1_in, bb_sel_btg_in;
+			u8 rf_ctrl_in;
+
+			rcr_in = rtw_read32(rtwdev, REG_RCR);
+			rrsr_in = rtw_read32(rtwdev, REG_RRSR);
+			cr_in = rtw_read32(rtwdev, REG_CR);
+			resp_sifs_in = rtw_read32(rtwdev, REG_RESP_SIFS_CCK);
+			rxfltmap0_in = rtw_read16(rtwdev, REG_RXFLTMAP0);
+			rxfltmap1_in = rtw_read16(rtwdev, REG_RXFLTMAP1);
+			rxfltmap2_in = rtw_read16(rtwdev, REG_RXFLTMAP2);
+			secfg_in = rtw_read32(rtwdev, RTW_SEC_CONFIG);
+			rqpn_in = rtw_read32(rtwdev, REG_RQPN);
+			fwhw_txq_ctrl_in = rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL);
+			retry_limit_in = rtw_read16(rtwdev, REG_RETRY_LIMIT);
+			slot_val_in = rtw_read8(rtwdev, REG_SLOT);
+			txpause_in = rtw_read8(rtwdev, REG_TXPAUSE);
+			sys_func_in = rtw_read16(rtwdev, REG_SYS_FUNC_EN);
+			pad_ctrl1_in = rtw_read32(rtwdev, REG_PAD_CTRL1);
+			bb_sel_btg_in = rtw_read32(rtwdev, 0x948);
+			rf_ctrl_in = rtw_read8(rtwdev, REG_RF_CTRL);
+
+			rtw_info(rtwdev,
+				 "INIT_DBG: power_on_done "
+				 "SYS=0x%04x CR=0x%08x BCN=0x%02x "
+				 "RCR=0x%08x RRSR=0x%08x SIFS=0x%04x "
+				 "RXFLT=0x%04x/0x%04x/0x%04x "
+				 "SEC=0x%04x RQPN=0x%08x FWTQ=0x%08x "
+				 "RETRY=0x%04x SLOT=0x%02x TXPAUS=0x%02x "
+				 "PAD1=0x%08x BB_SEL=0x%08x RFCTRL=0x%02x\n",
+				 sys_func_in, cr_in,
+				 rtw_read8(rtwdev, REG_BCN_CTRL),
+				 rcr_in, rrsr_in, resp_sifs_in,
+				 rxfltmap0_in, rxfltmap1_in, rxfltmap2_in,
+				 secfg_in, rqpn_in, fwhw_txq_ctrl_in,
+				 retry_limit_in, slot_val_in, txpause_in,
+				 pad_ctrl1_in, bb_sel_btg_in, rf_ctrl_in);
+		}
 	}
 
 	return 0;
@@ -2400,9 +2450,10 @@ static void rtw_load_firmware_cb(const struct firmware *firmware, void *context)
 	update_firmware_info(rtwdev, fw);
 	complete_all(&fw->completion);
 
-	rtw_info(rtwdev, "%sFirmware version %u.%u.%u, H2C version %u\n",
+	rtw_info(rtwdev, "%sFirmware version %u.%u.%u, H2C version %u, size %zu\n",
 		 fw->type == RTW_WOWLAN_FW ? "WOW " : "",
-		 fw->version, fw->sub_version, fw->sub_index, fw->h2c_version);
+		 fw->version, fw->sub_version, fw->sub_index, fw->h2c_version,
+		 firmware->size);
 }
 
 static int rtw_load_firmware(struct rtw_dev *rtwdev, enum rtw_fw_type type)
@@ -2430,6 +2481,8 @@ static int rtw_load_firmware(struct rtw_dev *rtwdev, enum rtw_fw_type type)
 	fw->type = type;
 	fw->rtwdev = rtwdev;
 	init_completion(&fw->completion);
+
+	rtw_info(rtwdev, "requesting firmware %s\n", fw_name);
 
 	ret = request_firmware_nowait(THIS_MODULE, true, fw_name, rtwdev->dev,
 				      GFP_KERNEL, fw, rtw_load_firmware_cb);

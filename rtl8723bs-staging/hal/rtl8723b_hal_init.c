@@ -1821,6 +1821,23 @@ static void rtl8723b_fill_default_txdesc(
 	 */
 	if (!pattrib->qos_en) /*  Hw set sequence number */
 		ptxdesc->en_hwseq = 1; /*  HWSEQ_EN */
+
+	if (pxmitframe->frame_tag == MGNT_FRAMETAG) {
+		u32 *dw = (u32 *)pbuf;
+		u16 fc = le16_to_cpu(*(__le16 *)(pbuf + 40));
+		printk(KERN_INFO "staging_txdesc: fc=0x%04x "
+		       "rate=%u rate_id=%u bmc=%d spe=%d "
+		       "use_rate=%u dis_fb=%u hwseq=%u rtlmt=%u "
+		       "desc=%08x/%08x/%08x/%08x/%08x/"
+		       "%08x/%08x/%08x/%08x/%08x\n",
+		       fc,
+		       ptxdesc->datarate, ptxdesc->rate_id,
+		       ptxdesc->bmc, ptxdesc->spe_rpt,
+		       ptxdesc->userate, ptxdesc->disdatafb,
+		       ptxdesc->en_hwseq, ptxdesc->data_rt_lmt,
+		       dw[0], dw[1], dw[2], dw[3], dw[4],
+		       dw[5], dw[6], dw[7], dw[8], dw[9]);
+	}
 }
 
 /* Description:
