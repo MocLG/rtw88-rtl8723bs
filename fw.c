@@ -817,6 +817,27 @@ void rtw_fw_media_status_report(struct rtw_dev *rtwdev, u8 mac_id, bool connect)
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }
 
+void rtw_fw_macid_cfg(struct rtw_dev *rtwdev, u8 mac_id, u8 raid, u8 bw,
+		      u8 sgi, u32 rate_mask)
+{
+	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
+
+	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RA_INFO);
+	/* Byte 1: MACID in bits 0-6 */
+	h2c_pkt[1] = mac_id & 0x7f;
+	/* Byte 2: RAID in bits 0-6, BW in bit 7 */
+	h2c_pkt[2] = (raid & 0x7f) | ((bw ? BIT(7) : 0));
+	/* Byte 3: SGI in bit 0 (staging MACID_CFG format) */
+	h2c_pkt[3] = (sgi ? BIT(0) : 0);
+	/* Bytes 4-7: Rate mask (little-endian) */
+	h2c_pkt[4] = rate_mask & 0xff;
+	h2c_pkt[5] = (rate_mask >> 8) & 0xff;
+	h2c_pkt[6] = (rate_mask >> 16) & 0xff;
+	h2c_pkt[7] = (rate_mask >> 24) & 0xff;
+
+	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+}
+
 void rtw_fw_update_wl_phy_info(struct rtw_dev *rtwdev)
 {
 	struct rtw_traffic_stats *stats = &rtwdev->stats;

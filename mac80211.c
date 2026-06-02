@@ -475,8 +475,25 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
+	/* Staging's start_clnt_join() sends H2C_MEDIA_STATUS_RPT(connect=1)
+	 * before issuing auth.  This tells the 8051 firmware that mac_id 0
+	 * is entering connected state, which enables the TX path for
+	 * management frames (auth, deauth, assoc).  Without this H2C the
+	 * firmware silently discards all SDIO-submitted management frames
+	 * even though the host TX FIFO drains (logs-rtw88-79e42dd6).
+	 */
+	rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
+	rtwvif->fw_media_connected = true;
+
+	/* Staging's start_clnt_join() also sends MACID_CFG (0x40) with
+	 * the per-mac-id rate mask so the firmware knows which rates are
+	 * valid for mac_id 0.  RAID=6 maps to OFDM 6M as the initial
+	 * rate; the mask covers all B/G rates (1-54 Mbps CCK+OFDM).
+	 */
+	rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
+
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=defer MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=connect MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
 		 bssid, fresh_join, old_net_type, rtwvif->net_type,
 		 msr_before, rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
