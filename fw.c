@@ -457,7 +457,9 @@ static void rtw_fw_send_h2c_command_register(struct rtw_dev *rtwdev,
 static void rtw_fw_send_h2c_command(struct rtw_dev *rtwdev,
 				    u8 *h2c)
 {
-	printk("%s: begin\n", __func__);
+	u8 cmd_id = h2c[0] & 0xff;
+
+	rtw_info(rtwdev, "H2C_DEBUG: send_h2c id=0x%02x\n", cmd_id);
 
 	struct rtw_h2c_cmd *h2c_cmd = (struct rtw_h2c_cmd *)h2c;
 	u8 box;
@@ -834,6 +836,36 @@ void rtw_fw_macid_cfg(struct rtw_dev *rtwdev, u8 mac_id, u8 raid, u8 bw,
 	h2c_pkt[5] = (rate_mask >> 8) & 0xff;
 	h2c_pkt[6] = (rate_mask >> 16) & 0xff;
 	h2c_pkt[7] = (rate_mask >> 24) & 0xff;
+
+	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+}
+
+void rtw_fw_send_wl_ch_info(struct rtw_dev *rtwdev, u8 ch, u8 bw)
+{
+	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
+	u8 bw_byte = 0x20;
+
+	if (bw == RTW_CHANNEL_WIDTH_40)
+		bw_byte = 0x30;
+
+	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_WL_CH_INFO);
+	h2c_pkt[1] = 0x00;
+	h2c_pkt[2] = ch;
+	h2c_pkt[3] = bw_byte;
+
+	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+}
+
+void rtw_fw_send_rsvd_page_loc(struct rtw_dev *rtwdev)
+{
+	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
+
+	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RSVD_PAGE);
+	h2c_pkt[1] = 0x00;
+	h2c_pkt[2] = 0x02;
+	h2c_pkt[3] = 0x03;
+	h2c_pkt[4] = 0x04;
+	h2c_pkt[5] = 0x05;
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }

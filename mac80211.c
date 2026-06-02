@@ -475,22 +475,33 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
-	/* Staging's start_clnt_join() sends H2C_MEDIA_STATUS_RPT(connect=1)
-	 * before issuing auth.  This tells the 8051 firmware that mac_id 0
-	 * is entering connected state, which enables the TX path for
-	 * management frames (auth, deauth, assoc).  Without this H2C the
-	 * firmware silently discards all SDIO-submitted management frames
-	 * even though the host TX FIFO drains (logs-rtw88-79e42dd6).
+	/* Staging's start_clnt_join() sends H2Cs in this exact order:
+	 *   1. H2C 0x40 (MACID_CFG)       — per-mac-id rate mask config
+	 *   2. H2C 0x01 (MEDIA_STATUS_RPT) — tells 8051 firmware mac_id 0
+	 *      is entering connected state, enabling the TX path for mgmt
+	 *   3. H2C 0x00 (RSVD_PAGE loc)   — reserved page memory locations
+	 *   4. H2C 0x66 (WL_CH_INFO)      — channel/BW for coex/WLAN
+	 *
+	 * The firmware initialises internal TX state from MACID_CFG first,
+	 * then activates the mac_id on MEDIA_STATUS_RPT.  Reversing the order
+	 * (MEDIA_STATUS_RPT first, as done prior to this commit) leaves the
+	 * firmware with an unconfigured mac_id when it tries to transmit,
+	 * causing management frames to be silently dropped even though the
+	 * SDIO TX FIFO drains (logs-rtw88-87c7996d).
+	 *
+	 * RSVD_PAGE loc and WL_CH_INFO provide the remaining firmware state
+	 * that staging supplies before auth/deauth/probe TX can reach air.
 	 */
+	rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
+
 	rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
 	rtwvif->fw_media_connected = true;
 
-	/* Staging's start_clnt_join() also sends MACID_CFG (0x40) with
-	 * the per-mac-id rate mask so the firmware knows which rates are
-	 * valid for mac_id 0.  RAID=6 maps to OFDM 6M as the initial
-	 * rate; the mask covers all B/G rates (1-54 Mbps CCK+OFDM).
-	 */
-	rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
+	rtw_fw_send_rsvd_page_loc(rtwdev);
+
+	if (rtwdev->hal.current_channel)
+		rtw_fw_send_wl_ch_info(rtwdev, rtwdev->hal.current_channel,
+				       rtwdev->hal.current_band_width);
 
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=connect MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
