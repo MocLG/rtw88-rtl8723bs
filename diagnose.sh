@@ -994,7 +994,7 @@ echo "[5/6] Dump all MAC registers..."
 # ============================================================================
 # Test 6: Staging Driver Comparison
 # ============================================================================
-echo "[6/6] Build and test staging driver..."
+echo "[6/6] Check staging driver..."
 
 clear_dmesg
 
@@ -1006,16 +1006,16 @@ ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
 unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
-# 2. Build the local staging driver copy (skip if .ko already exists)
+# 2. Build local staging driver with debug printks (skip if .ko exists)
 STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
 STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
 STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
 
 if [ -n "$STAGING_KO" ]; then
     echo "Staging driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
-    echo "Remove the .ko or run 'make clean' in staging tree to force rebuild." >> "$STAGING_BUILD_LOG"
+    echo "Run: make -C /lib/modules/\$(uname -r)/build M=$STAGING_SRC CONFIG_RTL8723BS=m clean" >> "$STAGING_BUILD_LOG"
+    echo "  to force a rebuild after editing staging source." >> "$STAGING_BUILD_LOG"
 else
-    echo "Building staging driver from local rtl8723bs-staging tree..."
     {
         echo "+ make in staging tree"
         make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
@@ -1024,27 +1024,28 @@ else
         exit 1
     }
     STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
-    if [ -z "$STAGING_KO" ]; then
-        echo "ERROR: staging .ko not found after build" >> "$STAGING_BUILD_LOG"
-        STAGING_IFACE=""
-    fi
 fi
 
-# 3. Record existing managed interfaces before loading staging
-BEFORE_STAGING=$(list_managed_ifaces || true)
-BEFORE_STAGING_IW_DEV=$(iw dev 2>&1 || true)
-
-# 4. Unload any system-installed staging driver, then load locally built one
-modprobe -r r8723bs 2>/dev/null || true
-modprobe -r rtl8723bs 2>/dev/null || true  # older kernel name
-sleep 1
-STAGING_LOAD_LOG="$OUTDIR/test-06-staging-load.txt"
 if [ -z "$STAGING_KO" ]; then
-    echo "ERROR: staging .ko not found" >> "$STAGING_LOAD_LOG"
+    echo "ERROR: staging .ko not found" | tee -a "$OUTDIR/test-06-staging-load.txt"
     STAGING_IFACE=""
 else
-    echo "+ insmod $STAGING_KO" >> "$STAGING_LOAD_LOG"
-    insmod "$STAGING_KO" >> "$STAGING_LOAD_LOG" 2>&1 || \
+    # 3. Install locally built .ko so modprobe finds it (handles BT firmware deps)
+    MOD_EXTRA="/lib/modules/$RUNNING_KVER/extra"
+    mkdir -p "$MOD_EXTRA"
+    # Symlink avoids copying every time; modprobe follows symlinks
+    STAGING_MOD_DEST="$MOD_EXTRA/r8723bs.ko"
+    ln -sf "$STAGING_KO" "$STAGING_MOD_DEST"
+    depmod -a "$RUNNING_KVER"
+
+    # 4. Record existing interfaces, then unload prior instance and modprobe
+    BEFORE_STAGING=$(list_managed_ifaces || true)
+    BEFORE_STAGING_IW_DEV=$(iw dev 2>&1 || true)
+    modprobe -r r8723bs 2>/dev/null || true
+    sleep 1
+    STAGING_LOAD_LOG="$OUTDIR/test-06-staging-load.txt"
+    echo "+ modprobe r8723bs (local build with debug printks)" >> "$STAGING_LOAD_LOG"
+    modprobe r8723bs >> "$STAGING_LOAD_LOG" 2>&1 || \
         echo "Staging driver r8723bs failed to load" >> "$STAGING_LOAD_LOG"
 fi
 sleep 3
