@@ -958,6 +958,15 @@ static int __rtw_download_firmware_legacy(struct rtw_dev *rtwdev,
 {
 	int ret = 0;
 
+	/* Staging's rtl8723b_InitializeFirmwareVars() writes REG_HMETFR=0x0f
+	 * before every firmware download to enable all four H2C mailboxes
+	 * and the TX free report mechanism.  Without this the 8051 firmware
+	 * on 8723BS SDIO never transmits management frames on air even though
+	 * the host SDIO FIFO drains (confirmed in logs-rtw88-48f1d742).
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_write8(rtwdev, REG_HMETFR, 0x0f);
+
 	/* reset firmware if still present */
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8703B &&
 	    rtw_read8_mask(rtwdev, REG_MCUFW_CTRL, BIT_RAM_DL_SEL)) {
