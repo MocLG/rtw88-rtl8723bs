@@ -1894,6 +1894,18 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 
 		if (!ips_wake) {
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
+			/* Staging's hal_btcoex_IQKNotify(false) sends
+			 * H2Cs 0x6E (GNT_BT), 0x61 (BT_INFO), and 0x65
+			 * (ANT_SEL_RSV) after IQK even when BT is
+			 * runtime-disabled.  Replicate this for 8723BS
+			 * SDIO to ensure the firmware's PTA / coex
+			 * state machine observes the same init sequence.
+			 */
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+				rtw_fw_set_gnt_bt(rtwdev, 1);
+				rtw_fw_query_bt_info(rtwdev);
+			}
 		}
 		/* ips_wake: skip BT-path init entirely; PTA + coex
 		 * state will be re-established by
