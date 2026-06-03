@@ -1604,35 +1604,21 @@ static void rtw8723b_init_adaptive_ctrl(struct rtw_dev *rtwdev)
 {
 	/* REG_RRSR low 20 bits programs the BSS basic rate set the chip
 	 * uses for ACK/CTS rate selection, response duration calculation,
-	 * and CTS-to-self protection. Upstream rtw88 writes 0xffff1 here,
-	 * which advertises 1 Mbps CCK + every 6/9/12/18/24/36/48/54 Mbps
-	 * OFDM rate + MCS0..7 as basic. That is not a 802.11-compliant
-	 * BSS basic rate set and is missing 2/5.5/11 Mbps CCK entirely.
+	 * and CTS-to-self protection. The legacy rtl8723bs staging driver
+	 * init leaves this at the upstream 0xffff1 value;
+	 * staging_regs:hal_init_done confirms RRSR=0x000ffff1 at the end
+	 * of rtl8723bs_hal_init(). The per-join narrowing to the IEEE
+	 * mandatory rates (0x15F) happens later via HW_VAR_BASIC_RATE in
+	 * start_clnt_join(), not at MAC init.
 	 *
-	 * The legacy rtl8723bs staging driver instead programs REG_RRSR
-	 * via HW_VAR_BASIC_RATE at every join, and runs the chosen rates
-	 * through:
-	 *
-	 *   BrateCfg |= (RRSR_11M | RRSR_5_5M | RRSR_1M)        // forced CCK
-	 *   BrateCfg &= (RRSR_24M | RRSR_12M | RRSR_6M |
-	 *                RRSR_CCK_RATES)                         // OFDM allow
-	 *
-	 * giving 0x15F = 1/2/5.5/11 Mbps CCK + 6/12/24 Mbps OFDM, exactly
-	 * the IEEE 802.11g mandatory rates. RRSR_INIT_2G in main.h is the
-	 * same constant 0x15f used by rtw_phy_rrsr_update() once a STA
-	 * exists; bake it in at MAC init too for 8723BS SDIO so the
-	 * basic-rate set is correct from boot, including across the
-	 * pre-association connect window where rtw_update_sta_info() has
-	 * not yet run and rtw_phy_rrsr_update() is still working with the
-	 * default rrsr_val_init of 0.
-	 *
-	 * Other 8723b HCIs (PCIe / USB) keep the upstream 0xffff1 value
-	 * because we have no on-target validation for those.
+	 * With the staging v35 firmware loaded (rtl8723bs_nic.bin), the
+	 * 8051 firmware reads REG_RRSR during init to validate the PHY
+	 * rate capabilities. Forcing 0x15F (which clears MCS0-7 and
+	 * higher OFDM bits) causes a mismatch with the firmware's
+	 * internal rate tables and can lead to the firmware silently
+	 * discarding all management TX from SDIO.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, RRSR_INIT_2G);
-	else
-		rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, 0xffff1);
+	rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, 0xffff1);
 	rtw_write16(rtwdev, REG_RETRY_LIMIT, 0x3030);
 }
 

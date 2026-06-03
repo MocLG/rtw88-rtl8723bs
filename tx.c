@@ -486,18 +486,23 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
 		pkt_info->dis_rate_fallback = false;
-		/* NAVUSEHDR: staging's rtl8723b_fill_default_txdesc() sets
-		 * NAV_USE_HDR for MGNT_FRAMETAG so the firmware uses the
-		 * 802.11 Duration field from the header.
+		/* Staging's rtl8723b_fill_default_txdesc() leaves
+		 * DISDATAFB=0 and does NOT set NAVUSEHDR for
+		 * MGNT_FRAMETAG on this stepping (confirmed by
+		 * staging_txdesc trace: W3=0x00000100). Do not set
+		 * nav_use_hdr here — the v35 staging firmware silently
+		 * drops management TX when NAVUSEHDR=1 in the SDIO
+		 * descriptor W3.
 		 */
-		pkt_info->nav_use_hdr = true;
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
-		/* Staging's dump_mgntframe_and_wait_ack() sets ack_report=1
-		 * which renders SPE_RPT=1 in the descriptor for
-		 * auth/assoc/reassoc.  rtw_tx_report_enable() above already
-		 * sets pkt_info->report and sn for TX-status tracking.
+		/* Staging's issue_auth() calls dump_mgntframe_and_wait()
+		 * (without _ack), which leaves SPE_RPT=0. The v35
+		 * staging firmware drops unicast management TX when
+		 * SPE_RPT=1 on this stepping.  rtw_tx_pkt_info_update()
+		 * skips rtw_tx_report_enable() for 8723BS SDIO mgmt
+		 * to keep W2 SPE_RPT=0 matching staging.
 		 */
 		return;
 	}
@@ -631,7 +636,19 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+	/* Skip TX-report enable for 8723BS SDIO management frames:
+	 * the v35 staging firmware silently discards unicast management
+	 * TX when SPE_RPT=1 (the CCX report infrastructure is broken
+	 * on this stepping).  Staging's issue_auth() / issue_assocrsp()
+	 * call dump_mgntframe_and_wait() without _ack, which leaves
+	 * SPE_RPT=0, and the AP responds correctly.  The host-side
+	 * fake ACK path in rtw_sdio_indicate_tx_status() already
+	 * reports TX status without depending on SPE_RPT/SN.
+	 */
+	if ((info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) &&
+	    !(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	      is_mgmt))
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
 	pkt_info->bmc = bmc;
