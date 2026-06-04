@@ -57,7 +57,7 @@ fi
 RESTORE_SERVICES=""
 REPO_ROOT=$(pwd -P)
 DIAGNOSE_SCRIPT="$REPO_ROOT/diagnose.sh"
-STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
+STAGING_SRC="$REPO_ROOT/rtl8723bs-vendor"
 STAGING_HOLD_DIR=""
 STAGING_HOLD_PATH="${REPO_ROOT%/*}/.${REPO_ROOT##*/}.staging-hold"
 DIAGNOSE_LOCK="${REPO_ROOT%/*}/.${REPO_ROOT##*/}.diagnose.lock"
@@ -154,7 +154,7 @@ recover_stale_staging_tree() {
 }
 
 preserve_staging_tree_for_clean() {
-    if [ ! -f "$STAGING_SRC/r8723bs.ko" ]; then
+    if [ ! -f "$STAGING_SRC/8723bs.ko" ]; then
         return
     fi
 
@@ -747,6 +747,11 @@ module_for_iface() {
     fi
 
     if [ "$driver" = "rtl8723bs" ]; then
+        candidate="8723bs"
+        if [ -d "/sys/module/$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
         candidate="r8723bs"
         if [ -d "/sys/module/$candidate" ]; then
             echo "$candidate"
@@ -874,7 +879,7 @@ run_channel6_listen() {
 staging_proc_dirs() {
     local dir
 
-    for dir in /proc/net/r8723bs /proc/net/rtl8723bs /proc/net/rtl8723b /proc/net/*8723*; do
+    for dir in /proc/net/r8723bs /proc/net/rtl8723bs /proc/net/rtl8723b /proc/net/8723bs /proc/net/*8723*; do
         if [ -d "$dir" ]; then
             echo "$dir"
         fi
@@ -890,13 +895,13 @@ dump_staging_proc_tree() {
 
     proc_dirs=$(staging_proc_dirs || true)
     {
-        echo "Staging interface: ${iface:-NOT_FOUND}"
-        echo "Staging netdev driver: $(driver_for_iface "$iface")"
-        echo "Staging netdev module: $(module_for_iface "$iface")"
+        echo "Vendor interface: ${iface:-NOT_FOUND}"
+        echo "Vendor netdev driver: $(driver_for_iface "$iface")"
+        echo "Vendor netdev module: $(module_for_iface "$iface")"
         echo ""
-        echo "Module directory /sys/module/r8723bs:"
-        if [ -d /sys/module/r8723bs ]; then
-            ls -la /sys/module/r8723bs
+        echo "Module directory /sys/module/8723bs:"
+        if [ -d /sys/module/8723bs ]; then
+            ls -la /sys/module/8723bs
         else
             echo "not found"
         fi
@@ -908,7 +913,7 @@ dump_staging_proc_tree() {
             echo "not found"
         fi
         echo ""
-        echo "Candidate staging /proc/net directories:"
+        echo "Candidate vendor /proc/net directories:"
         if [ -n "$proc_dirs" ]; then
             printf '%s\n' "$proc_dirs"
             while IFS= read -r dir; do
@@ -953,9 +958,9 @@ dump_staging_registers() {
         fi
 
         if [ "$found" -eq 0 ]; then
-            echo "Staging procfs registers not found"
-            echo "Note: staging module is r8723bs; SDIO driver name may be rtl8723bs."
-            echo "This staging tree appears not to expose /proc/net register dumps on this kernel."
+            echo "Vendor procfs registers not found"
+            echo "Note: vendor module is 8723bs; SDIO driver name may be rtl8723bs."
+            echo "This vendor tree may not expose /proc/net register dumps on this kernel."
         fi
     } > "$out" 2>&1
 }
@@ -970,6 +975,8 @@ PREBUILD_UNLOAD_LOG="$OUTDIR/test-00-prebuild-unload.txt"
     unload_rtw88_stack
     echo "+ modprobe -r r8723bs"
     modprobe -r r8723bs || true
+    echo "+ modprobe -r 8723bs"
+    modprobe -r 8723bs || true
 } > "$PREBUILD_UNLOAD_LOG" 2>&1
 sleep 1
 
@@ -1000,6 +1007,8 @@ clear_dmesg
     unload_rtw88_stack
     echo "+ modprobe -r r8723bs"
     modprobe -r r8723bs || true
+    echo "+ modprobe -r 8723bs"
+    modprobe -r 8723bs || true
 } >> "$OUTDIR/test-00-setup.log" 2>&1
 sleep 2
 
@@ -1145,7 +1154,7 @@ echo "[5/6] Dump all MAC registers..."
 # Test 6: Staging Driver Comparison
 # ============================================================================
 sleep 5
-echo "[6/6] Check staging driver..."
+echo "[6/6] Check vendor reference driver..."
 
 clear_dmesg
 
@@ -1157,34 +1166,33 @@ ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
 unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
-# 2. Build local staging driver with debug printks (skip if .ko exists)
+# 2. Build vendor reference driver (skip if .ko exists)
 STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
-STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
+STAGING_KO=$(find "$STAGING_SRC" -name "8723bs.ko" | head -1)
 
 if [ -n "$STAGING_KO" ]; then
-    echo "Staging driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
+    echo "Vendor driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
     echo "Run: make -C /lib/modules/\$(uname -r)/build M=$STAGING_SRC CONFIG_RTL8723BS=m clean" >> "$STAGING_BUILD_LOG"
-    echo "  to force a rebuild after editing staging source." >> "$STAGING_BUILD_LOG"
+    echo "  to force a rebuild after editing vendor source." >> "$STAGING_BUILD_LOG"
 else
     {
-        echo "+ make in staging tree"
+        echo "+ make in vendor tree"
         make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
     } > "$STAGING_BUILD_LOG" 2>&1 || {
-        echo "ERROR: staging build failed; see $STAGING_BUILD_LOG"
+        echo "ERROR: vendor build failed; see $STAGING_BUILD_LOG"
         exit 1
     }
-    STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
+    STAGING_KO=$(find "$STAGING_SRC" -name "8723bs.ko" | head -1)
 fi
 
 if [ -z "$STAGING_KO" ]; then
-    echo "ERROR: staging .ko not found" | tee -a "$OUTDIR/test-06-staging-load.txt"
+    echo "ERROR: vendor .ko not found" | tee -a "$OUTDIR/test-06-staging-load.txt"
     STAGING_IFACE=""
 else
-    # 3. Install locally built .ko so modprobe finds it (handles BT firmware deps)
+    # 3. Install locally built .ko so modprobe finds it
     MOD_EXTRA="/lib/modules/$RUNNING_KVER/extra"
     mkdir -p "$MOD_EXTRA"
-    # Symlink avoids copying every time; modprobe follows symlinks
-    STAGING_MOD_DEST="$MOD_EXTRA/r8723bs.ko"
+    STAGING_MOD_DEST="$MOD_EXTRA/8723bs.ko"
     ln -sf "$STAGING_KO" "$STAGING_MOD_DEST"
     depmod -a "$RUNNING_KVER"
 
@@ -1192,11 +1200,12 @@ else
     BEFORE_STAGING=$(list_managed_ifaces || true)
     BEFORE_STAGING_IW_DEV=$(iw dev 2>&1 || true)
     modprobe -r r8723bs 2>/dev/null || true
+    modprobe -r 8723bs 2>/dev/null || true
     sleep 1
     STAGING_LOAD_LOG="$OUTDIR/test-06-staging-load.txt"
-    echo "+ modprobe r8723bs (local build with debug printks)" >> "$STAGING_LOAD_LOG"
-    modprobe r8723bs >> "$STAGING_LOAD_LOG" 2>&1 || \
-        echo "Staging driver r8723bs failed to load" >> "$STAGING_LOAD_LOG"
+    echo "+ modprobe 8723bs (local vendor build with debug)" >> "$STAGING_LOAD_LOG"
+    modprobe 8723bs >> "$STAGING_LOAD_LOG" 2>&1 || \
+        echo "Vendor driver 8723bs failed to load" >> "$STAGING_LOAD_LOG"
 fi
 sleep 3
 
