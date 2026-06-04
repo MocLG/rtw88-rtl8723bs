@@ -991,6 +991,16 @@ static int __rtw_download_firmware_legacy(struct rtw_dev *rtwdev,
 
 	set_bit(RTW_FLAG_FW_RUNNING, rtwdev->flags);
 
+	/* Staging's rtl8723b_InitializeFirmwareVars() writes REG_HMETFR=0x0f
+	 * before firmware download, and the 8051 reset inside `en_download`
+	 * (which calls wlan_cpu_enable→reset) may clear this register.
+	 * Re-write after the FW is running to ensure all four HMEBOX
+	 * mailboxes stay enabled.  Without this the 8051 firmware on 8723BS
+	 * SDIO silently drops SDIO-submitted TX management frames.
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_write8(rtwdev, REG_HMETFR, 0x0f);
+
 out:
 	return ret;
 }

@@ -3637,6 +3637,19 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 	u16 checksum = 0;
 	int words = 32 / 2;
 
+	/*
+	 * Staging's rtl8723b_fill_default_txdesc() leaves W7 at 0 for all
+	 * frame tags (MGNT_FRAMETAG, EAP_FRAMETAG, ARP_FRAMETAG).  The v35
+	 * firmware on 8723B SDIO silently drops management frames whose W7
+	 * checksum field is non-zero (confirmed: staging_txdesc trace shows
+	 * every probe/auth/deauth/beacon descriptor has W7=0x00000000 while
+	 * rtw88's OR-sum produces a non-zero value even though every other
+	 * descriptor word matches staging byte-for-byte).  USB/PCIe variants
+	 * of this chip may require the checksum; only SDIO is changed here.
+	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		return;
+
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
 	while (words--)
