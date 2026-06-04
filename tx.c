@@ -296,6 +296,48 @@ void rtw_tx_report_handle(struct rtw_dev *rtwdev, struct sk_buff *skb, int src)
 	spin_unlock_irqrestore(&tx_report->q_lock, flags);
 }
 
+void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
+				u8 *payload, u8 len)
+{
+	struct rtw_tx_report *tx_report = &rtwdev->tx_report;
+	struct sk_buff *cur, *tmp;
+	unsigned long flags;
+	u8 sn;
+	u8 *n;
+
+	/* v41 firmware TX report payload (vendor format):
+	 *   byte 0: 0x00
+	 *   byte 1: retry_count
+	 *   byte 2: 0x00
+	 *   byte 3: 0x00
+	 *   byte 4: seq_no (from TX descriptor SW_DEFINE / SPE_RPT sn)
+	 */
+	if (len < 5)
+		return;
+
+	sn = payload[4];
+
+	rtw_dbg(rtwdev, RTW_DBG_TX,
+		"TX report c2h=0x%02x retry=%u sn=%u\n",
+		c2h_id, payload[1], sn);
+
+	spin_lock_irqsave(&tx_report->q_lock, flags);
+	skb_queue_walk_safe(&tx_report->queue, cur, tmp) {
+		n = (u8 *)IEEE80211_SKB_CB(cur)->status.status_driver_data;
+		if (*n == sn) {
+			__skb_unlink(cur, &tx_report->queue);
+			/* Report as ACKed: the frame was transmitted on air.
+			 * We don't distinguish success vs failure based on
+			 * retry count since the v41 firmware always reports
+			 * a retry count > 0 even on successful frames.
+			 */
+			rtw_tx_report_tx_status(rtwdev, cur, true);
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&tx_report->q_lock, flags);
+}
+
 static u8 rtw_get_mgmt_rate(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			    u8 lowest_rate, bool ignore_rate)
 {
@@ -497,12 +539,12 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
-		/* Staging's issue_auth() calls dump_mgntframe_and_wait()
-		 * (without _ack), which leaves SPE_RPT=0. The v35
-		 * staging firmware drops unicast management TX when
-		 * SPE_RPT=1 on this stepping.  rtw_tx_pkt_info_update()
-		 * skips rtw_tx_report_enable() for 8723BS SDIO mgmt
-		 * to keep W2 SPE_RPT=0 matching staging.
+		/* SPE_RPT=1 on all mgmt frames: the v41 firmware
+		 * (rtw88/rtw8723b_fw.bin, same as vendor v5.2.17 NIC)
+		 * handles SPE_RPT correctly and produces CCX TX reports
+		 * (C2H 0x32 for scan, 0x12 for auth/assoc/data).
+		 * rtw_tx_pkt_info_update() enables rtw_tx_report_enable()
+		 * unconditionally, so W2 SPE_RPT=1 is rendered.
 		 */
 		return;
 	}
@@ -636,19 +678,16 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	/* Skip TX-report enable for 8723BS SDIO management frames:
-	 * the v35 staging firmware silently discards unicast management
-	 * TX when SPE_RPT=1 (the CCX report infrastructure is broken
-	 * on this stepping).  Staging's issue_auth() / issue_assocrsp()
-	 * call dump_mgntframe_and_wait() without _ack, which leaves
-	 * SPE_RPT=0, and the AP responds correctly.  The host-side
-	 * fake ACK path in rtw_sdio_indicate_tx_status() already
-	 * reports TX status without depending on SPE_RPT/SN.
+	/* The v41 firmware (rtw88/rtw8723b_fw.bin) handles SPE_RPT=1
+	 * on ALL management frames correctly.  The vendor rtl8723bs
+	 * v5.2.17 driver with the same firmware transmits deauth, auth,
+	 * assoc, and probe requests all with SPE_RPT=1, and the firmware
+	 * produces CCX TX reports (C2H 0x32 for scan, 0x12 for
+	 * auth/assoc/data).  Enable TX reporting for all frames so
+	 * rtw_sdio_indicate_tx_status() can enqueue them for real
+	 * firmware ACK notification instead of the local fake ACK.
 	 */
-	if ((info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) &&
-	    !(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
-	      is_mgmt))
+	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
 	pkt_info->bmc = bmc;

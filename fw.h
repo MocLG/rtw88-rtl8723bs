@@ -57,12 +57,20 @@ enum rtw_c2h_cmd_id {
 	C2H_MEDIA_STATUS_RPT = 0x15,
 	C2H_HW_FEATURE_REPORT = 0x19,
 	C2H_WLAN_INFO = 0x27,
+	/* 8723B v41 firmware: TX report for auth/assoc/data (C2H ID 0x12).
+	 * Same C2H ID is C2H_VENDOR_TX_RPT below.
+	 */
 	C2H_WLAN_RFON = 0x32,
 	C2H_BCN_FILTER_NOTIFY = 0x36,
 	C2H_ADAPTIVITY = 0x37,
 	C2H_SCAN_RESULT = 0x38,
 	C2H_HW_FEATURE_DUMP = 0xfd,
 	C2H_HALMAC = 0xff,
+	/* 8723B v41 firmware TX report IDs (same values as other enums but
+	 * semantically different on this stepping).
+	 */
+	C2H_VENDOR_TX_RPT = 0x12,
+	C2H_VENDOR_SCAN_TX_RPT = 0x32,
 };
 
 enum rtw_c2h_cmd_id_ext {

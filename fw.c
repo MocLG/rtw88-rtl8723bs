@@ -341,6 +341,11 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 	case C2H_ADAPTIVITY:
 		rtw_fw_adaptivity_result(rtwdev, c2h->payload, len);
 		break;
+	case C2H_VENDOR_TX_RPT:
+	case C2H_VENDOR_SCAN_TX_RPT:
+		rtw_tx_report_handle_8723b(rtwdev, c2h->id, c2h->payload,
+					   len);
+		break;
 	case C2H_MEDIA_STATUS_RPT:
 		rtw_info(rtwdev, "C2H media status: 0x%02x\n",
 			 len > 0 ? c2h->payload[0] : 0);
@@ -373,6 +378,17 @@ void rtw_fw_c2h_cmd_rx_irqsafe(struct rtw_dev *rtwdev, u32 pkt_offset,
 		rtw_coex_info_response(rtwdev, skb);
 		break;
 	case C2H_WLAN_RFON:
+		/* On 8723B SDIO with v41 firmware, C2H 0x32 carries a
+		 * scan TX report, not a WLAN_RFON event.  Route it to
+		 * the deferred queue for rtw_fw_c2h_cmd_handle().
+		 */
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+			*((u32 *)skb->cb) = pkt_offset;
+			skb_queue_tail(&rtwdev->c2h_queue, skb);
+			ieee80211_queue_work(rtwdev->hw, &rtwdev->c2h_work);
+			break;
+		}
 		complete(&rtwdev->lps_leave_check);
 		dev_kfree_skb_any(skb);
 		break;

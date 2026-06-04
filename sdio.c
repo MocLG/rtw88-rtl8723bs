@@ -2012,7 +2012,7 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 
 	if (trace_mgmt)
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d fake_ack=%d tx_offset=%u skb_len=%u\n",
+			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d tx_report=%d tx_offset=%u skb_len=%u\n",
 			 rtw_sdio_mgmt_stype_name(frame_control),
 			 frame_control, tx_data->sn, tx_data->qsel,
 			 tx_data->rate,
@@ -2024,18 +2024,11 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 
 	/* enqueue to wait for tx report */
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) {
-		/* RTL8723BS firmware doesn't generate CCX TX reports via
-		 * SDIO interrupt or RX ring. Immediately report ACK to avoid
-		 * local TX-status timeouts. Do not synthesize AP MLME RX:
-		 * mac80211 must advance only after a real Auth/Assoc response
-		 * arrives from the AP.
+		/* The v41 firmware on 8723B SDIO produces CCX TX reports
+		 * (C2H 0x12 for auth/assoc/data, C2H 0x32 for scan probe)
+		 * when SPE_RPT=1.  Enqueue the frame so the C2H handler
+		 * can report real ACK/retry status via the tx_report queue.
 		 */
-		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
-			ieee80211_tx_info_clear_status(info);
-			info->flags |= IEEE80211_TX_STAT_ACK;
-			ieee80211_tx_status_irqsafe(hw, skb);
-			return;
-		}
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
 		return;
 	}
