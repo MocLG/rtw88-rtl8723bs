@@ -38,7 +38,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-for cmd in git make depmod modprobe insmod modinfo iw ip dmesg timeout tar ping awk grep readlink systemctl mktemp sha256sum uname; do
+for cmd in git make depmod modprobe insmod modinfo iw ip dmesg timeout tar ping awk grep readlink systemctl mktemp sha256sum uname flock; do
     if ! command -v "$cmd" >/dev/null 2>&1; then
         echo "ERROR: Required command not found: $cmd"
         exit 1
@@ -55,6 +55,12 @@ if [ -n "$AP_SSID" ]; then
 fi
 
 RESTORE_SERVICES=""
+REPO_ROOT=$(pwd -P)
+DIAGNOSE_SCRIPT="$REPO_ROOT/diagnose.sh"
+STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
+STAGING_HOLD_DIR=""
+STAGING_HOLD_PATH="${REPO_ROOT%/*}/.${REPO_ROOT##*/}.staging-hold"
+DIAGNOSE_LOCK="${REPO_ROOT%/*}/.${REPO_ROOT##*/}.diagnose.lock"
 
 restore_services() {
     local svc
@@ -70,7 +76,161 @@ restore_services() {
     done
 }
 
-trap restore_services EXIT
+restore_staging_tree() {
+    local hold_dir
+    local saved_tree
+
+    if [ -z "$STAGING_HOLD_DIR" ]; then
+        return
+    fi
+
+    hold_dir="$STAGING_HOLD_DIR"
+    saved_tree="$hold_dir/rtl8723bs-staging"
+    if [ -e "$STAGING_SRC" ] || [ -L "$STAGING_SRC" ]; then
+        if [ ! -e "$saved_tree" ]; then
+            if ! rmdir "$hold_dir" 2>/dev/null; then
+                echo "ERROR: Unexpected files in staging hold directory: $hold_dir" >&2
+                return 1
+            fi
+            STAGING_HOLD_DIR=""
+            return
+        fi
+        echo "ERROR: Cannot restore staging tree; destination exists: $STAGING_SRC" >&2
+        return 1
+    fi
+    if [ ! -d "$saved_tree" ]; then
+        echo "ERROR: Cannot restore staging tree; saved tree missing: $saved_tree" >&2
+        return 1
+    fi
+
+    echo "+ restore $STAGING_SRC"
+    if ! mv "$saved_tree" "$STAGING_SRC"; then
+        echo "ERROR: Failed to restore staging tree from $saved_tree" >&2
+        return 1
+    fi
+    if ! rmdir "$hold_dir"; then
+        echo "ERROR: Staging tree restored, but hold directory is not empty: $hold_dir" >&2
+        return 1
+    fi
+    STAGING_HOLD_DIR=""
+}
+
+recover_stale_staging_tree() {
+    local saved_tree="$STAGING_HOLD_PATH/rtl8723bs-staging"
+
+    if [ -L "$STAGING_HOLD_PATH" ]; then
+        echo "ERROR: Staging hold path must not be a symlink: $STAGING_HOLD_PATH" >&2
+        return 1
+    fi
+    if [ ! -e "$STAGING_HOLD_PATH" ]; then
+        return
+    fi
+    if [ ! -d "$STAGING_HOLD_PATH" ]; then
+        echo "ERROR: Staging hold path is not a directory: $STAGING_HOLD_PATH" >&2
+        return 1
+    fi
+    if { [ -e "$STAGING_SRC" ] || [ -L "$STAGING_SRC" ]; } &&
+       [ ! -e "$saved_tree" ]; then
+        rmdir "$STAGING_HOLD_PATH" 2>/dev/null || {
+            echo "ERROR: Unexpected files in staging hold directory: $STAGING_HOLD_PATH" >&2
+            return 1
+        }
+        return
+    fi
+    if [ -e "$STAGING_SRC" ] || [ -L "$STAGING_SRC" ]; then
+        echo "ERROR: Both staging source and saved staging tree exist; refusing to overwrite either:" >&2
+        echo "  $STAGING_SRC" >&2
+        echo "  $saved_tree" >&2
+        return 1
+    fi
+    if [ ! -d "$saved_tree" ]; then
+        echo "ERROR: Saved staging tree missing from hold directory: $saved_tree" >&2
+        return 1
+    fi
+
+    echo "Recovering staging tree left by an interrupted diagnostic run..."
+    STAGING_HOLD_DIR="$STAGING_HOLD_PATH"
+    restore_staging_tree
+}
+
+preserve_staging_tree_for_clean() {
+    if [ ! -f "$STAGING_SRC/r8723bs.ko" ]; then
+        return
+    fi
+
+    if [ -e "$STAGING_HOLD_PATH" ] || [ -L "$STAGING_HOLD_PATH" ]; then
+        echo "ERROR: Staging hold path already exists: $STAGING_HOLD_PATH" >&2
+        return 1
+    fi
+    if ! mkdir "$STAGING_HOLD_PATH"; then
+        echo "ERROR: Failed to create staging hold directory: $STAGING_HOLD_PATH" >&2
+        return 1
+    fi
+
+    STAGING_HOLD_DIR="$STAGING_HOLD_PATH"
+    echo "+ preserve $STAGING_SRC at $STAGING_HOLD_DIR"
+    if ! mv "$STAGING_SRC" "$STAGING_HOLD_DIR/"; then
+        echo "ERROR: Failed to preserve staging tree before clean" >&2
+        rmdir "$STAGING_HOLD_DIR" || true
+        STAGING_HOLD_DIR=""
+        return 1
+    fi
+}
+
+build_and_install_rtw88() {
+    local rc
+
+    preserve_staging_tree_for_clean || return 1
+
+    echo "+ make clean"
+    make clean || {
+        rc=$?
+        echo "ERROR: make clean failed"
+        restore_staging_tree || true
+        return "$rc"
+    }
+    restore_staging_tree || return 1
+
+    echo "+ make KVER=$RUNNING_KVER"
+    make -j"$(nproc)" KVER="$RUNNING_KVER" || return 1
+    echo "+ make install KVER=$RUNNING_KVER"
+    make install KVER="$RUNNING_KVER" || return 1
+    echo "+ depmod -a $RUNNING_KVER"
+    depmod -a "$RUNNING_KVER" || return 1
+}
+
+cleanup() {
+    restore_staging_tree || true
+    restore_services
+}
+
+run_under_diagnose_lock() {
+    local rc
+
+    if [ "${RTW88_DIAGNOSE_LOCKED_FOR:-}" = "$DIAGNOSE_LOCK" ]; then
+        return
+    fi
+    if [ -L "$DIAGNOSE_LOCK" ]; then
+        echo "ERROR: Diagnostic lock must not be a symlink: $DIAGNOSE_LOCK"
+        return 1
+    fi
+
+    export RTW88_DIAGNOSE_LOCKED_FOR="$DIAGNOSE_LOCK"
+    if flock -n -o -E 75 "$DIAGNOSE_LOCK" /bin/bash "$DIAGNOSE_SCRIPT" "$@"; then
+        exit 0
+    fi
+
+    rc=$?
+    if [ "$rc" -eq 75 ]; then
+        echo "ERROR: Another diagnose.sh run is already active for $REPO_ROOT"
+    fi
+    exit "$rc"
+}
+
+trap cleanup EXIT
+
+run_under_diagnose_lock "$@" || exit 1
+recover_stale_staging_tree || exit 1
 
 for svc in NetworkManager wpa_supplicant iwd; do
     if systemctl list-unit-files "${svc}.service" >/dev/null 2>&1 && systemctl is-active --quiet "$svc"; then
@@ -89,7 +249,6 @@ RTW88_BUILD_MODULES="rtw_core rtw_8723x rtw_8723b rtw_sdio rtw_8723bs"
 RTW88_UNLOAD_MODULES="rtw_8723bs rtw_sdio rtw_8723b rtw_8723x rtw_core"
 
 OUTDIR="logs-rtw88-$GIT_HASH"
-REPO_ROOT="$PWD"
 TARFILE="diagnostic-$GIT_HASH.tar.gz"
 rm -f "$TARFILE"
 if [ -e "$OUTDIR" ]; then
@@ -815,19 +974,10 @@ PREBUILD_UNLOAD_LOG="$OUTDIR/test-00-prebuild-unload.txt"
 sleep 1
 
 echo "Building and installing current driver modules..."
-{
-    echo "+ make clean"
-    make clean
-    echo "+ make KVER=$RUNNING_KVER"
-    make -j"$(nproc)" KVER="$RUNNING_KVER"
-    echo "+ make install KVER=$RUNNING_KVER"
-    make install KVER="$RUNNING_KVER"
-    echo "+ depmod -a $RUNNING_KVER"
-    depmod -a "$RUNNING_KVER"
-} > "$OUTDIR/test-00-build-install.log" 2>&1 || {
+if ! build_and_install_rtw88 > "$OUTDIR/test-00-build-install.log" 2>&1; then
     echo "ERROR: build/install failed; see $OUTDIR/test-00-build-install.log"
     exit 1
-}
+fi
 
 : > "$OUTDIR/test-00-module-provenance.txt"
 dump_module_provenance "$OUTDIR/test-00-module-provenance.txt" "after build/install"
@@ -994,6 +1144,7 @@ echo "[5/6] Dump all MAC registers..."
 # ============================================================================
 # Test 6: Staging Driver Comparison
 # ============================================================================
+sleep 5
 echo "[6/6] Check staging driver..."
 
 clear_dmesg
@@ -1007,7 +1158,6 @@ unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
 # 2. Build local staging driver with debug printks (skip if .ko exists)
-STAGING_SRC="$REPO_ROOT/rtl8723bs-staging"
 STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
 STAGING_KO=$(find "$STAGING_SRC" -name "r8723bs.ko" | head -1)
 
