@@ -1056,6 +1056,20 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 				rtw8723bs_apply_bss_cap(rtwdev, vif, NULL,
 							"assoc");
 				rtw8723bs_enable_tsf_update(rtwdev, "assoc");
+				/*
+				 * Vendor rtl8723bs v5.2.17 driver's
+				 * mlmeext_joinbss_event_callback sends
+				 * MACID_CFG (0x40) BEFORE MEDIA_STATUS_RPT
+				 * (0x01) when a station joins.  The v41
+				 * firmware initialises per-mac-id TX state
+				 * from the MACID_CFG rate mask before the
+				 * media status activates the mac_id.
+				 * Sending MACID_CFG after assoc, followed
+				 * by MEDIA_STATUS_RPT, matches the vendor
+				 * exactly.
+				 */
+				rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id,
+						 6, 0, 0, 0x0ff5);
 				if (!rtwvif->fw_media_connected) {
 					rtw_info(rtwdev,
 						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
