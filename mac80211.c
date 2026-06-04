@@ -475,36 +475,8 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
-	/* Staging's start_clnt_join() sends H2Cs in this exact order:
-	 *   1. H2C 0x40 (MACID_CFG)       — per-mac-id rate mask config
-	 *   2. H2C 0x01 (MEDIA_STATUS_RPT) — tells 8051 firmware mac_id 0
-	 *      is entering connected state, enabling the TX path for mgmt
-	 *   3. H2C 0x00 (RSVD_PAGE loc)   — reserved page memory locations
-	 *   4. H2C 0x66 (WL_CH_INFO)      — channel/BW for coex/WLAN
-	 *
-	 * The firmware initialises internal TX state from MACID_CFG first,
-	 * then activates the mac_id on MEDIA_STATUS_RPT.  Reversing the order
-	 * (MEDIA_STATUS_RPT first, as done prior to this commit) leaves the
-	 * firmware with an unconfigured mac_id when it tries to transmit,
-	 * causing management frames to be silently dropped even though the
-	 * SDIO TX FIFO drains (logs-rtw88-87c7996d).
-	 *
-	 * RSVD_PAGE loc and WL_CH_INFO provide the remaining firmware state
-	 * that staging supplies before auth/deauth/probe TX can reach air.
-	 */
-	rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
-
-	rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
-	rtwvif->fw_media_connected = true;
-
-	rtw_fw_send_rsvd_page_loc(rtwdev);
-
-	if (rtwdev->hal.current_channel)
-		rtw_fw_send_wl_ch_info(rtwdev, rtwdev->hal.current_channel,
-				       rtwdev->hal.current_band_width);
-
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u media_status=connect MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
 		 bssid, fresh_join, old_net_type, rtwvif->net_type,
 		 msr_before, rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
@@ -655,9 +627,32 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 	if (rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid)) {
 		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
 		bool beacon_seen;
+		struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
 
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
+
+		/* Send per-MAC H2Cs AFTER deauth, matching staging's
+		 * start_clnt_join() order: deauth/auth TX first, then
+		 * MACID_CFG → MEDIA_STATUS_RPT → WL_CH_INFO.
+		 *
+		 * RSVD_PAGE loc H2C (0x00) is NOT sent here because staging
+		 * uploads a beacon template to the BCN queue before it,
+		 * ensuring valid page content exists at the specified
+		 * locations.  Without prior beacon-template upload the
+		 * firmware may find empty page content and enter a state
+		 * that blocks all management TX (logs-rtw88-34c5742f).
+		 * The RSVD_PAGE loc is sent later in the post-assoc path
+		 * (rtw_vif_assoc_changed) after actual page content has
+		 * been downloaded.
+		 */
+		rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
+		rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
+		rtwvif->fw_media_connected = true;
+		if (rtwdev->hal.current_channel)
+			rtw_fw_send_wl_ch_info(rtwdev,
+					       rtwdev->hal.current_channel,
+					       rtwdev->hal.current_band_width);
 
 		/* Staging waits for the target beacon before issuing auth.
 		 * Wait until RX confirms a beacon/probe response from the target
@@ -672,6 +667,17 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
 			 bssid, beacon_seen, wait_ms);
 	} else {
+		/* Retry (same BSSID): still re-send H2Cs so firmware has
+		 * fresh per-MAC config for the retry attempt.
+		 */
+		struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
+
+		rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
+		rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
+		if (rtwdev->hal.current_channel)
+			rtw_fw_send_wl_ch_info(rtwdev,
+					       rtwdev->hal.current_channel,
+					       rtwdev->hal.current_band_width);
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join\n",
 			 bssid);
