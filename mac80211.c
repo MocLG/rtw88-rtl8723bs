@@ -13,6 +13,7 @@
 #include "bf.h"
 #include "debug.h"
 #include "wow.h"
+#include <net/cfg80211.h>
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
 #include "sar.h"
 #endif
@@ -591,6 +592,83 @@ static void rtw_ops_tx(struct ieee80211_hw *hw,
 }
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
+
+static void rtw8723bs_upload_beacon_template(struct rtw_dev *rtwdev,
+					     struct ieee80211_vif *vif,
+					     const u8 *bssid)
+{
+	struct cfg80211_bss *bss;
+	const struct cfg80211_bss_ies *ies;
+	struct ieee80211_mgmt *mgmt;
+	struct sk_buff *skb;
+	unsigned int frame_len, ie_len;
+	u16 cap_info;
+	u16 beacon_interval;
+	int ret;
+
+	bss = cfg80211_get_bss(rtwdev->hw->wiphy, NULL, bssid, NULL, 0,
+			       IEEE80211_BSS_TYPE_ANY, IEEE80211_PRIVACY_ANY);
+	if (!bss) {
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: beacon_tmpl skip no_scan_bss bssid=%pM\n",
+			 bssid);
+		return;
+	}
+
+	rcu_read_lock();
+	cap_info = bss->capability;
+	beacon_interval = bss->beacon_interval ?: 100;
+	ies = rcu_dereference(bss->ies);
+	ie_len = ies ? ies->len : 0;
+
+	if (!ies || ie_len == 0) {
+		rcu_read_unlock();
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: beacon_tmpl skip no_ies bssid=%pM\n",
+			 bssid);
+		cfg80211_put_bss(rtwdev->hw->wiphy, bss);
+		return;
+	}
+
+	frame_len = offsetof(struct ieee80211_mgmt, u.beacon.variable) +
+		    ie_len;
+	skb = dev_alloc_skb(frame_len);
+	if (!skb) {
+		rcu_read_unlock();
+		cfg80211_put_bss(rtwdev->hw->wiphy, bss);
+		return;
+	}
+
+	mgmt = skb_put_zero(skb, frame_len);
+	mgmt->frame_control = cpu_to_le16(IEEE80211_FTYPE_MGMT |
+					  IEEE80211_STYPE_BEACON);
+	mgmt->duration = 0;
+	memset(mgmt->da, 0xff, ETH_ALEN);
+	memcpy(mgmt->sa, vif->addr, ETH_ALEN);
+	memcpy(mgmt->bssid, bssid, ETH_ALEN);
+	mgmt->seq_ctrl = 0;
+	mgmt->u.beacon.beacon_int = cpu_to_le16(beacon_interval);
+	mgmt->u.beacon.capab_info = cpu_to_le16(cap_info);
+	memcpy(mgmt->u.beacon.variable, ies->data, ie_len);
+	rcu_read_unlock();
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: beacon_tmpl built bssid=%pM len=%u cap=0x%04x bcn_int=%u ie_len=%u\n",
+		 bssid, frame_len, cap_info, beacon_interval, ie_len);
+
+	cfg80211_put_bss(rtwdev->hw->wiphy, bss);
+
+	ret = rtw_hci_write_data_rsvd_page(rtwdev, skb->data, skb->len);
+	dev_kfree_skb(skb);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: beacon_tmpl upload bssid=%pM ret=%d\n",
+		 bssid, ret);
+
+	if (ret == 0)
+		rtw_fw_send_rsvd_page_loc(rtwdev);
+}
+
 static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 					    struct ieee80211_vif *vif,
 					    struct ieee80211_prep_tx_info *info)
@@ -632,23 +710,27 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 
-		/* Send per-MAC H2Cs AFTER deauth, matching staging's
-		 * start_clnt_join() order: deauth/auth TX first, then
-		 * MACID_CFG → MEDIA_STATUS_RPT → WL_CH_INFO.
+		/* Staging's start_clnt_join() order:
+		 *   1. deauth SDIO TX
+		 *   2. H2C 0x40 (MACID_CFG)
+		 *   3. H2C 0x01 (MEDIA_STATUS_RPT)
+		 *   4. Beacon template SDIO upload to BCN queue
+		 *   5. H2C 0x00 (RSVD_PAGE loc) — AFTER valid page content exists
+		 *   6. H2C 0x66 (WL_CH_INFO)
 		 *
-		 * RSVD_PAGE loc H2C (0x00) is NOT sent here because staging
-		 * uploads a beacon template to the BCN queue before it,
-		 * ensuring valid page content exists at the specified
-		 * locations.  Without prior beacon-template upload the
-		 * firmware may find empty page content and enter a state
-		 * that blocks all management TX (logs-rtw88-34c5742f).
-		 * The RSVD_PAGE loc is sent later in the post-assoc path
-		 * (rtw_vif_assoc_changed) after actual page content has
-		 * been downloaded.
+		 * The beacon template upload tells the v35 firmware where
+		 * reserved pages live and provides a valid beacon frame at
+		 * page 0 for TSF/timing reference.  Without this the firmware
+		 * may read empty BCN-queue pages and silently drop all
+		 * management TX (logs-rtw88-34c5742f).
 		 */
 		rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
 		rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
 		rtwvif->fw_media_connected = true;
+
+		/* Upload beacon template to BCN queue before RSVD_PAGE loc */
+		rtw8723bs_upload_beacon_template(rtwdev, vif, bssid);
+
 		if (rtwdev->hal.current_channel)
 			rtw_fw_send_wl_ch_info(rtwdev,
 					       rtwdev->hal.current_channel,
@@ -667,13 +749,14 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
 			 bssid, beacon_seen, wait_ms);
 	} else {
-		/* Retry (same BSSID): still re-send H2Cs so firmware has
-		 * fresh per-MAC config for the retry attempt.
+		/* Retry (same BSSID): re-send H2Cs and beacon template so
+		 * firmware has fresh per-MAC config for the retry attempt.
 		 */
 		struct rtw_vif *rtwvif = (struct rtw_vif *)vif->drv_priv;
 
 		rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id, 6, 0, 0, 0x0ff5);
 		rtw_fw_media_status_report(rtwdev, rtwvif->mac_id, true);
+		rtw8723bs_upload_beacon_template(rtwdev, vif, bssid);
 		if (rtwdev->hal.current_channel)
 			rtw_fw_send_wl_ch_info(rtwdev,
 					       rtwdev->hal.current_channel,
