@@ -1336,6 +1336,18 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 		value32 = rtw_read32(rtwdev, REG_PAD_CTRL1);
 		value32 |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
 		rtw_write32(rtwdev, REG_PAD_CTRL1, value32);
+
+		/*
+		 * Vendor rtl8723bs v5.2.17 driver sets BIT(12) of
+		 * REG_FWHW_TXQ_CTRL under CONFIG_XMIT_ACK to enable
+		 * management-frame TX ACK reporting via the C2H path.
+		 * The v41 firmware expects this bit to be set for
+		 * CCX TX report delivery; without it the firmware may
+		 * suppress management TX report generation entirely.
+		 */
+		value32 = rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL);
+		value32 |= BIT(12);
+		rtw_write32(rtwdev, REG_FWHW_TXQ_CTRL, value32);
 	}
 
 	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
@@ -3630,30 +3642,29 @@ static void rtw8723b_cfg_ldo25(struct rtw_dev *rtwdev, bool enable)
 }
 
 static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
-										 struct rtw_tx_pkt_info *pkt_info,
-										 struct rtw_tx_desc *txdesc)
+					 struct rtw_tx_pkt_info *pkt_info,
+					 struct rtw_tx_desc *txdesc)
 {
 	__le16 *data = (__le16 *)txdesc;
 	u16 checksum = 0;
 	int words = 32 / 2;
 
 	/*
-	 * Staging's rtl8723b_fill_default_txdesc() leaves W7 at 0 for all
-	 * frame tags (MGNT_FRAMETAG, EAP_FRAMETAG, ARP_FRAMETAG).  The v35
-	 * firmware on 8723B SDIO silently drops management frames whose W7
-	 * checksum field is non-zero (confirmed: staging_txdesc trace shows
-	 * every probe/auth/deauth/beacon descriptor has W7=0x00000000 while
-	 * rtw88's OR-sum produces a non-zero value even though every other
-	 * descriptor word matches staging byte-for-byte).  USB/PCIe variants
-	 * of this chip may require the checksum; only SDIO is changed here.
+	 * The vendor rtl8723bs v5.2.17 driver (which uses the same v41
+	 * firmware binary as our rtw88 port now loads) computes an XOR
+	 * checksum over the first 16 half-words (32 bytes) of the TX
+	 * descriptor for ALL HCI types including SDIO.  This matches
+	 * what fill_txdesc_checksum_common() does for 8822B/8821C etc.
+	 *
+	 * The staging v35 firmware left W7 at 0, but the v41 firmware
+	 * expects the XOR checksum to be present.  Not providing it
+	 * causes the firmware to silently drop management TX frames
+	 * even though the SDIO FIFO drains and C2H events flow.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		return;
-
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
 	while (words--)
-		checksum |= le16_to_cpu(*data++);
+		checksum ^= le16_to_cpu(*data++);
 
 	le32p_replace_bits(&txdesc->w7, checksum,
 			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
