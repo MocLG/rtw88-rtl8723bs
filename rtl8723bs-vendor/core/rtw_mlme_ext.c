@@ -7379,11 +7379,9 @@ s32 dump_mgntframe_and_wait(_adapter *padapter, struct xmit_frame *pmgntframe, i
 
 	rtw_sctx_init(&sctx, timeout_ms);
 
-	if (pmgntframe->attrib.ether_type != 0x0800)
-		pr_err("vendor_tx: dump_mgntframe_and_wait fc=0x%04x len=%u ack_report=%d\n",
-			pmgntframe->attrib.ether_type,
-			pmgntframe->attrib.last_txcmdsz,
-			pmgntframe->ack_report);
+	pr_err("vendor_tx: dump_mgntframe_and_wait len=%u ack_report=%d\n",
+		pmgntframe->attrib.last_txcmdsz,
+		pmgntframe->ack_report);
 	pxmitbuf->sctx = &sctx;
 
 	ret = rtw_hal_mgnt_xmit(padapter, pmgntframe);
