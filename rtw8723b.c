@@ -3653,24 +3653,20 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 	 * The vendor rtl8723bs v5.2.17 driver (which uses the same v41
 	 * firmware binary) leaves W7 at 0 for management frames on SDIO.
 	 * The vendor_txdesc trace from logs-rtw88-f81de652 confirms every
-	 * probe/auth/deauth descriptor has W7=0x00000000.  The v41
+	 * probe/auth/deauth descriptor has W7=0x00000000 even though the
+	 * vendor source code calls rtl8723b_cal_txdesc_chksum(). The v41
 	 * firmware on this stepping silently drops frames with non-zero
-	 * W7.  USB/PCIe variants may require the checksum.
+	 * W7. USB/PCIe variants may require the checksum.
 	 *
-	 * Also, the 8723B TX descriptor W1 layout differs from rtw88's
-	 * W1 layout: the v41 firmware interprets W1 bits 0-7 as TX_RATE
-	 * (matching the vendor's SET_TX_DESC_TX_RATE_8723B).  rtw88
-	 * places MACID in those bits via RTW_TX_DESC_W1_MACID.  For
-	 * management frames MACID=0, which the v41 firmware reads as
-	 * rate=0 and silently drops.  Override W1[0:7] with the rate
-	 * value for SDIO to match the vendor's descriptor layout.
+	 * TX_RATE is at W4 bits 0-7 in both vendor and rtw88 layouts
+	 * (DESC_RATE1M=0x00 matches MRateToHwRate(CCK_1M)=0x00).
+	 * RATE_ID is at W1 bits 16-20 in both layouts
+	 * (RATEID_IDX_B=8 matches RTW_RATEID_B_20M=8).
+	 * No descriptor-layout override is needed — rtw88 matches the
+	 * vendor byte-for-byte for all rate fields.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-		u32 w1 = le32_to_cpu(txdesc->w1);
-		w1 = (w1 & ~0xff) | (pkt_info->rate & 0x7f);
-		txdesc->w1 = cpu_to_le32(w1);
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
 		return;
-	}
 
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 

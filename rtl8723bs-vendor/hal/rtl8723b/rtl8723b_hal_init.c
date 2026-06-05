@@ -4284,8 +4284,8 @@ static void rtl8723b_fill_default_txdesc(
 		u32 *desc = (u32 *)pbuf;
 		__le16 fc_le = *(__le16 *)(pbuf + TXDESC_SIZE);
 		u16 fc = le16_to_cpu(fc_le);
-		u8 w0_rate = (u8)(le32_to_cpu(desc[1]) & 0x7f);
-		u8 w0_rate_id = (u8)((le32_to_cpu(desc[1]) >> 8) & 0xf);
+		u8 w0_rate = (u8)(le32_to_cpu(desc[4]) & 0x7f);
+		u8 w0_rate_id = (u8)((le32_to_cpu(desc[1]) >> 16) & 0x1f);
 		u32 w4 = le32_to_cpu(desc[4]);
 		u8 w0_hwseq = (le32_to_cpu(desc[8]) & BIT(15)) ? 1 : 0;
 		u8 w0_bmc = (le32_to_cpu(desc[0]) & BIT(24)) ? 1 : 0;

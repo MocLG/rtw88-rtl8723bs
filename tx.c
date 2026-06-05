@@ -437,18 +437,11 @@ static void rtw_tx_8723bs_sdio_rate(struct rtw_dev *rtwdev,
 		has_cck = true;
 
 	if (has_cck) {
-		/*
-		 * Vendor rtl8723bs v5.2.17 uses MRateToHwRate() for
-		 * the TX-descriptor rate field, which maps CCK 1M to 0x01
-		 * (not DESCRC_RATE1M=0x00 as rtw88 does).  The rate_id
-		 * field uses RATEID_IDX_B=2 (not RTW_RATEID_B_20M=8).
-		 * The v41 firmware expects the vendor encoding.
-		 */
-		pkt_info->rate_id = 2;		/* RATEID_IDX_B */
-		pkt_info->rate = 1;		/* MRateToHwRate(CCK_1M) */
+		pkt_info->rate_id = RTW_RATEID_B_20M;
+		pkt_info->rate = DESC_RATE1M;
 	} else {
-		pkt_info->rate_id = 4;		/* RATEID_IDX_G */
-		pkt_info->rate = 4;		/* MRateToHwRate(OFDM_6M) == DESC_RATE6M */
+		pkt_info->rate_id = RTW_RATEID_G;
+		pkt_info->rate = DESC_RATE6M;
 	}
 }
 
