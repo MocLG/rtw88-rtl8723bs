@@ -2143,6 +2143,9 @@ void rtw_sta_media_status_rpt(_adapter *adapter, struct sta_info *sta, bool conn
 	bool miracast_sink = 0;
 	u8 role = H2C_MSR_ROLE_RSVD;
 
+	pr_err("vendor_media: rtw_sta_media_status_rpt mac_id=%u connected=%d\n",
+		sta ? sta->cmn.mac_id : 0xff, connected);
+
 	if (sta == NULL) {
 		RTW_PRINT(FUNC_ADPT_FMT" sta is NULL\n"
 			  , FUNC_ADPT_ARG(adapter));

@@ -66,6 +66,16 @@ s32 FillH2CCmd8723B(PADAPTER padapter, u8 ElementID, u32 CmdLen, u8 *pCmdBuffer)
 	struct dvobj_priv *psdpriv = padapter->dvobj;
 	struct debug_priv *pdbgpriv = &psdpriv->drv_dbg;
 
+	{
+		int _i;
+		char _hex[CmdLen * 3 + 1];
+		int _pos = 0;
+		for (_i = 0; _i < (int)CmdLen && _i < 8; _i++)
+			_pos += sprintf(_hex + _pos, "%02x ", pCmdBuffer[_i]);
+		pr_err("vendor_h2c: id=0x%02x len=%u payload=%s\n",
+			ElementID, CmdLen, _hex);
+	}
+
 	padapter = GET_PRIMARY_ADAPTER(padapter);
 	pHalData = GET_HAL_DATA(padapter);
 #ifdef DBG_CHECK_FW_PS_STATE
@@ -911,6 +921,8 @@ static void SetFwRsvdPagePkt_BTCoex(PADAPTER padapter)
 	u16	BufIndex, PageSize;
 	u32	TotalPacketLen, MaxRsvdPageBufSize = 0;
 	RSVDPAGE_LOC RsvdPageLoc;
+
+	pr_err("vendor_rsvd: SetFwRsvdPagePkt_BTCoex entry\n");
 
 
 	/*	RTW_INFO("+" FUNC_ADPT_FMT "\n", FUNC_ADPT_ARG(padapter)); */

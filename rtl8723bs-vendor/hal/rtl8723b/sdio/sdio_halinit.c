@@ -1121,6 +1121,31 @@ static u32 rtl8723bs_hal_init(PADAPTER padapter)
 	rtw_btcoex_HAL_Initialize(padapter, _TRUE);
 #endif
 
+	{
+		u32 _sys = rtw_read32(padapter, 0x00);
+		u32 _cr  = rtw_read32(padapter, REG_CR);
+		u8  _bcn = rtw_read8(padapter, REG_BCN_CTRL);
+		u32 _rcr = rtw_read32(padapter, REG_RCR);
+		u32 _rrsr = rtw_read32(padapter, REG_RRSR);
+		u32 _sifs = rtw_read32(padapter, 0x63C);
+		u32 _rqf0 = rtw_read32(padapter, REG_RXFLTMAP0);
+		u16 _rqf2 = rtw_read16(padapter, REG_RXFLTMAP2);
+		u16 _sec  = rtw_read16(padapter, REG_SECCFG);
+		u32 _rqpn = rtw_read32(padapter, REG_RQPN);
+		u32 _fwtq = rtw_read32(padapter, REG_FWHW_TXQ_CTRL);
+		u16 _retry = rtw_read16(padapter, REG_RETRY_LIMIT);
+		u8  _slot = rtw_read8(padapter, REG_SLOT);
+		u8  _txpause = rtw_read8(padapter, REG_TXPAUSE);
+		u32 _pad1 = rtw_read32(padapter, REG_PAD_CTRL1);
+		u32 _bb_sel = rtw_read32(padapter, 0x948);
+		u8  _rfctrl = rtw_read8(padapter, REG_RF_CTRL);
+		u8  _early = rtw_read8(padapter, REG_EARLY_MODE_CONTROL);
+
+		pr_err("vendor_regs: hal_init_done SYS=0x%04x CR=0x%08x BCN=0x%02x RCR=0x%08x RRSR=0x%08x SIFS=0x%08x RXFLT=0x%04x/0x%04x SEC=0x%04x RQPN=0x%08x FWTQ=0x%08x RETRY=0x%04x SLOT=0x%02x TXPAUS=0x%02x PAD1=0x%08x BB_SEL=0x%08x RFCTRL=0x%02x EARLY=0x%04x\n",
+			_sys, _cr, _bcn, _rcr, _rrsr, _sifs, _rqf0, _rqf2,
+			_sec, _rqpn, _fwtq, _retry, _slot, _txpause, _pad1,
+			_bb_sel, _rfctrl, _early);
+	}
 
 	return _SUCCESS;
 }

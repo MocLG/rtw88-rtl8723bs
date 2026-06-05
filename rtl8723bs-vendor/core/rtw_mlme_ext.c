@@ -7378,6 +7378,12 @@ s32 dump_mgntframe_and_wait(_adapter *padapter, struct xmit_frame *pmgntframe, i
 	}
 
 	rtw_sctx_init(&sctx, timeout_ms);
+
+	if (pmgntframe->attrib.ether_type != 0x0800)
+		pr_err("vendor_tx: dump_mgntframe_and_wait fc=0x%04x len=%u ack_report=%d\n",
+			pmgntframe->attrib.ether_type,
+			pmgntframe->attrib.last_txcmdsz,
+			pmgntframe->ack_report);
 	pxmitbuf->sctx = &sctx;
 
 	ret = rtw_hal_mgnt_xmit(padapter, pmgntframe);
@@ -10855,6 +10861,9 @@ void start_clnt_join(_adapter *padapter)
 	int beacon_timeout;
 	u8 ASIX_ID[] = {0x00, 0x0E, 0xC6};
 
+	pr_err("vendor_mlme: start_clnt_join entry bssid=%pM channel=%u\n",
+		pmlmeinfo->network.MacAddress, pmlmeext->cur_channel);
+
 	/* update wireless mode */
 	update_wireless_mode(padapter);
 
@@ -11956,6 +11965,9 @@ void mlmeext_joinbss_event_callback(_adapter *padapter, int join_res)
 	struct mlme_priv	*pmlmepriv = &padapter->mlmepriv;
 #endif
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
+
+	pr_err("vendor_mlme: mlmeext_joinbss_event_callback entry join_res=%d bssid=%pM\n",
+		join_res, cur_network->MacAddress);
 
 	if (join_res < 0) {
 		join_type = 1;
