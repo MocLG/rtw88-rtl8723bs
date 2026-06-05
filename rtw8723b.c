@@ -3651,16 +3651,27 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 
 	/*
 	 * The vendor rtl8723bs v5.2.17 driver (which uses the same v41
-	 * firmware binary as our rtw88 port now loads) computes an XOR
-	 * checksum over the first 16 half-words (32 bytes) of the TX
-	 * descriptor for ALL HCI types including SDIO.  This matches
-	 * what fill_txdesc_checksum_common() does for 8822B/8821C etc.
+	 * firmware binary) leaves W7 at 0 for management frames on SDIO.
+	 * The vendor_txdesc trace from logs-rtw88-f81de652 confirms every
+	 * probe/auth/deauth descriptor has W7=0x00000000.  The v41
+	 * firmware on this stepping silently drops frames with non-zero
+	 * W7.  USB/PCIe variants may require the checksum.
 	 *
-	 * The staging v35 firmware left W7 at 0, but the v41 firmware
-	 * expects the XOR checksum to be present.  Not providing it
-	 * causes the firmware to silently drop management TX frames
-	 * even though the SDIO FIFO drains and C2H events flow.
+	 * Also, the 8723B TX descriptor W1 layout differs from rtw88's
+	 * W1 layout: the v41 firmware interprets W1 bits 0-7 as TX_RATE
+	 * (matching the vendor's SET_TX_DESC_TX_RATE_8723B).  rtw88
+	 * places MACID in those bits via RTW_TX_DESC_W1_MACID.  For
+	 * management frames MACID=0, which the v41 firmware reads as
+	 * rate=0 and silently drops.  Override W1[0:7] with the rate
+	 * value for SDIO to match the vendor's descriptor layout.
 	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		u32 w1 = le32_to_cpu(txdesc->w1);
+		w1 = (w1 & ~0xff) | (pkt_info->rate & 0x7f);
+		txdesc->w1 = cpu_to_le32(w1);
+		return;
+	}
+
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
 	while (words--)
