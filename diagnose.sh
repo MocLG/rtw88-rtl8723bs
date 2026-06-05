@@ -1172,7 +1172,7 @@ STAGING_KO=$(find "$STAGING_SRC" -name "8723bs.ko" | head -1)
 
 if [ -n "$STAGING_KO" ]; then
     echo "Vendor driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
-    echo "Run: make -C /lib/modules/\$(uname -r)/build M=$STAGING_SRC CONFIG_RTL8723BS=m clean" >> "$STAGING_BUILD_LOG"
+    echo "Run: make -C /usr/src/linux-headers-7.0.11-zabbly+ M=\$(pwd)/rtl8723bs-vendor CONFIG_RTL8723BS=m clean" >> "$STAGING_BUILD_LOG"
     echo "  to force a rebuild after editing vendor source." >> "$STAGING_BUILD_LOG"
 else
     {
