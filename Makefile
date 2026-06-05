@@ -8,6 +8,22 @@ MODLIST := rtw_8723bu rtw_8723bs rtw_8723cs rtw_8723de rtw_8723ds rtw_8723du \
 	   rtw_8822be rtw_8822bs rtw_8822bu rtw_8822ce rtw_8822cs rtw_8822cu \
 	   rtw_8723b rtw_8703b rtw_8723d rtw_8821a rtw_8812a rtw_8814a rtw_8821c rtw_8822b rtw_8822c \
 	   rtw_8723x rtw_88xxa rtw_pci rtw_sdio rtw_usb rtw_core
+
+define kernel_config_enabled
+$(shell \
+	if [ "$(CONFIG_$(1))" = "y" ] || [ "$(CONFIG_$(1))" = "m" ]; then \
+		echo y; \
+	elif [ -r "$(KSRC)/.config" ] && grep -Eq '^CONFIG_$(1)=(y|m)' "$(KSRC)/.config"; then \
+		echo y; \
+	elif [ -r "$(KSRC)/include/generated/autoconf.h" ] && grep -Eq '^#define CONFIG_$(1) 1' "$(KSRC)/include/generated/autoconf.h"; then \
+		echo y; \
+	elif [ -r "/boot/config-$(KVER)" ] && grep -Eq '^CONFIG_$(1)=(y|m)' "/boot/config-$(KVER)"; then \
+		echo y; \
+	fi)
+endef
+
+RTW88_HAS_MMC := $(call kernel_config_enabled,MMC)
+
 # Handle the move of the entire rtw88 tree
 ifneq ("","$(wildcard /lib/modules/$(KVER)/kernel/drivers/net/wireless/realtek)")
 MODDESTDIR := /lib/modules/$(KVER)/kernel/drivers/net/wireless/realtek/rtw88
@@ -68,7 +84,7 @@ endif
 obj-m		+= rtw_8723b.o
 rtw_8723b-objs	:= rtw8723b.o rtw8723b_table.o
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8723bs.o
 rtw_8723bs-objs	:= rtw8723bs.o
 endif
@@ -79,7 +95,7 @@ rtw_8723bu-objs	:= rtw8723bu.o
 obj-m		+= rtw_8703b.o
 rtw_8703b-objs	:= rtw8703b.o rtw8703b_tables.o
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8723cs.o
 rtw_8723cs-objs	:= rtw8723cs.o
 endif
@@ -92,7 +108,7 @@ obj-m		+= rtw_8723de.o
 rtw_8723de-objs	:= rtw8723de.o
 endif
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8723ds.o
 rtw_8723ds-objs	:= rtw8723ds.o
 endif
@@ -147,7 +163,7 @@ obj-m		+= rtw_8821ce.o
 rtw_8821ce-objs	:= rtw8821ce.o
 endif
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8821cs.o
 rtw_8821cs-objs	:= rtw8821cs.o
 endif
@@ -163,7 +179,7 @@ obj-m		+= rtw_8822be.o
 rtw_8822be-objs	:= rtw8822be.o
 endif
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8822bs.o
 rtw_8822bs-objs	:= rtw8822bs.o
 endif
@@ -179,7 +195,7 @@ obj-m		+= rtw_8822ce.o
 rtw_8822ce-objs	:= rtw8822ce.o
 endif
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_8822cs.o
 rtw_8822cs-objs	:= rtw8822cs.o
 endif
@@ -192,7 +208,7 @@ obj-m		+= rtw_pci.o
 rtw_pci-objs	:= pci.o pci_old.o
 endif
 
-ifneq ($(CONFIG_MMC), )
+ifneq ($(RTW88_HAS_MMC), )
 obj-m		+= rtw_sdio.o
 rtw_sdio-objs	:= sdio.o
 endif
@@ -261,4 +277,3 @@ endif
 	done
 
 sign-install: all sign install
-
