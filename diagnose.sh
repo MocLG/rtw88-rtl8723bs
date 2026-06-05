@@ -85,7 +85,7 @@ restore_staging_tree() {
     fi
 
     hold_dir="$STAGING_HOLD_DIR"
-    saved_tree="$hold_dir/rtl8723bs-staging"
+    saved_tree="$hold_dir/rtl8723bs-vendor"
     if [ -e "$STAGING_SRC" ] || [ -L "$STAGING_SRC" ]; then
         if [ ! -e "$saved_tree" ]; then
             if ! rmdir "$hold_dir" 2>/dev/null; then
@@ -116,7 +116,7 @@ restore_staging_tree() {
 }
 
 recover_stale_staging_tree() {
-    local saved_tree="$STAGING_HOLD_PATH/rtl8723bs-staging"
+    local saved_tree="$STAGING_HOLD_PATH/rtl8723bs-vendor"
 
     if [ -L "$STAGING_HOLD_PATH" ]; then
         echo "ERROR: Staging hold path must not be a symlink: $STAGING_HOLD_PATH" >&2
