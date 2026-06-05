@@ -1133,10 +1133,10 @@ static u32 rtl8723bs_hal_init(PADAPTER padapter)
 		u16 _sec  = rtw_read16(padapter, REG_SECCFG);
 		u32 _rqpn = rtw_read32(padapter, REG_RQPN);
 		u32 _fwtq = rtw_read32(padapter, REG_FWHW_TXQ_CTRL);
-		u16 _retry = rtw_read16(padapter, REG_RETRY_LIMIT);
+		u16 _retry = rtw_read16(padapter, REG_RL);
 		u8  _slot = rtw_read8(padapter, REG_SLOT);
 		u8  _txpause = rtw_read8(padapter, REG_TXPAUSE);
-		u32 _pad1 = rtw_read32(padapter, REG_PAD_CTRL1);
+		u32 _pad1 = rtw_read32(padapter, REG_PAD_CTRL_1);
 		u32 _bb_sel = rtw_read32(padapter, 0x948);
 		u8  _rfctrl = rtw_read8(padapter, REG_RF_CTRL);
 		u8  _early = rtw_read8(padapter, REG_EARLY_MODE_CONTROL);
