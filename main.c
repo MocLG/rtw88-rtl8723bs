@@ -1903,6 +1903,7 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 				rtw_fw_set_gnt_bt(rtwdev, 1);
 				rtw_fw_query_bt_info(rtwdev);
 			}

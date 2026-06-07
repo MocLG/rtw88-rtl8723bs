@@ -40,6 +40,7 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		rtw_coex_write_scbd(rtwdev,
 				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 		rtw_coex_8723bs_scan_workaround(rtwdev);
+		rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 	} else {
 		rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
 

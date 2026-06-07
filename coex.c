@@ -1659,6 +1659,30 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
 }
 
+void rtw_coex_8723bs_send_bt_mp_oper_init(struct rtw_dev *rtwdev)
+{
+	struct rtw_coex_info_req req = {0};
+	struct sk_buff *skb;
+
+	if (!rtw_coex_8723bs_sdio(rtwdev))
+		return;
+
+	req.op_code = BT_MP_INFO_OP_SUPP_VER;
+	skb = rtw_coex_info_request(rtwdev, &req);
+	if (!skb)
+		rtw_warn(rtwdev, "BT MP oper supp_ver timeout\n");
+	else
+		dev_kfree_skb_any(skb);
+
+	memset(&req, 0, sizeof(req));
+	req.op_code = BT_MP_INFO_OP_PATCH_VER;
+	skb = rtw_coex_info_request(rtwdev, &req);
+	if (!skb)
+		rtw_warn(rtwdev, "BT MP oper patch_ver timeout\n");
+	else
+		dev_kfree_skb_any(skb);
+}
+
 /**
  * rtw_coex_8723bs_ensure_pta_path() - Minimal PTA antenna path for RF writes
  * @rtwdev: rtw device
