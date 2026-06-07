@@ -1886,7 +1886,20 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		if (!ips_wake) {
 			/* Initial boot only: full BT-side init and coex
 			 * hardware configuration.
+			 *
+			 * The vendor v5.2.17 init_hw_config sends
+			 * H2C 0x67 (BT_MP_OPER) *before* 0x60 (PS_TDMA).
+			 * rtw_coex_power_on_setting sends 0x60 internally,
+			 * so send the BT version queries first to match
+			 * the vendor ordering.  The 0x67 queries initialise
+			 * the firmware's internal BT/WLAN coexistence state
+			 * machine, which must be set up before PS-TDMA
+			 * is configured.
 			 */
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
+
 			rtw_coex_power_on_setting(rtwdev);
 		}
 
@@ -1903,7 +1916,6 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 				rtw_fw_set_gnt_bt(rtwdev, 1);
 				rtw_fw_query_bt_info(rtwdev);
 			}

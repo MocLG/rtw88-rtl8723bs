@@ -41,6 +41,15 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 		rtw_coex_8723bs_scan_workaround(rtwdev);
 		rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
+
+		/* Vendor sends 0x61 (BT_INFO) + 3× 0x60 (PS_TDMA)
+		 * after the 0x67 queries and before auth.  scan_workaround
+		 * already sent one 0x60; replicate the remaining 0x61 +
+		 * 2× 0x60 to match the vendor IPS-wake sequence exactly.
+		 */
+		rtw_fw_query_bt_info(rtwdev);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	} else {
 		rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
 
