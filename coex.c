@@ -3180,14 +3180,15 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 			coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
 			coex_stat->wl_hi_pri_task2 = true;
 
-			/* Vendor v5.2.17 sends 0x67 (BT_MP_OPER) + 0x61
-			 * (BT_INFO) before scan probes, followed by 0x60
-			 * (PS_TDMA) which scan_workaround sends.  Match
-			 * this order so the firmware's coex state machine
-			 * is initialised before active TX.
+			/*
+			 * rtw_ips_pwr_up() already sent BT_MP_OPER (0x67)
+			 * and BT_INFO (0x61) queries when waking the chip.
+			 * Sending them again here duplicates the firmware
+			 * query and wastes ~40 ms.  Only re-apply the
+			 * PTA antenna path, coex table, CCK priority,
+			 * and PS-TDMA configuration that the scan path
+			 * needs.
 			 */
-			rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
-			rtw_fw_query_bt_info(rtwdev);
 			rtw_coex_8723bs_scan_workaround(rtwdev);
 		} else {
 			coex_stat->wl_hi_pri_task2 = false;
@@ -3250,6 +3251,8 @@ void rtw_coex_switchband_notify(struct rtw_dev *rtwdev, u8 type)
 	if (type == COEX_SWITCH_TO_5G)
 		rtw_coex_run_coex(rtwdev, COEX_RSN_5GSWITCHBAND);
 	else if (type == COEX_SWITCH_TO_24G_NOFORSCAN)
+		rtw_coex_run_coex(rtwdev, COEX_RSN_2GSWITCHBAND);
+	else if (rtw_coex_8723bs_bt_disabled(rtwdev))
 		rtw_coex_run_coex(rtwdev, COEX_RSN_2GSWITCHBAND);
 	else
 		rtw_coex_scan_notify(rtwdev, COEX_SCAN_START_2G);
