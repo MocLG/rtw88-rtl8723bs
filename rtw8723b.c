@@ -3612,7 +3612,12 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x1);
 		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
 
-		rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
+		/* H2C 0x65 (COEX_ANT_SEL_RSV) is sent from the post-init
+		 * block in rtw_power_on() after 0x6E (GNT_BT), matching
+		 * vendor v5.2.17 order: 0x6D,0x6D,0x60,0x6E,0x65,0x61.
+		 * The register writes above stay here to correctly
+		 * initialise RFE/antenna hardware before IQK.
+		 */
 		rtw8723b_coex_dump_rfe_state(rtwdev, "rfe_sdio", aux, 0);
 		break;
 	default:

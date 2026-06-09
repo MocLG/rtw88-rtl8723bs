@@ -3041,8 +3041,19 @@ static void __rtw_coex_init_hw_config(struct rtw_dev *rtwdev, bool wifi_only)
 
 	/* PTA parameter */
 	rtw_coex_table(rtwdev, true, 1);
-	rtw_coex_tdma(rtwdev, true, 0);
-	rtw_coex_query_bt_info(rtwdev);
+
+	/* Vendor v5.2.17 EXhalbtc8723b1ant_InitHwConfig sends exactly
+	 * one PS_TDMA (0x60) and one BT_INFO (0x61) at init, in the
+	 * order 0x60→0x6E→0x65→0x61.  For 8723BS SDIO we defer
+	 * TDMA turn-off and BT_INFO to the post-init block in
+	 * rtw_power_on() so the H2C sequence matches the vendor
+	 * byte-for-byte.
+	 */
+	if (!(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)) {
+		rtw_coex_tdma(rtwdev, true, 0);
+		rtw_coex_query_bt_info(rtwdev);
+	}
 }
 
 void rtw_coex_power_on_setting(struct rtw_dev *rtwdev)

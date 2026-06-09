@@ -1891,15 +1891,28 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 
 		if (!ips_wake) {
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
-			/* Vendor v5.2.17 EXhalbtc8723b1ant_InitHwConfig
-			 * sends H2C 0x6E (GNT_BT) after 0x60 (PS_TDMA).
-			 * The generic __rtw_coex_init_hw_config already
-			 * sends PS_TDMA and BT_INFO, so only GNT_BT
-			 * needs to be added here.
+			/* Vendor v5.2.17 init H2C sequence is:
+			 *   0x6D,0x6D (IQK), 0x60 (PS_TDMA type 8),
+			 *   0x6E (GNT_BT), 0x65 (COEX_ANT_SEL_RSV),
+			 *   0x61 (BT_INFO)
+			 *
+			 * __rtw_coex_init_hw_config for 8723BS SDIO
+			 * skips tdma(type=0) + BT_INFO.  The rtw_coex_table
+			 * call in init_hw_config writes BT coex registers
+			 * but sends no H2C.  We send the full post-IQK
+			 * H2C sequence here in vendor order, with 0x65
+			 * deferred from rfe_type's SDIO path.
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+				bool aux = !!(rtwdev->efuse.bt_setting & BIT(6));
+
+				rtw_fw_coex_tdma_type(rtwdev, 0x08,
+						      0x00, 0x00, 0x00, 0x00);
 				rtw_fw_set_gnt_bt(rtwdev, 1);
+				rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
+				rtw_fw_query_bt_info(rtwdev);
+			}
 		}
 		/* ips_wake: skip BT-path init entirely; PTA + coex
 		 * state will be re-established by
