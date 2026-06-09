@@ -2022,13 +2022,22 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 			 !!(info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS),
 			 tx_pkt_offset, skb->len);
 
-	/* enqueue to wait for tx report */
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS) {
-		/* The v41 firmware on 8723B SDIO produces CCX TX reports
-		 * (C2H 0x12 for auth/assoc/data, C2H 0x32 for scan probe)
-		 * when SPE_RPT=1.  Enqueue the frame so the C2H handler
-		 * can report real ACK/retry status via the tx_report queue.
-		 */
+	/* enqueue to wait for tx report.
+	 * The vendor v5.2.17 firmware does produce C2H 0x32 (scan probe)
+	 * and C2H 0x12 (auth/assoc/data) TX reports when SPE_RPT=1,
+	 * but vendor's dump_mgntframe_and_wait() signals TX completion
+	 * on SDIO DMA done, not on C2H arrival.  The reports arrive
+	 * asynchronously for retry statistics.
+	 *
+	 * On 8723BS SDIO management frames we also signal completion
+	 * immediately after DMA rather than deferring to C2H, because
+	 * with W6 SW_DEFINE/sn=0 (matching vendor descriptor contract)
+	 * there is no unique per-frame key for the tx_report queue.
+	 * Data frames keep the normal enqueue path.
+	 */
+	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
+	    !(rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO && trace_mgmt)) {
 		rtw_tx_report_enqueue(rtwdev, skb, tx_data->sn);
 		return;
 	}

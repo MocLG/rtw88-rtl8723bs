@@ -528,24 +528,21 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->en_hwseq = true;
 		pkt_info->hw_ssn_sel = 0;
 		pkt_info->dis_rate_fallback = false;
-		/* Staging's rtl8723b_fill_default_txdesc() leaves
-		 * DISDATAFB=0 and does NOT set NAVUSEHDR for
-		 * MGNT_FRAMETAG on this stepping (confirmed by
-		 * staging_txdesc trace: W3=0x00000100). Do not set
-		 * nav_use_hdr here — the v35 staging firmware silently
-		 * drops management TX when NAVUSEHDR=1 in the SDIO
-		 * descriptor W3.
-		 */
 		pkt_info->retry_limit_en = true;
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
-		/* SPE_RPT=1 on all mgmt frames: the v41 firmware
-		 * (rtw88/rtw8723b_fw.bin, same as vendor v5.2.17 NIC)
-		 * handles SPE_RPT correctly and produces CCX TX reports
-		 * (C2H 0x32 for scan, 0x12 for auth/assoc/data).
-		 * rtw_tx_pkt_info_update() enables rtw_tx_report_enable()
-		 * unconditionally, so W2 SPE_RPT=1 is rendered.
+		/* Vendor v5.2.17 rtl8723b_fill_default_txdesc() sets
+		 * SPE_RPT=1 for ALL MGNT_FRAMETAG frames (probe, auth,
+		 * assoc, deauth) with W6 SW_DEFINE/sn=0.  Match this
+		 * contract explicitly: report=1 so the 8051 firmware
+		 * knows to track and transmit the frame, but sn=0 so
+		 * the firmware does not try to match a non-zero CCX
+		 * report sequence number on this stepping.
+		 * rtw_tx_pkt_info_update() skips rtw_tx_report_enable()
+		 * for 8723BS SDIO mgmt frames, so the sn stays 0.
 		 */
+		pkt_info->report = true;
+		pkt_info->sn = 0;
 		return;
 	}
 
@@ -691,16 +688,16 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	/* The v41 firmware (rtw88/rtw8723b_fw.bin) handles SPE_RPT=1
-	 * on ALL management frames correctly.  The vendor rtl8723bs
-	 * v5.2.17 driver with the same firmware transmits deauth, auth,
-	 * assoc, and probe requests all with SPE_RPT=1, and the firmware
-	 * produces CCX TX reports (C2H 0x32 for scan, 0x12 for
-	 * auth/assoc/data).  Enable TX reporting for all frames so
-	 * rtw_sdio_indicate_tx_status() can enqueue them for real
-	 * firmware ACK notification instead of the local fake ACK.
+	/* rtw_tx_mgmt_pkt_info_update() for 8723BS SDIO already sets
+	 * report=1 and sn=0 matching the vendor descriptor contract
+	 * (SPE_RPT=1, W6 SW_DEFINE=0). Skip rtw_tx_report_enable()
+	 * here for mgmt frames so the sn stays 0. Data frames on
+	 * 8723BS SDIO still go through the normal report-enable path
+	 * for CCX TX report tracking.
 	 */
-	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
+	    !(chip->id == RTW_CHIP_TYPE_8723B &&
+	      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO && is_mgmt))
 		rtw_tx_report_enable(rtwdev, pkt_info);
 
 	pkt_info->bmc = bmc;
