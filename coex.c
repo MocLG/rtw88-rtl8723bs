@@ -2999,11 +2999,14 @@ static void __rtw_coex_init_hw_config(struct rtw_dev *rtwdev, bool wifi_only)
 	coex_stat->kt_ver = u8_get_bits(rtw_read8(rtwdev, 0xf1), GENMASK(7, 4));
 
 	rtw_coex_monitor_bt_enable(rtwdev);
-	rtw_coex_wl_slot_extend(rtwdev, coex_stat->wl_slot_extend);
 
 	rtw_write8_set(rtwdev, REG_BCN_CTRL, BIT_EN_BCN_FUNCTION);
 
-	rtw_coex_set_rfe_type(rtwdev);
+	/* rtw_coex_set_rfe_type() already called in rtw_coex_power_on_setting().
+	 * The vendor v5.2.17 EXhalbtc8723b1ant_InitHwConfig does not re-call
+	 * the equivalent HALBTC function.  Skipping here avoids a duplicate
+	 * H2C 0x65 (COEX_ANT_SEL_RSV) during init.
+	 */
 	rtw_coex_set_init(rtwdev);
 
 	/* set Tx response = Hi-Pri (ex: Transmitting ACK,BA,CTS) */
@@ -3165,6 +3168,15 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 		if ((type == COEX_SCAN_START_2G) || (type == COEX_SCAN_START)) {
 			coex_stat->cnt_wl[COEX_CNT_WL_SCANAP] = 0;
 			coex_stat->wl_hi_pri_task2 = true;
+
+			/* Vendor v5.2.17 sends 0x67 (BT_MP_OPER) + 0x61
+			 * (BT_INFO) before scan probes, followed by 0x60
+			 * (PS_TDMA) which scan_workaround sends.  Match
+			 * this order so the firmware's coex state machine
+			 * is initialised before active TX.
+			 */
+			rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
+			rtw_fw_query_bt_info(rtwdev);
 			rtw_coex_8723bs_scan_workaround(rtwdev);
 		} else {
 			coex_stat->wl_hi_pri_task2 = false;
