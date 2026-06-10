@@ -1891,29 +1891,27 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 
 		if (!ips_wake) {
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
-			/* Vendor v5.2.17 init (vendor_h2c trace) sends:
-			 *   H2C 0x67 (BT_MP_OPER op=0x2b) — query BT
-			 *     coex supported version,
-			 *   H2C 0x67 (BT_MP_OPER op=0x00) — query BT
-			 *     patch version,
-			 *   H2C 0x60 (PS_TDMA type 8),
-			 *   H2C 0x6E (GNT_BT = HIGH),
-			 *   H2C 0x65 (COEX_ANT_SEL_RSV),
-			 *   H2C 0x61 (BT_INFO).
-			 *
-			 * Plus 0x6D,0x6D (WIFI_CALIBRATION) from IQK.
+			/* Vendor v5.2.17 init H2C sequence after IQK
+			 * (confirmed by vendor_h2c trace):
+			 *   0x60 (PS_TDMA type 8)
+			 *   0x6E (GNT_BT = HIGH)
+			 *   0x65 (COEX_ANT_SEL_RSV)
+			 *   0x61 (BT_INFO query)
 			 *
 			 * __rtw_coex_init_hw_config for 8723BS SDIO
-			 * writes coex registers (coex_table) but skips
-			 * tdma + BT_INFO.  We send the full post-IQK
-			 * H2C sequence here in vendor order, with 0x65
-			 * deferred from rfe_type's SDIO path.
+			 * skips TDMA and BT_INFO.  Send the full
+			 * vendor post-IQK sequence here.
+			 *
+			 * NOTE: BT_MP_OPER (0x67) queries are NOT sent.
+			 * They always time out on this 8723BS SDIO
+			 * stepping and corrupt firmware state (RX
+			 * buffers appear all zeros), causing the 8051
+			 * firmware to stop scheduling management TX.
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 				bool aux = !!(rtwdev->efuse.bt_setting & BIT(6));
 
-				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 				rtw_fw_coex_tdma_type(rtwdev, 0x08,
 						      0x00, 0x00, 0x00, 0x00);
 				rtw_fw_set_gnt_bt(rtwdev, 1);
