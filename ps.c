@@ -39,26 +39,22 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		rtwdev->coex.stat.wl_under_ips = false;
 		rtw_coex_write_scbd(rtwdev,
 				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
-		rtw_coex_8723bs_scan_workaround(rtwdev);
-		/* The vendor v5.2.17 driver sends the following H2Cs
-		 * between scan and connect (from concurrent_bt_mp_oper
-		 * and EXhalbtc8723b1ant_QueryBtInfo):
-		 *   0x67 (BT_MP_OPER op=0x2b supp_ver) — non-blocking
-		 *   0x67 (BT_MP_OPER op=0x00 patch_ver) — non-blocking
+		/* Vendor v5.2.17 post-scan H2C order
+		 * (confirmed by vendor_h2c trace):
+		 *   0x67 (BT_MP_OPER op=0x2b) — non-blocking
+		 *   0x67 (BT_MP_OPER op=0x00) — non-blocking
 		 *   0x61 (BT_INFO query)
 		 *   0x60 (PS_TDMA type 8) ×3
 		 *
-		 * scan_workaround above already sends 1× PS_TDMA and
-		 * establishes the PTA antenna path.  Add the missing
-		 * 0x67, 0x61, and 2 extra 0x60 to match the vendor
-		 * byte-for-byte.
-		 *
-		 * The 0x67 queries use rtw_fw_query_bt_mp_info() which
-		 * is non-blocking (fire-and-forget), matching what the
-		 * vendor does via its coex DM state machine.
+		 * Send the queries first (like the vendor does),
+		 * then run scan_workaround for the register-level
+		 * PTA/coex-table/CCK-priority setup which also
+		 * contributes 1× PS_TDMA H2C at the end.  Add 2
+		 * extra PS_TDMA calls to reach the vendor's 3 total.
 		 */
 		rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 		rtw_fw_query_bt_info(rtwdev);
+		rtw_coex_8723bs_scan_workaround(rtwdev);
 		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 

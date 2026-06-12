@@ -1896,8 +1896,6 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			 *   0x67 (BT_MP_OPER supp_ver) — fire-and-forget
 			 *   0x67 (BT_MP_OPER patch_ver) — fire-and-forget
 			 *   0x60 (PS_TDMA type 8)
-			 *   0x6E (GNT_BT = HIGH)
-			 *   0x65 (COEX_ANT_SEL_RSV)
 			 *   0x61 (BT_INFO query)
 			 *
 			 * The 0x67 queries initialise the v41 firmware's
@@ -1907,19 +1905,19 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			 * (fire-and-forget) H2Cs — the vendor also does not
 			 * wait for C2H responses for these opcodes.
 			 *
-			 * __rtw_coex_init_hw_config for 8723BS SDIO
-			 * skips TDMA and BT_INFO.  Send the full
-			 * vendor post-IQK sequence here.
+			 * NOTE: The vendor does NOT send 0x6E (GNT_BT)
+			 * or 0x65 (COEX_ANT_SEL_RSV) during init.  On a
+			 * BT-disabled board, GNT_BT=HIGH signals the
+			 * firmware that BT has RF priority — suppressing
+			 * WLAN management TX via the coex state machine.
+			 * We also skip them here, matching the vendor's
+			 * clean 4-H2C init sequence exactly.
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-				bool aux = !!(rtwdev->efuse.bt_setting & BIT(6));
-
 				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 				rtw_fw_coex_tdma_type(rtwdev, 0x08,
 						      0x00, 0x00, 0x00, 0x00);
-				rtw_fw_set_gnt_bt(rtwdev, 1);
-				rtw_fw_coex_ant_sel_rsv(rtwdev, aux ? 1 : 0, 0);
 				rtw_fw_query_bt_info(rtwdev);
 			}
 		}

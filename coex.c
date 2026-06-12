@@ -3282,12 +3282,12 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 
 	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
 		if (type == COEX_ASSOCIATE_START) {
-			/* Staging returns immediately from ConnectNotify() when BT
-			 * is disabled. Keep the scan-time type-8 PS-TDMA and PTA
-			 * antenna routing instead of running the generic
-			 * wl_not_connected/wl_only coex actions over the join.
+			/* Vendor EXhalbtc8723b1ant_ConnectNotify() early-returns
+			 * on BT-disabled boards without sending H2Cs.  The
+			 * post-scan H2Cs in rtw_ips_pwr_up() already established
+			 * the firmware state.  Keep only the register-level PTA
+			 * reassertion via force_assoc_pta_ant() — no 0x60 H2C.
 			 */
-			rtw_coex_8723bs_scan_workaround(rtwdev);
 			rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 		}
 
