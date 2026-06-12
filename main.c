@@ -1893,25 +1893,29 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
 			/* Vendor v5.2.17 init H2C sequence after IQK
 			 * (confirmed by vendor_h2c trace):
+			 *   0x67 (BT_MP_OPER supp_ver) — fire-and-forget
+			 *   0x67 (BT_MP_OPER patch_ver) — fire-and-forget
 			 *   0x60 (PS_TDMA type 8)
 			 *   0x6E (GNT_BT = HIGH)
 			 *   0x65 (COEX_ANT_SEL_RSV)
 			 *   0x61 (BT_INFO query)
 			 *
+			 * The 0x67 queries initialise the v41 firmware's
+			 * BT/WLAN coexistence state machine.  Without them
+			 * the firmware never enables management TX on the
+			 * air interface.  They are sent as non-blocking
+			 * (fire-and-forget) H2Cs — the vendor also does not
+			 * wait for C2H responses for these opcodes.
+			 *
 			 * __rtw_coex_init_hw_config for 8723BS SDIO
 			 * skips TDMA and BT_INFO.  Send the full
 			 * vendor post-IQK sequence here.
-			 *
-			 * NOTE: BT_MP_OPER (0x67) queries are NOT sent.
-			 * They always time out on this 8723BS SDIO
-			 * stepping and corrupt firmware state (RX
-			 * buffers appear all zeros), causing the 8051
-			 * firmware to stop scheduling management TX.
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 				bool aux = !!(rtwdev->efuse.bt_setting & BIT(6));
 
+				rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
 				rtw_fw_coex_tdma_type(rtwdev, 0x08,
 						      0x00, 0x00, 0x00, 0x00);
 				rtw_fw_set_gnt_bt(rtwdev, 1);

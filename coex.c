@@ -1660,6 +1660,44 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 }
 
 /**
+ * rtw_coex_8723bs_send_bt_mp_oper_init() - Non-blocking BT_MP_OPER queries
+ * @rtwdev: rtw device
+ *
+ * The vendor v5.2.17 driver sends H2C 0x67 (BT_MP_OPER) queries at init
+ * and between scan/connect boundaries as fire-and-forget (non-blocking)
+ * H2Cs.  The vendor's EXhalbtc8723b1ant_InitHwConfig sends:
+ *   0x67(op=0x2b, BT_MP_INFO_OP_SUPP_VER)
+ *   0x67(op=0x00, BT_MP_INFO_OP_PATCH_VER)
+ *
+ * These queries initialise the firmware's internal BT/WLAN coexistence
+ * state machine.  Without them the v41 firmware (rtw8723b_fw.bin) never
+ * enables management TX on the air interface, even though the SDIO FIFO
+ * drains and TXPKT_EMPTY=0xfff.
+ *
+ * NOTE: This function uses rtw_fw_query_bt_mp_info() which calls
+ * rtw_fw_send_h2c_command() — a NON-BLOCKING H2C delivery.  It does NOT
+ * use rtw_coex_info_request() (synchronous, blocks waiting for C2H
+ * response) because the 8723B SDIO stepping does not produce C2H 0x0b
+ * responses for these opcodes.  The vendor driver also sends them
+ * asynchronously via its coex DM state machine.
+ */
+void rtw_coex_8723bs_send_bt_mp_oper_init(struct rtw_dev *rtwdev)
+{
+	struct rtw_coex_info_req req = {0};
+
+	if (!rtw_coex_8723bs_sdio(rtwdev))
+		return;
+
+	req.op_code = BT_MP_INFO_OP_SUPP_VER;
+	req.seq = 0;
+	rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+	req.op_code = BT_MP_INFO_OP_PATCH_VER;
+	req.seq = 1;
+	rtw_fw_query_bt_mp_info(rtwdev, &req);
+}
+
+/**
  * rtw_coex_8723bs_ensure_pta_path() - Minimal PTA antenna path for RF writes
  * @rtwdev: rtw device
  *

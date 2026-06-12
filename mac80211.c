@@ -1507,25 +1507,15 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
 
-	/* For 8723BS SDIO: after coex switches to the PTA antenna path
-	 * (BB_SEL_BTG=0x200), re-apply the current channel so RF
-	 * registers get correct values on the PTA routing.  During scan
-	 * each dwell set_channel naturally runs after the PTA switch.
-	 * During connect the earlier set_channel (in the IPS-leave
-	 * rtw_power_on path) ran on the BT path (BB_SEL_BTG=0x280),
-	 * where RF writes silently fail — leaving RF01 at 0x783 with
-	 * the TX/RX data path gated.  Auth/deauth frames reach the
-	 * SDIO FIFO and drain, but no RF energy reaches the antenna.
+	/* The double-set_channel workaround in rtw_ips_pwr_up() and
+	 * the scan_workaround PTA setup there already handle the
+	 * post-IPS RF bus recovery.  No extra channel re-apply or
+	 * connect_notify is needed here for 8723BS SDIO.
 	 */
-	if (rtw8723bs_sdio(rtwdev)) {
-		rtw_set_channel(rtwdev);
-		rtwdev->need_rfk = false;
-		rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
-	} else {
-		rfk_pending = rtwdev->need_rfk;
-		if (!rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
-			rtw_chip_prepare_tx(rtwdev);
-	}
+	rfk_pending = rtwdev->need_rfk;
+	if (!rtw8723bs_sdio(rtwdev) &&
+	    !rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
+		rtw_chip_prepare_tx(rtwdev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif

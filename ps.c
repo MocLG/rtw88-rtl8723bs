@@ -40,14 +40,27 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		rtw_coex_write_scbd(rtwdev,
 				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
 		rtw_coex_8723bs_scan_workaround(rtwdev);
-		/* scan_workaround already establishes PTA antenna path,
-		 * coex table type 2, CCK priority high, and sends
-		 * PS_TDMA type 8.  The BT-disabled 8723BS SDIO scan
-		 * path successfully transmits probe requests with just
-		 * this setup.  Do NOT send BT_MP_OPER (0x67) queries
-		 * here — they always time out on this stepping and
-		 * corrupt firmware state (RX buffers appear all zeros).
+		/* The vendor v5.2.17 driver sends the following H2Cs
+		 * between scan and connect (from concurrent_bt_mp_oper
+		 * and EXhalbtc8723b1ant_QueryBtInfo):
+		 *   0x67 (BT_MP_OPER op=0x2b supp_ver) — non-blocking
+		 *   0x67 (BT_MP_OPER op=0x00 patch_ver) — non-blocking
+		 *   0x61 (BT_INFO query)
+		 *   0x60 (PS_TDMA type 8) ×3
+		 *
+		 * scan_workaround above already sends 1× PS_TDMA and
+		 * establishes the PTA antenna path.  Add the missing
+		 * 0x67, 0x61, and 2 extra 0x60 to match the vendor
+		 * byte-for-byte.
+		 *
+		 * The 0x67 queries use rtw_fw_query_bt_mp_info() which
+		 * is non-blocking (fire-and-forget), matching what the
+		 * vendor does via its coex DM state machine.
 		 */
+		rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
+		rtw_fw_query_bt_info(rtwdev);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 
 	} else {
 		rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);
