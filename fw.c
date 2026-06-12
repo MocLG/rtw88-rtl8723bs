@@ -778,9 +778,29 @@ void rtw_fw_send_rssi_info(struct rtw_dev *rtwdev, struct rtw_sta_info *si)
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RSSI_MONITOR);
 
-	SET_RSSI_INFO_MACID(h2c_pkt, si->mac_id);
-	SET_RSSI_INFO_RSSI(h2c_pkt, rssi);
-	SET_RSSI_INFO_STBC(h2c_pkt, stbc_en);
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/*
+		 * Vendor v5.2.17 RA_INFO (H2C 0x42) byte layout
+		 * (confirmed by vendor_h2c trace):
+		 *   [0] mac_id (bits 7-0)
+		 *   [1] 0x00
+		 *   [2] rssi (dBm percentage, 0-100)
+		 *   [3] 0x04
+		 *   [4..6] 0x000000
+		 */
+		h2c_pkt[1] = si->mac_id & 0x7f;
+		h2c_pkt[2] = 0x00;
+		h2c_pkt[3] = rssi;
+		h2c_pkt[4] = stbc_en ? 0x04 : 0x00;
+		h2c_pkt[5] = 0x00;
+		h2c_pkt[6] = 0x00;
+		h2c_pkt[7] = 0x00;
+	} else {
+		SET_RSSI_INFO_MACID(h2c_pkt, si->mac_id);
+		SET_RSSI_INFO_RSSI(h2c_pkt, rssi);
+		SET_RSSI_INFO_STBC(h2c_pkt, stbc_en);
+	}
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }
@@ -839,8 +859,31 @@ void rtw_fw_media_status_report(struct rtw_dev *rtwdev, u8 mac_id, bool connect)
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_MEDIA_STATUS_RPT);
-	MEDIA_STATUS_RPT_SET_OP_MODE(h2c_pkt, connect);
-	MEDIA_STATUS_RPT_SET_MACID(h2c_pkt, mac_id);
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/*
+		 * Vendor v5.2.17 MEDIA_STATUS_RPT payload
+		 * (confirmed by vendor_h2c trace):
+		 *   connect:  21 00 00
+		 *   disconnect: 00 00 00
+		 *
+		 * Byte 1[0]    = OPMODE (1=connect, 0=disconnect)
+		 * Byte 1[5]    = ROLE (0=STA)
+		 * Byte 1[1]    = MACID_IND
+		 * Byte 2[7:0]  = MACID
+		 * Byte 3[7:0]  = MACID_END
+		 */
+		if (connect)
+			h2c_pkt[1] = 0x21;
+		else
+			h2c_pkt[1] = 0x00;
+		h2c_pkt[2] = mac_id & 0x7f;
+		h2c_pkt[3] = 0x00;
+	} else {
+		MEDIA_STATUS_RPT_SET_OP_MODE(h2c_pkt, connect);
+		MEDIA_STATUS_RPT_SET_MACID(h2c_pkt, mac_id);
+	}
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }
@@ -851,17 +894,43 @@ void rtw_fw_macid_cfg(struct rtw_dev *rtwdev, u8 mac_id, u8 raid, u8 bw,
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RA_INFO);
-	/* Byte 1: MACID in bits 0-6 */
-	h2c_pkt[1] = mac_id & 0x7f;
-	/* Byte 2: RAID in bits 0-6, BW in bit 7 */
-	h2c_pkt[2] = (raid & 0x7f) | ((bw ? BIT(7) : 0));
-	/* Byte 3: SGI in bit 0 (staging MACID_CFG format) */
-	h2c_pkt[3] = (sgi ? BIT(0) : 0);
-	/* Bytes 4-7: Rate mask (little-endian) */
-	h2c_pkt[4] = rate_mask & 0xff;
-	h2c_pkt[5] = (rate_mask >> 8) & 0xff;
-	h2c_pkt[6] = (rate_mask >> 16) & 0xff;
-	h2c_pkt[7] = (rate_mask >> 24) & 0xff;
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/*
+		 * Vendor v5.2.17 MACID_CFG byte layout (7-byte payload
+		 * confirmed by vendor_h2c trace):
+		 *   [0] mac_id
+		 *   [1] raid(bits 4-0) | sgi_en(bit7) | (bits 6-5)
+		 *   [2] bw(bits 1-0) | vht_en(bits 5-4) | dispt(bit6) | disra(bit7)
+		 *   [3..6] rate_mask LE (covering B/G rates)
+		 *
+		 * Use the exact payload from the vendor's initial post-assoc
+		 * MACID_CFG: 00 e1 01 15 f0 0f 00.
+		 *
+		 * RAID=1 (CCK 1M initial rate), SGI=1, BW=20MHz,
+		 * rate_mask=0x000ff015 covering all B/G rates.
+		 */
+		h2c_pkt[1] = mac_id & 0x7f;
+		h2c_pkt[2] = (raid & 0x1f) | (sgi ? BIT(7) : 0) | 0x60;
+		h2c_pkt[3] = ((bw ? 3 : 1) & 0x3) | BIT(7);
+		h2c_pkt[4] = rate_mask & 0xff;
+		h2c_pkt[5] = (rate_mask >> 8) & 0xff;
+		h2c_pkt[6] = (rate_mask >> 16) & 0xff;
+		h2c_pkt[7] = (rate_mask >> 24) & 0xff;
+	} else {
+		/* Byte 1: MACID in bits 0-6 */
+		h2c_pkt[1] = mac_id & 0x7f;
+		/* Byte 2: RAID in bits 0-6, BW in bit 7 */
+		h2c_pkt[2] = (raid & 0x7f) | ((bw ? BIT(7) : 0));
+		/* Byte 3: SGI in bit 0 (staging MACID_CFG format) */
+		h2c_pkt[3] = (sgi ? BIT(0) : 0);
+		/* Bytes 4-7: Rate mask (little-endian) */
+		h2c_pkt[4] = rate_mask & 0xff;
+		h2c_pkt[5] = (rate_mask >> 8) & 0xff;
+		h2c_pkt[6] = (rate_mask >> 16) & 0xff;
+		h2c_pkt[7] = (rate_mask >> 24) & 0xff;
+	}
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }
@@ -887,11 +956,28 @@ void rtw_fw_send_rsvd_page_loc(struct rtw_dev *rtwdev)
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RSVD_PAGE);
-	h2c_pkt[1] = 0x00;
-	h2c_pkt[2] = 0x02;
-	h2c_pkt[3] = 0x03;
-	h2c_pkt[4] = 0x04;
-	h2c_pkt[5] = 0x05;
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/*
+		 * Vendor v5.2.17 RSVD_PAGE loc payload
+		 * (confirmed by vendor_h2c trace):
+		 *   00 01 03 04 02
+		 *   LocProbeRsp=0x00, LocPsPoll=0x01, LocNullData=0x03,
+		 *   LocQosNull=0x04, LocBTQosNull=0x02
+		 */
+		h2c_pkt[1] = 0x00;
+		h2c_pkt[2] = 0x01;
+		h2c_pkt[3] = 0x03;
+		h2c_pkt[4] = 0x04;
+		h2c_pkt[5] = 0x02;
+	} else {
+		h2c_pkt[1] = 0x00;
+		h2c_pkt[2] = 0x02;
+		h2c_pkt[3] = 0x03;
+		h2c_pkt[4] = 0x04;
+		h2c_pkt[5] = 0x05;
+	}
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 }

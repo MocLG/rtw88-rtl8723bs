@@ -1068,23 +1068,32 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 				 * by MEDIA_STATUS_RPT, matches the vendor
 				 * exactly.
 				 */
-				rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id,
-						 6, 0, 0, 0x0ff5);
-				if (!rtwvif->fw_media_connected) {
-					rtw_info(rtwdev,
-						 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
-						 rtwvif->mac_id,
-						 rtwvif->bssid);
-					rtw_fw_media_status_report(rtwdev,
-								   rtwvif->mac_id,
-								   true);
-					rtwvif->fw_media_connected = true;
-				} else {
-					rtw_info(rtwdev,
-						 "MGMT_TX_DEBUG: assoc media_status already connected macid=%u bssid=%pM\n",
-						 rtwvif->mac_id,
-						 rtwvif->bssid);
-				}
+			rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id,
+					 1, 0, 1, 0x0ff015);
+			if (!rtwvif->fw_media_connected) {
+				rtw_info(rtwdev,
+					 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
+					 rtwvif->mac_id,
+					 rtwvif->bssid);
+				rtw_fw_media_status_report(rtwdev,
+							   rtwvif->mac_id,
+							   true);
+				rtwvif->fw_media_connected = true;
+			} else {
+				rtw_info(rtwdev,
+					 "MGMT_TX_DEBUG: assoc media_status already connected macid=%u bssid=%pM\n",
+					 rtwvif->mac_id,
+					 rtwvif->bssid);
+			}
+			/*
+			 * After MACID_CFG + MEDIA_STATUS_RPT, the vendor
+			 * sends WL_CH_INFO (0x66) to inform the firmware
+			 * about the operating channel and bandwidth,
+			 * matching the vendor's mlmeext_joinbss flow.
+			 */
+			rtw_fw_send_wl_ch_info(rtwdev,
+					       rtwdev->hal.current_channel,
+					       rtwdev->hal.current_band_width);
 			}
 
 			rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_FINISH);
