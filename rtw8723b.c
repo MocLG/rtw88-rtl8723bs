@@ -1350,7 +1350,10 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 		rtw_write32(rtwdev, REG_FWHW_TXQ_CTRL, value32);
 	}
 
-	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
+	/* REG_EARLY_MODE_CONTROL_8723B (0x04D0) = 0 is now written
+	 * BEFORE firmware download in rtw_power_on() (main.c), matching
+	 * the vendor's placement at sdio_halinit.c:879.
+	 */
 }
 
 /* vendor: hal/rtl8723b/rtl8723b_phycfg.c
