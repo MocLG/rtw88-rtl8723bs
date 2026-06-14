@@ -3656,24 +3656,24 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 	int words = 32 / 2;
 
 	/*
-	 * The vendor rtl8723bs v5.2.17 driver (which uses the same v41
-	 * firmware binary) leaves W7 at 0 for management frames on SDIO.
-	 * The vendor_txdesc trace from logs-rtw88-f81de652 confirms every
-	 * probe/auth/deauth descriptor has W7=0x00000000 even though the
-	 * vendor source code calls rtl8723b_cal_txdesc_chksum(). The v41
-	 * firmware on this stepping silently drops frames with non-zero
-	 * W7. USB/PCIe variants may require the checksum.
+	 * The vendor rtl8723bs v5.2.17 driver computes an XOR checksum
+	 * over the first 16 half-words (32 bytes) of the TX descriptor
+	 * for ALL HCI types including SDIO in rtl8723b_update_txdesc().
 	 *
-	 * TX_RATE is at W4 bits 0-7 in both vendor and rtw88 layouts
-	 * (DESC_RATE1M=0x00 matches MRateToHwRate(CCK_1M)=0x00).
-	 * RATE_ID is at W1 bits 16-20 in both layouts
-	 * (RATEID_IDX_B=8 matches RTW_RATEID_B_20M=8).
-	 * No descriptor-layout override is needed — rtw88 matches the
-	 * vendor byte-for-byte for all rate fields.
+	 * rtl8723b_cal_txdesc_chksum():
+	 *   XOR ~16 half-words, write result to W7 bits 0-15.
+	 *
+	 * The earlier vendor_txdesc debug trace showed W7=0 only
+	 * because it printed the descriptor BEFORE update_txdesc()
+	 * called the checksum function — the actual hardware descriptor
+	 * has a non-zero W7.
+	 *
+	 * Commit e39a7a36 mistakenly interpreted the pre-checksum
+	 * vendor_txdesc output as proof that W7 should be 0 for SDIO
+	 * and added the early-return.  That was wrong: the v41 firmware
+	 * on this stepping validates the W7 checksum and silently drops
+	 * frames where the XOR of the first 32 bytes does not match.
 	 */
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		return;
-
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
 	while (words--)
