@@ -1138,6 +1138,19 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
+	/*
+	 * The vendor rtl8723bs v5.2.17 driver enqueues management
+	 * frames via enqueue_pending_xmitbuf() and writes them later
+	 * through a deferred SDIO TX workqueue thread.  The vendor
+	 * enqueue→SDIO-write gap is measured at 2-5ms (vendor_enqueue
+	 * trace, logs-rtw88-617e21e7).  Insert a 3ms delay for
+	 * management frames to give the 8051 firmware time to process
+	 * any preceding H2Cs or register writes before consuming the
+	 * TX descriptor from the SDIO FIFO.
+	 */
+	if (queue == RTW_TX_QUEUE_MGMT)
+		usleep_range(2500, 3500);
+
 	ret = sdio_memcpy_toio(rtwsdio->sdio_func, txaddr, skb->data, txsize);
 
 	if (bus_claim)
