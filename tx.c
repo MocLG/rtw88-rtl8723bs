@@ -532,17 +532,20 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
 		/* Vendor v5.2.17 rtl8723b_fill_default_txdesc() sets
-		 * SPE_RPT=0 for MGNT_FRAMETAG frames sent via
-		 * dump_mgntframe() (auth, assoc, probe).  Only deauth
-		 * (via dump_mgntframe_and_wait_ack) gets SPE_RPT=1.
-		 * The vendor's W6 SW_DEFINE/sn is also 0.
-		 * Match this contract: SPE_RPT=0, SW_DEFINE/sn=0.
-		 * The host-side fake ACK in rtw_sdio_indicate_tx_status
-		 * handles the missing CCX report; it depends on
-		 * IEEE80211_TX_CTL_REQ_TX_STATUS in info->flags, not on
-		 * the descriptor SPE_RPT/SN fields.
+		 * SPE_RPT=1 for ALL MGNT_FRAMETAG frames (probe, auth,
+		 * assoc, deauth) when the '|| true' debug gate is active
+		 * — which is the build that demonstrably connects on
+		 * this hardware.  The vendor_sdio_write trace confirms
+		 * every management frame written to SDIO has W2
+		 * SPE_RPT=1.
+		 *
+		 * Match this contract: SPE_RPT=1, SW_DEFINE/sn=0.
+		 * The v41 firmware on this 8723B stepping requires
+		 * SPE_RPT=1 in the TX descriptor to schedule the
+		 * frame for air transmission, regardless of whether
+		 * the host actually waits for the CCX TX report.
 		 */
-		pkt_info->report = false;
+		pkt_info->report = true;
 		pkt_info->sn = 0;
 		return;
 	}
@@ -690,11 +693,10 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	      is_multicast_ether_addr(hdr->addr1);
 
 	/* rtw_tx_mgmt_pkt_info_update() for 8723BS SDIO sets
-	 * report=false and sn=0 matching the vendor descriptor contract
-	 * (SPE_RPT=0, W6 SW_DEFINE=0 for auth/assoc/probe).  Only deauth
-	 * via dump_mgntframe_and_wait_ack() gets SPE_RPT=1 in the vendor
-	 * driver.  Skip rtw_tx_report_enable() here for mgmt frames so
-	 * the sn stays 0. Data frames on 8723BS SDIO still go through
+	 * report=true and sn=0 matching the vendor descriptor contract
+	 * (SPE_RPT=1, W6 SW_DEFINE=0 for all MGNT_FRAMETAG frames).
+	 * Skip rtw_tx_report_enable() here for mgmt frames so the
+	 * sn stays 0. Data frames on 8723BS SDIO still go through
 	 * the normal report-enable path for CCX TX report tracking.
 	 */
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
