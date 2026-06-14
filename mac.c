@@ -967,10 +967,19 @@ static int __rtw_download_firmware_legacy(struct rtw_dev *rtwdev,
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
 		rtw_write8(rtwdev, REG_HMETFR, 0x0f);
 
-	/* reset firmware if still present */
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8703B &&
+	/* If the 8051 is already running firmware (RAM_DL_SEL set),
+	 * ask it to self-reset before downloading new firmware.
+	 * Staging's rtl8723b_FirmwareSelfReset() writes REG_HMETFR+3=0x20
+	 * to inform the 8051, then waits for the CPU to halt
+	 * (REG_SYS_FUNC_EN+1 BIT(2) cleared).  Without this the firmware
+	 * may carry stale state from a previous run that prevents
+	 * management TX scheduling.
+	 */
+	if (rtw_chip_wcpu_8051(rtwdev) &&
 	    rtw_read8_mask(rtwdev, REG_MCUFW_CTRL, BIT_RAM_DL_SEL)) {
 		rtw_write8(rtwdev, REG_MCUFW_CTRL, 0x00);
+		/* Inform 8051 to reset itself (REG_HMETFR+3 = 0x20) */
+		rtw_write8(rtwdev, REG_HMETFR + 3, 0x20);
 	}
 
 	en_download_firmware_legacy(rtwdev, true);
