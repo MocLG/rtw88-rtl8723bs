@@ -1692,9 +1692,28 @@ void rtw_coex_8723bs_send_bt_mp_oper_init(struct rtw_dev *rtwdev)
 	req.seq = 0;
 	rtw_fw_query_bt_mp_info(rtwdev, &req);
 
+	/* The vendor v5.2.17 sends these two 0x67 queries with
+	 * ~50 ms between them because the coex DM calls
+	 * rtw_coex_info_request() which blocks waiting for C2H.
+	 * On a BT-disabled board the C2H never arrives and the
+	 * call times out after ~50 ms.  Our non-blocking delivery
+	 * (rtw_fw_query_bt_mp_info) avoids the timeout but must
+	 * still give the firmware's HMEBOX pipeline time to
+	 * process the first query before the second one arrives.
+	 * Without this delay the HMEBOX overflows, firmware SDIO
+	 * RX DMA stalls, and management TX never reaches the air.
+	 */
+	msleep(50);
+
 	req.op_code = BT_MP_INFO_OP_PATCH_VER;
 	req.seq = 1;
 	rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+	/* Another ~70 ms recovery window between the second
+	 * BT_MP_OPER query and the BT_INFO query, matching the
+	 * vendor's timing.
+	 */
+	msleep(70);
 }
 
 /**
