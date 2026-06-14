@@ -123,12 +123,11 @@ query_free_page:
 #endif
 
 	{
-		u8 *pdesc = (u8 *)pxmitbuf;
+		u8 *pdesc = pxmitbuf->phead;
 		u32 *d = (u32 *)pdesc;
 		u16 fc = le16_to_cpu(*(__le16 *)(pdesc + TXDESC_SIZE));
 		u8 stype = (fc >> 4) & 0x0f;
 		u8 ftype = fc & 0x0f;
-		u8 is_mgmt = (ftype == 0); /* mgmt */
 		pr_err("vendor_sdio_write: deviceId=%u len=%u ff_hwaddr=%u pg_num=%u PageIdx=%u fc=0x%04x ftype=%u stype=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
 			deviceId, pxmitbuf->len, pxmitbuf->ff_hwaddr,
 			pxmitbuf->pg_num, PageIdx, fc, ftype, stype,
@@ -138,6 +137,7 @@ query_free_page:
 			le32_to_cpu(d[6]), le32_to_cpu(d[7]),
 			le32_to_cpu(d[8]), le32_to_cpu(d[9]));
 	}
+	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
 	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
 	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
 
