@@ -21,13 +21,12 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		/* On 8723BS SDIO, the BT-side coex init inside
-		 * rtw_power_on and rtw_coex_ips_notify switches the
-		 * chip to BT antenna path (BB_SEL_BTG=0x280), which
-		 * corrupts the RF 3-wire bus.  A simple
-		 * ensure_pta_path() / BB_SEL_BTG write is not
-		 * sufficient to restore the RF bus after the BT path
-		 * init; the next set_channel still silently fails its
-		 * RF_WLINT write and leaves RF01 at 0x781.
+		 * rtw_power_on switches the chip to the BT antenna
+		 * path (BB_SEL_BTG=0x280), which corrupts the RF
+		 * 3-wire bus.  A simple ensure_pta_path() write is
+		 * not sufficient to restore the RF bus; the next
+		 * set_channel still silently fails its RF_WLINT write
+		 * and leaves RF01 at 0x781.
 		 *
 		 * Run the same PS-TDMA / coex-table / PTA setup that
 		 * the scan path uses before set_channel, matching the
@@ -35,28 +34,28 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		 * requests (-31 dBm on air).  Skip the generic
 		 * COEX_IPS_LEAVE notify which would re-run the
 		 * BT-path init.
+		 *
+		 * Deliberately do NOT send BT_MP_OPER (0x67)
+		 * queries here.  On this 8723B SDIO stepping the
+		 * v41 firmware's RX DMA is not ready immediately
+		 * after IPS-leave power-on, and non-blocking 0x67
+		 * H2Cs produce consecutive "RX buffer appears to be
+		 * all zeros" faults that corrupt the firmware's TX
+		 * scheduler.  The vendor v5.2.17 driver sends 0x67
+		 * via a dedicated coex DM state machine that has
+		 * proper sequencing; our fire-and-forget delivery at
+		 * IPS leave is incompatible with this firmware
+		 * stepping.
+		 *
+		 * The init H2C sequence (0x6d,0x6d,0x60,0x6e,0x65,
+		 * 0x61) matches the vendor byte-for-byte and is the
+		 * only firmware-arming H2Cs known to be needed for
+		 * the management TX path.
 		 */
 		rtwdev->coex.stat.wl_under_ips = false;
 		rtw_coex_write_scbd(rtwdev,
 				    COEX_SCBD_ACTIVE | COEX_SCBD_ONOFF, true);
-		/* Vendor v5.2.17 post-scan H2C order
-		 * (confirmed by vendor_h2c trace):
-		 *   0x67 (BT_MP_OPER op=0x2b) — non-blocking
-		 *   0x67 (BT_MP_OPER op=0x00) — non-blocking
-		 *   0x61 (BT_INFO query)
-		 *   0x60 (PS_TDMA type 8) ×3
-		 *
-		 * Send the queries first (like the vendor does),
-		 * then run scan_workaround for the register-level
-		 * PTA/coex-table/CCK-priority setup which also
-		 * contributes 1× PS_TDMA H2C at the end.  Add 2
-		 * extra PS_TDMA calls to reach the vendor's 3 total.
-		 */
-		rtw_coex_8723bs_send_bt_mp_oper_init(rtwdev);
-		rtw_fw_query_bt_info(rtwdev);
 		rtw_coex_8723bs_scan_workaround(rtwdev);
-		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
-		rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 
 	} else {
 		rtw_coex_ips_notify(rtwdev, COEX_IPS_LEAVE);

@@ -1660,63 +1660,6 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 }
 
 /**
- * rtw_coex_8723bs_send_bt_mp_oper_init() - Non-blocking BT_MP_OPER queries
- * @rtwdev: rtw device
- *
- * The vendor v5.2.17 driver sends H2C 0x67 (BT_MP_OPER) queries at init
- * and between scan/connect boundaries as fire-and-forget (non-blocking)
- * H2Cs.  The vendor's EXhalbtc8723b1ant_InitHwConfig sends:
- *   0x67(op=0x2b, BT_MP_INFO_OP_SUPP_VER)
- *   0x67(op=0x00, BT_MP_INFO_OP_PATCH_VER)
- *
- * These queries initialise the firmware's internal BT/WLAN coexistence
- * state machine.  Without them the v41 firmware (rtw8723b_fw.bin) never
- * enables management TX on the air interface, even though the SDIO FIFO
- * drains and TXPKT_EMPTY=0xfff.
- *
- * NOTE: This function uses rtw_fw_query_bt_mp_info() which calls
- * rtw_fw_send_h2c_command() — a NON-BLOCKING H2C delivery.  It does NOT
- * use rtw_coex_info_request() (synchronous, blocks waiting for C2H
- * response) because the 8723B SDIO stepping does not produce C2H 0x0b
- * responses for these opcodes.  The vendor driver also sends them
- * asynchronously via its coex DM state machine.
- */
-void rtw_coex_8723bs_send_bt_mp_oper_init(struct rtw_dev *rtwdev)
-{
-	struct rtw_coex_info_req req = {0};
-
-	if (!rtw_coex_8723bs_sdio(rtwdev))
-		return;
-
-	req.op_code = BT_MP_INFO_OP_SUPP_VER;
-	req.seq = 0;
-	rtw_fw_query_bt_mp_info(rtwdev, &req);
-
-	/* The vendor v5.2.17 sends these two 0x67 queries with
-	 * ~50 ms between them because the coex DM calls
-	 * rtw_coex_info_request() which blocks waiting for C2H.
-	 * On a BT-disabled board the C2H never arrives and the
-	 * call times out after ~50 ms.  Our non-blocking delivery
-	 * (rtw_fw_query_bt_mp_info) avoids the timeout but must
-	 * still give the firmware's HMEBOX pipeline time to
-	 * process the first query before the second one arrives.
-	 * Without this delay the HMEBOX overflows, firmware SDIO
-	 * RX DMA stalls, and management TX never reaches the air.
-	 */
-	msleep(50);
-
-	req.op_code = BT_MP_INFO_OP_PATCH_VER;
-	req.seq = 1;
-	rtw_fw_query_bt_mp_info(rtwdev, &req);
-
-	/* Another ~70 ms recovery window between the second
-	 * BT_MP_OPER query and the BT_INFO query, matching the
-	 * vendor's timing.
-	 */
-	msleep(70);
-}
-
-/**
  * rtw_coex_8723bs_ensure_pta_path() - Minimal PTA antenna path for RF writes
  * @rtwdev: rtw device
  *
@@ -3214,13 +3157,16 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 			coex_stat->wl_hi_pri_task2 = true;
 
 			/*
-			 * rtw_ips_pwr_up() already sent BT_MP_OPER (0x67)
-			 * and BT_INFO (0x61) queries when waking the chip.
-			 * Sending them again here duplicates the firmware
-			 * query and wastes ~40 ms.  Only re-apply the
-			 * PTA antenna path, coex table, CCK priority,
-			 * and PS-TDMA configuration that the scan path
-			 * needs.
+			 * The vendor v5.2.17 sends 0x67 (BT_MP_OPER)
+			 * + 0x61 (BT_INFO) at scan start via its
+			 * coex DM state machine.  On this 8723B SDIO
+			 * stepping non-blocking 0x67 delivery causes
+			 * firmware RX DMA corruption ("all zeros")
+			 * unless the firmware has been running for
+			 * seconds after init.  Skip the queries and
+			 * only re-apply the PTA antenna path, coex
+			 * table, CCK priority, and PS-TDMA config
+			 * that the scan path needs.
 			 */
 			rtw_coex_8723bs_scan_workaround(rtwdev);
 		} else {
@@ -3302,10 +3248,11 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
 		if (type == COEX_ASSOCIATE_START) {
 			/* Vendor EXhalbtc8723b1ant_ConnectNotify() early-returns
-			 * on BT-disabled boards without sending H2Cs.  The
-			 * post-scan H2Cs in rtw_ips_pwr_up() already established
-			 * the firmware state.  Keep only the register-level PTA
-			 * reassertion via force_assoc_pta_ant() — no 0x60 H2C.
+			 * on BT-disabled boards without sending H2Cs.
+			 * rtw_ips_pwr_up() already ran scan_workaround which
+			 * established the PTA antenna path, coex table type 2,
+			 * CCK priority, and PS-TDMA H2C.  Keep only the
+			 * register-level PTA reassertion here.
 			 */
 			rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 		}
