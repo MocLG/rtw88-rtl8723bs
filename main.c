@@ -1893,21 +1893,22 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			rtw_coex_init_hw_config(rtwdev, wifi_only);
 			/* Vendor v5.2.17 init H2C sequence after IQK
 			 * (confirmed by vendor_h2c trace in
-			 *  logs-rtw88-23830251/test-06-staging-init.log):
+			 *  logs-rtw88-d1655033/test-06-staging-init.log):
 			 *   0x60 (PS_TDMA type 8)
 			 *   0x6E (GNT_BT = HIGH)
 			 *   0x65 (COEX_ANT_SEL_RSV)
 			 *   0x61 (BT_INFO query)
+			 *   0x60 (PS_TDMA type 8 — second time)
+			 *   0x6E (GNT_BT = LOW — release grant)
 			 *
 			 * The vendor does NOT send 0x67 (BT_MP_OPER)
 			 * during init — those are only sent during scan
-			 * and at the scan→connect boundary.  Sending 0x67
-			 * at init was a misinterpretation of the earlier
-			 * vendor trace (section 41b).  The actual trace
-			 * disproves it.
+			 * and at the scan→connect boundary.
 			 *
-			 * The vendor DOES send 0x6E (GNT_BT=HIGH) and
-			 * 0x65 (COEX_ANT_SEL_RSV) during init.
+			 * The trailing PS_TDMA + GNT_BT=LOW pair finalizes
+			 * the coex state machine.  The v41 firmware uses
+			 * this toggle sequence to enable the management
+			 * TX scheduler on the 8051.
 			 */
 			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 			    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
@@ -1916,6 +1917,9 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 				rtw_fw_set_gnt_bt(rtwdev, 1);
 				rtw_fw_coex_ant_sel_rsv(rtwdev, 0, 0);
 				rtw_fw_query_bt_info(rtwdev);
+				rtw_fw_coex_tdma_type(rtwdev, 0x08,
+						      0x00, 0x00, 0x00, 0x00);
+				rtw_fw_set_gnt_bt(rtwdev, 0);
 			}
 		}
 		/* ips_wake: skip BT-path init entirely; PTA + coex

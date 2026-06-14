@@ -20,7 +20,8 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-		/* On 8723BS SDIO, the BT-side coex init inside
+		/*
+		 * On 8723BS SDIO, the BT-side coex init inside
 		 * rtw_power_on switches the chip to the BT antenna
 		 * path (BB_SEL_BTG=0x280), which corrupts the RF
 		 * 3-wire bus.  A simple ensure_pta_path() write is
@@ -35,22 +36,14 @@ static int rtw_ips_pwr_up(struct rtw_dev *rtwdev)
 		 * COEX_IPS_LEAVE notify which would re-run the
 		 * BT-path init.
 		 *
-		 * Deliberately do NOT send BT_MP_OPER (0x67)
-		 * queries here.  On this 8723B SDIO stepping the
-		 * v41 firmware's RX DMA is not ready immediately
-		 * after IPS-leave power-on, and non-blocking 0x67
-		 * H2Cs produce consecutive "RX buffer appears to be
-		 * all zeros" faults that corrupt the firmware's TX
-		 * scheduler.  The vendor v5.2.17 driver sends 0x67
-		 * via a dedicated coex DM state machine that has
-		 * proper sequencing; our fire-and-forget delivery at
-		 * IPS leave is incompatible with this firmware
-		 * stepping.
-		 *
-		 * The init H2C sequence (0x6d,0x6d,0x60,0x6e,0x65,
-		 * 0x61) matches the vendor byte-for-byte and is the
-		 * only firmware-arming H2Cs known to be needed for
-		 * the management TX path.
+		 * When this IPS wake is for a connection attempt
+		 * (not a scan), the BT_MP_OPER (0x67) queries that
+		 * the vendor sends at the scan→connect boundary are
+		 * dispatched from rtw_ops_mgd_prepare_tx() after the
+		 * firmware RX DMA has had time to stabilize.  At IPS
+		 * leave the 8051 has just powered on and non-blocking
+		 * 0x67 delivery would produce "all zeros" RX buffer
+		 * faults that permanently break the TX scheduler.
 		 */
 		rtwdev->coex.stat.wl_under_ips = false;
 		rtw_coex_write_scbd(rtwdev,

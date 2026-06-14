@@ -635,18 +635,22 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 
 		/*
 		 * The vendor rtl8723bs v5.2.17 driver's start_clnt_join()
-		 * sends ZERO H2Cs before auth.  MACID_CFG, MEDIA_STATUS_RPT,
-		 * beacon template, RSVD_PAGE loc, and WL_CH_INFO are only
-		 * sent by mlmeext_joinbss_event_callback AFTER association
-		 * succeeds.  Sending MEDIA_STATUS_RPT(connect=true) pre-auth
-		 * tells the v41 firmware "media connected" when no connection
-		 * exists, and sending RSVD_PAGE loc without valid page
-		 * content may trigger firmware-internal BCN queue state
-		 * that blocks management TX.
+		 * sends MACID_CFG (0x40), MEDIA_STATUS_RPT (0x01), RSVD_PAGE
+		 * loc (0x00), and WL_CH_INFO (0x66) ONLY from
+		 * mlmeext_joinbss_event_callback AFTER association succeeds.
+		 * Sending MEDIA_STATUS_RPT(connect=true) pre-auth tells the
+		 * v41 firmware "media connected" when no connection exists.
+		 *
+		 * The vendor DOES send BT_MP_OPER (0x67) + BT_INFO (0x61) +
+		 * PS_TDMA (0x60) queries at the scan→connect boundary before
+		 * auth (confirmed by vendor_h2c trace, test-06-staging-dmesg.log).
+		 * These coexist queries are handled by rtw_ops_mgd_prepare_tx()
+		 * before this function runs.
 		 *
 		 * Our post-assoc path (rtw_ops_bss_info_changed →
-		 * rtw_vif_assoc_changed) already handles all of these after
-		 * BSS_CHANGED_ASSOC fires, matching the vendor's flow.
+		 * rtw_vif_assoc_changed) handles MACID_CFG, MEDIA_STATUS_RPT,
+		 * RSVD_PAGE, and WL_CH_INFO after BSS_CHANGED_ASSOC fires,
+		 * matching the vendor's flow.
 		 */
 
 		/* Wait for a beacon from the target BSSID before auth,
@@ -1520,12 +1524,52 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 	 * the scan_workaround PTA setup there already handle the
 	 * post-IPS RF bus recovery.  No extra channel re-apply or
 	 * connect_notify is needed here for 8723BS SDIO.
+	 *
+	 * The vendor v5.2.17 sends BT_MP_OPER (0x67) + BT_INFO (0x61)
+	 * queries at the scan→connect boundary (confirmed by
+	 * vendor_h2c trace in test-06-staging-dmesg.log).  The vendor
+	 * has no IPS cycle between scan and connect, so the firmware
+	 * has been awake for ~17s when these queries arrive.
+	 *
+	 * For 8723BS SDIO we enter IPS between scan and connect.  After
+	 * IPS leave the 8051 firmware's RX DMA needs ~200 ms to
+	 * stabilize before it can handle C2H responses to H2C queries.
+	 * We send the 0x67 + 0x61 queries here (after the IPS wake
+	 * chain has settled) and insert a short sleep to give the
+	 * firmware time.  The scan_workaround in rtw_ips_pwr_up has
+	 * already sent one 0x60 (PS_TDMA type 8); we send two more
+	 * here to match the vendor's 3× 0x60 at this boundary.
 	 */
 	rfk_pending = rtwdev->need_rfk;
 	if (!rtw8723bs_sdio(rtwdev) &&
 	    !rtw8723bs_mgd_prepare_skip_fresh_rfk(rtwdev, rfk_pending))
 		rtw_chip_prepare_tx(rtwdev);
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 14, 0)
+	if (rtw8723bs_sdio(rtwdev) &&
+	    vif->type == NL80211_IFTYPE_STATION) {
+		struct rtw_coex_info_req req;
+
+		msleep(100);
+		req.seq = 0x0e;
+		req.op_code = BT_MP_INFO_OP_SUPP_VER;
+		req.para1 = 0;
+		req.para2 = 0;
+		req.para3 = 0;
+		rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+		req.seq = 0x0f;
+		req.op_code = BT_MP_INFO_OP_PATCH_VER;
+		req.para1 = 0;
+		req.para2 = 0;
+		req.para3 = 0;
+		rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+		rtw_fw_query_bt_info(rtwdev);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08,
+				      0x00, 0x00, 0x00, 0x00);
+		rtw_fw_coex_tdma_type(rtwdev, 0x08,
+				      0x00, 0x00, 0x00, 0x00);
+	}
 	rtw8723bs_mgd_prepare_auth_join(rtwdev, vif, info);
 #endif
 out:

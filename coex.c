@@ -3158,16 +3158,41 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 
 			/*
 			 * The vendor v5.2.17 sends 0x67 (BT_MP_OPER)
-			 * + 0x61 (BT_INFO) at scan start via its
-			 * coex DM state machine.  On this 8723B SDIO
-			 * stepping non-blocking 0x67 delivery causes
-			 * firmware RX DMA corruption ("all zeros")
-			 * unless the firmware has been running for
-			 * seconds after init.  Skip the queries and
-			 * only re-apply the PTA antenna path, coex
-			 * table, CCK priority, and PS-TDMA config
-			 * that the scan path needs.
+			 * + 0x60 (PS_TDMA) + 0x61 (BT_INFO) at scan
+			 * start via its coex DM state machine.
+			 *
+			 * At scan start the firmware has been running
+			 * for ~15s since init, so its RX DMA is stable
+			 * and can accept fire-and-forget H2C queries
+			 * without corrupting C2H responses.  This is
+			 * different from the IPS-leave case (where the
+			 * firmware has just powered up and RX DMA is
+			 * not ready).
+			 *
+			 * Previous attempts (356e6b4, 6b4bf48, 30217380)
+			 * also delivered 0x67 at IPS leave, which
+			 * produced "all zeros" RX buffer faults.  The
+			 * scan-start-only delivery avoids that.
 			 */
+			{
+				struct rtw_coex_info_req req;
+
+				req.seq = 0x0c;
+				req.op_code = BT_MP_INFO_OP_SUPP_VER;
+				req.para1 = 0;
+				req.para2 = 0;
+				req.para3 = 0;
+				rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+				req.seq = 0x0d;
+				req.op_code = BT_MP_INFO_OP_PATCH_VER;
+				req.para1 = 0;
+				req.para2 = 0;
+				req.para3 = 0;
+				rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+				rtw_fw_query_bt_info(rtwdev);
+			}
 			rtw_coex_8723bs_scan_workaround(rtwdev);
 		} else {
 			coex_stat->wl_hi_pri_task2 = false;
