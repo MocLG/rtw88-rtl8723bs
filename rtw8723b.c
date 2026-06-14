@@ -1728,11 +1728,12 @@ static void rtw8723b_init_burst_pkt_len(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_antenna_selection(struct rtw_dev *rtwdev)
 {
-	/* Let 8051 take control antenna settting.  Staging writes BIT(7)
-	 * only; WLAN_ANT_SEL (0x82) also sets BIT(1) which is part of
-	 * LED2_CM and is not part of the antenna-control contract.
+	/* Let 8051 take control antenna setting.  Vendor v5.2.17 writes
+	 * REG_LEDCFG2 = 0x82 (BIT(7) | BIT(1)).  BIT(7) enables the 8051
+	 * to control antenna selection; BIT(1) is LED2_CM which the vendor
+	 * driver also sets at init.
 	 */
-	rtw_write8(rtwdev, REG_LEDCFG2, BIT(7));
+	rtw_write8(rtwdev, REG_LEDCFG2, BIT(7) | BIT(1));
 }
 
 #define RF_AC	0x00

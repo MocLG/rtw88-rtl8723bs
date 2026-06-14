@@ -532,16 +532,17 @@ static void rtw_tx_mgmt_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->data_retry_limit = 6;
 		pkt_info->disable_data_rate_fb_limit = true;
 		/* Vendor v5.2.17 rtl8723b_fill_default_txdesc() sets
-		 * SPE_RPT=1 for ALL MGNT_FRAMETAG frames (probe, auth,
-		 * assoc, deauth) with W6 SW_DEFINE/sn=0.  Match this
-		 * contract explicitly: report=1 so the 8051 firmware
-		 * knows to track and transmit the frame, but sn=0 so
-		 * the firmware does not try to match a non-zero CCX
-		 * report sequence number on this stepping.
-		 * rtw_tx_pkt_info_update() skips rtw_tx_report_enable()
-		 * for 8723BS SDIO mgmt frames, so the sn stays 0.
+		 * SPE_RPT=0 for MGNT_FRAMETAG frames sent via
+		 * dump_mgntframe() (auth, assoc, probe).  Only deauth
+		 * (via dump_mgntframe_and_wait_ack) gets SPE_RPT=1.
+		 * The vendor's W6 SW_DEFINE/sn is also 0.
+		 * Match this contract: SPE_RPT=0, SW_DEFINE/sn=0.
+		 * The host-side fake ACK in rtw_sdio_indicate_tx_status
+		 * handles the missing CCX report; it depends on
+		 * IEEE80211_TX_CTL_REQ_TX_STATUS in info->flags, not on
+		 * the descriptor SPE_RPT/SN fields.
 		 */
-		pkt_info->report = true;
+		pkt_info->report = false;
 		pkt_info->sn = 0;
 		return;
 	}
@@ -688,12 +689,13 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 	bmc = is_broadcast_ether_addr(hdr->addr1) ||
 	      is_multicast_ether_addr(hdr->addr1);
 
-	/* rtw_tx_mgmt_pkt_info_update() for 8723BS SDIO already sets
-	 * report=1 and sn=0 matching the vendor descriptor contract
-	 * (SPE_RPT=1, W6 SW_DEFINE=0). Skip rtw_tx_report_enable()
-	 * here for mgmt frames so the sn stays 0. Data frames on
-	 * 8723BS SDIO still go through the normal report-enable path
-	 * for CCX TX report tracking.
+	/* rtw_tx_mgmt_pkt_info_update() for 8723BS SDIO sets
+	 * report=false and sn=0 matching the vendor descriptor contract
+	 * (SPE_RPT=0, W6 SW_DEFINE=0 for auth/assoc/probe).  Only deauth
+	 * via dump_mgntframe_and_wait_ack() gets SPE_RPT=1 in the vendor
+	 * driver.  Skip rtw_tx_report_enable() here for mgmt frames so
+	 * the sn stays 0. Data frames on 8723BS SDIO still go through
+	 * the normal report-enable path for CCX TX report tracking.
 	 */
 	if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS &&
 	    !(chip->id == RTW_CHIP_TYPE_8723B &&
