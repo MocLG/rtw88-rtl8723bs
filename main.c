@@ -1812,22 +1812,6 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		goto err;
 	}
 
-	/*
-	 * The vendor rtl8723bs v5.2.17 driver writes
-	 * REG_EARLY_MODE_CONTROL (0x04D0) = 0 BEFORE firmware
-	 * download (sdio_halinit.c:879, between _InitPowerOn_8723BS
-	 * and rtl8723b_FirmwareDownload).  The 8051 firmware reads
-	 * this register during boot; if it sees the ROM default
-	 * (non-zero), the firmware initialises its management TX
-	 * scheduler into a permanently disabled state.  Writing it
-	 * after firmware download (as we previously did in
-	 * rtw8723b_post_enable_flow) is too late — the firmware
-	 * has already decided its management TX policy.
-	 */
-	if (chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
-
 	ret = rtw_wait_firmware_completion(rtwdev);
 	if (ret) {
 		rtw_err(rtwdev, "failed to wait firmware completion\n");
