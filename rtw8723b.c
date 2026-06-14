@@ -97,7 +97,7 @@
 #define REG_B_RXIQI			0x0c1c
 
 #define REG_NAV_UPPER			0x0652
-#define REG_EARLY_MODE_CONTROL_8723B	0x04D0
+/* REG_EARLY_MODE_CONTROL for 8723B is now in reg.h */
 
 /* TODO: check if these or equivalent are present in rtw88 */
 #define BCNQ_PAGE_NUM_8723B     	0x08
