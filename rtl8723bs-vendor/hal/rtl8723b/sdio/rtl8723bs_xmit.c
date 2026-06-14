@@ -138,8 +138,6 @@ query_free_page:
 			le32_to_cpu(d[8]), le32_to_cpu(d[9]));
 	}
 	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
-	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
-	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
 
 	rtw_hal_sdio_update_tx_freepage(padapter, PageIdx, pxmitbuf->pg_num);
 
@@ -587,8 +585,12 @@ s32 rtl8723bs_mgnt_xmit(PADAPTER padapter, struct xmit_frame *pmgntframe)
 			rtw_sctx_done_err(&pxmitbuf->sctx, RTW_SCTX_DONE_WRITE_PORT_ERR);
 
 		rtw_free_xmitbuf(pxmitpriv, pxmitbuf);
-	} else
+	} else {
+		u16 fc = le16_to_cpu(*(__le16 *)pframe);
+		pr_err("vendor_enqueue: fc=0x%04x len=%u jiffies=%lu\n",
+			fc, pxmitbuf->len, jiffies);
 		enqueue_pending_xmitbuf(pxmitpriv, pxmitbuf);
+	}
 
 	return ret;
 }
