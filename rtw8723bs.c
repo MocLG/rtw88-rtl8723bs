@@ -9,11 +9,6 @@
 #include "rtw8723b.h"
 #include "sdio.h"
 
-bool rtw_warm_start;
-EXPORT_SYMBOL(rtw_warm_start);
-module_param_named(warm_start, rtw_warm_start, bool, 0644);
-MODULE_PARM_DESC(warm_start, "Skip chip init, take over already-running firmware");
-
 static const struct sdio_device_id rtw_8723bs_id_table[] = {
 	{
 		SDIO_DEVICE(SDIO_VENDOR_ID_REALTEK,

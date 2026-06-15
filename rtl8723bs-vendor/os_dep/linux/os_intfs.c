@@ -765,7 +765,7 @@ uint rtw_wakeup_event = RTW_WAKEUP_EVENT;
 module_param(rtw_wakeup_event, uint, 0644);
 #endif
 
-module_param(rtw_keep_alive, int, 0644);
+module_param_named(keep_alive, rtw_keep_alive, int, 0644);
 MODULE_PARM_DESC(rtw_keep_alive, "Keep chip alive on rmmod for warm takeover");
 
 void rtw_regsty_load_target_tx_power(struct registry_priv *regsty)

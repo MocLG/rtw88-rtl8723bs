@@ -28,6 +28,8 @@
 
 bool rtw_disable_lps_deep_mode;
 EXPORT_SYMBOL(rtw_disable_lps_deep_mode);
+bool rtw_warm_start;
+EXPORT_SYMBOL(rtw_warm_start);
 bool rtw_bf_support = true;
 unsigned int rtw_debug_mask;
 EXPORT_SYMBOL(rtw_debug_mask);
@@ -41,6 +43,8 @@ EXPORT_SYMBOL(rtw_debug_mask);
 bool rtw_edcca_enabled = true;
 
 module_param_named(disable_lps_deep, rtw_disable_lps_deep_mode, bool, 0644);
+module_param_named(warm_start, rtw_warm_start, bool, 0644);
+MODULE_PARM_DESC(warm_start, "Skip chip init, take over already-running firmware");
 module_param_named(support_bf, rtw_bf_support, bool, 0644);
 module_param_named(debug_mask, rtw_debug_mask, uint, 0644);
 

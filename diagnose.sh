@@ -148,7 +148,7 @@ load_rtw88_stack() {
             echo "ERROR: built module missing: $ko"
             return 1
         fi
-        if [ -n "$warm" ] && [ "$count" -eq "$total" ]; then
+        if [ -n "$warm" ] && [ "$count" -eq 1 ]; then
             insmod "$ko" warm_start=1
         else
             insmod "$ko"
