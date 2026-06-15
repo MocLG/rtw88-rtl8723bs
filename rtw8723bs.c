@@ -10,6 +10,7 @@
 #include "sdio.h"
 
 bool rtw_warm_start;
+EXPORT_SYMBOL(rtw_warm_start);
 module_param_named(warm_start, rtw_warm_start, bool, 0644);
 MODULE_PARM_DESC(warm_start, "Skip chip init, take over already-running firmware");
 
