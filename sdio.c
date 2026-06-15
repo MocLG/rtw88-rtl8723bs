@@ -1034,18 +1034,42 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	static int scan_tx_port_count;
 	unsigned int orig_len = skb->len;
-	unsigned int pad_len;
 	bool bus_claim;
 	size_t txsize;
 	u32 txaddr;
+	u8 page_idx;
+	unsigned int pages_used;
 	int ret;
 
-	txaddr = rtw_sdio_get_tx_addr(rtwdev, orig_len, queue);
+	/*
+	 * Match the vendor rtl8723bs v5.2.17 driver's sdio_write_port():
+	 * round the transfer size to a 4-byte boundary and use that
+	 * SAME rounded value for both the CMD53 address dword-count
+	 * and the actual sdio_memcpy_toio transfer.  The vendor never
+	 * uses sdio_align_size for TX FIFO writes.
+	 */
+	txsize = round_up(orig_len, 4);
+
+	/* Ensure the skb has enough tailroom for the 4-byte-rounded write.
+	 * Without this, sdio_memcpy_toio would read past skb->tail if the
+	 * original length wasn't a multiple of 4.
+	 */
+	if (txsize > orig_len) {
+		unsigned int pad_needed = txsize - orig_len;
+
+		if (skb_tailroom(skb) < pad_needed) {
+			ret = pskb_expand_head(skb, 0,
+					       pad_needed - skb_tailroom(skb),
+					       GFP_KERNEL);
+			if (ret)
+				return ret;
+		}
+		skb_put_zero(skb, pad_needed);
+	}
+
+	txaddr = rtw_sdio_get_tx_addr(rtwdev, txsize, queue);
 	if (!txaddr)
 		return -EINVAL;
-
-	txsize = sdio_align_size(rtwsdio->sdio_func, orig_len);
-	pad_len = txsize - orig_len;
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
 	if (ret) {
@@ -1080,25 +1104,17 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		return ret;
 	}
 
-	if (pad_len) {
-		unsigned int tailroom = skb_tailroom(skb);
-
-		if (pad_len > tailroom) {
-			ret = pskb_expand_head(skb, 0, pad_len - tailroom,
-					       GFP_KERNEL);
-			if (ret)
-				return ret;
-		}
-
-		skb_put_zero(skb, pad_len);
-	}
+	/*
+	 * The vendor driver does NOT insert any sleep between
+	 * claiming the host and the CMD53 write.  Do not pause
+	 * here — a usleep with the host claimed blocks SDIO
+	 * interrupts and can stall the firmware's internal
+	 * command / C2H pipeline.
+	 */
 
 	ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
-
-		if (pad_len)
-			skb_trim(skb, orig_len);
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
@@ -1133,31 +1149,65 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		rtw_warn(rtwdev, "Got unaligned SKB in %s() for queue %u\n",
 			 __func__, queue);
 
+	/* Determine which page pool this queue uses so we can update
+	 * the SW free-page counter after a successful write, matching
+	 * the vendor's rtw_hal_sdio_update_tx_freepage().
+	 */
+	pages_used = DIV_ROUND_UP(txsize, rtwdev->chip->page_size);
+	page_idx = 0;
+	switch (queue) {
+	case RTW_TX_QUEUE_BCN:
+	case RTW_TX_QUEUE_H2C:
+	case RTW_TX_QUEUE_HI0:
+	case RTW_TX_QUEUE_MGMT:
+		page_idx = 0;	/* high = byte 0 */
+		break;
+	case RTW_TX_QUEUE_VO:
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+			break;	/* 8723B VO also uses high */
+		page_idx = 1;	/* normal */
+		break;
+	case RTW_TX_QUEUE_VI:
+		page_idx = 1;	/* normal = byte 1 */
+		break;
+	case RTW_TX_QUEUE_BE:
+	case RTW_TX_QUEUE_BK:
+		page_idx = 2;	/* low = byte 2 */
+		break;
+	}
+
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
-
-	/*
-	 * The vendor rtl8723bs v5.2.17 driver enqueues management
-	 * frames via enqueue_pending_xmitbuf() and writes them later
-	 * through a deferred SDIO TX workqueue thread.  The vendor
-	 * enqueue→SDIO-write gap is measured at 2-5ms (vendor_enqueue
-	 * trace, logs-rtw88-617e21e7).  Insert a 3ms delay for
-	 * management frames to give the 8051 firmware time to process
-	 * any preceding H2Cs or register writes before consuming the
-	 * TX descriptor from the SDIO FIFO.
-	 */
-	if (queue == RTW_TX_QUEUE_MGMT)
-		usleep_range(2500, 3500);
 
 	ret = sdio_memcpy_toio(rtwsdio->sdio_func, txaddr, skb->data, txsize);
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
 
-	if (pad_len)
-		skb_trim(skb, orig_len);
+	/* Update SW free-page counters after a successful write,
+	 * matching the vendor's rtw_hal_sdio_update_tx_freepage().
+	 */
+	if (!ret && rtw_chip_wcpu_8051(rtwdev)) {
+		switch (page_idx) {
+		case 1:
+			atomic_sub(min(pages_used,
+				       (unsigned int)atomic_read(&rtwsdio->free_pg_normal)),
+				   &rtwsdio->free_pg_normal);
+			break;
+		case 2:
+			atomic_sub(min(pages_used,
+				       (unsigned int)atomic_read(&rtwsdio->free_pg_low)),
+				   &rtwsdio->free_pg_low);
+			break;
+		default:
+			atomic_sub(min(pages_used,
+				       (unsigned int)atomic_read(&rtwsdio->free_pg_high)),
+				   &rtwsdio->free_pg_high);
+			break;
+		}
+	}
 
 	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
 		scan_tx_port_count++;
