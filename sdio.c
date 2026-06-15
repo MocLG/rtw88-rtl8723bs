@@ -2239,10 +2239,41 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		goto err_sdio_declaim;
 	}
 
-	ret = rtw_chip_info_setup(rtwdev);
-	if (ret) {
-		rtw_err(rtwdev, "failed to setup chip information");
-		goto err_destroy_txwq;
+	if (rtw_warm_start) {
+		/*
+		 * Warm takeover: the vendor driver already powered
+		 * the chip and loaded firmware.  Skip the full efuse
+		 * power-on sequence (which would reset the chip) and
+		 * read the MAC address directly from the running
+		 * chip's MAC ID register.
+		 */
+		struct rtw_efuse *efuse = &rtwdev->efuse;
+		int i;
+
+		pr_err("warm_start: skipping chip_info_setup, reading MAC from running chip\n");
+
+		/* Read MAC address from REG_MACID (0x0610 per vendor spec) */
+		for (i = 0; i < ETH_ALEN; i++)
+			efuse->addr[i] = rtw_read8(rtwdev, 0x0610 + i);
+
+		/* Minimal efuse defaults matching our test board */
+		efuse->btcoex = 1;
+		efuse->rfe_option = 0;
+		efuse->bt_setting = 0x11;
+		efuse->crystal_cap = 0x20;
+		efuse->hw_cap.bw = 0;  /* 20 MHz only */
+		efuse->hw_cap.hci = RTW_HCI_TYPE_SDIO;
+		efuse->hw_cap.nss = 1;
+		efuse->hw_cap.ptcl = 0;
+		efuse->hw_cap.ant_num = 1;
+		rtwdev->hal.rf_path_num = 1;
+		rtwdev->hal.rfe_type = 0;
+	} else {
+		ret = rtw_chip_info_setup(rtwdev);
+		if (ret) {
+			rtw_err(rtwdev, "failed to setup chip information");
+			goto err_destroy_txwq;
+		}
 	}
 
 	ret = rtw_sdio_request_irq(rtwdev, sdio_func);

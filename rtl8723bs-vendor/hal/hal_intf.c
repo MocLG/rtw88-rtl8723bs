@@ -178,7 +178,15 @@ u32 rtw_hal_power_on(_adapter *padapter)
 }
 void rtw_hal_power_off(_adapter *padapter)
 {
-	struct macid_ctl_t *macid_ctl = &padapter->dvobj->macid_ctl;
+	struct macid_ctl_t *macid_ctl;
+	extern int rtw_keep_alive;
+
+	if (rtw_keep_alive) {
+		pr_err("vendor: keep_alive=1, skipping hal_power_off\n");
+		return;
+	}
+
+	macid_ctl = &padapter->dvobj->macid_ctl;
 
 	_rtw_memset(macid_ctl->h2c_msr, 0, MACID_NUM_SW_LIMIT);
 

@@ -385,7 +385,13 @@ static void sdio_deinit(struct dvobj_priv *dvobj)
 	struct sdio_func *func;
 	int err;
 
+	extern int rtw_keep_alive;
 
+
+	if (rtw_keep_alive) {
+		pr_err("vendor: keep_alive=1, skipping sdio_disable_func\n");
+		return;
+	}
 
 	func = dvobj->intf_data.func;
 
@@ -912,7 +918,7 @@ static void rtw_dev_remove(struct sdio_func *func)
 	struct dvobj_priv *dvobj = sdio_get_drvdata(func);
 	struct pwrctrl_priv *pwrctl = dvobj_to_pwrctl(dvobj);
 	PADAPTER padapter = dvobj_get_primary_adapter(dvobj);
-
+	extern int rtw_keep_alive;
 
 
 	dvobj->processing_dev_remove = _TRUE;
@@ -956,6 +962,10 @@ static void rtw_dev_remove(struct sdio_func *func)
 #endif
 	rtw_btcoex_HaltNotify(padapter);
 #endif
+
+	if (rtw_keep_alive) {
+		pr_err("vendor: keep_alive=1, skipping power-off but letting Linux cleanup run\n");
+	}
 
 	rtw_sdio_primary_adapter_deinit(padapter);
 

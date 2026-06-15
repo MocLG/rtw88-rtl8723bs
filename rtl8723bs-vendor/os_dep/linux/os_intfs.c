@@ -297,6 +297,7 @@ int rtw_bt_ampdu = 1 ; /* 0:Disable BT control A-MPDU, 1:Enable BT control A-MPD
 
 int rtw_AcceptAddbaReq = _TRUE;/* 0:Reject AP's Add BA req, 1:Accept AP's Add BA req. */
 
+int rtw_keep_alive;
 int rtw_antdiv_cfg = 2; /* 0:OFF , 1:ON, 2:decide by Efuse config */
 int rtw_antdiv_type = 0
 	; /* 0:decide by efuse  1: for 88EE, 1Tx and 1RxCG are diversity.(2 Ant with SPDT), 2:  for 88EE, 1Tx and 2Rx are diversity.( 2 Ant, Tx and RxCG are both on aux port, RxCS is on main port ), 3: for 88EE, 1Tx and 1RxCG are fixed.(1Ant, Tx and RxCG are both on aux port) */
@@ -763,6 +764,9 @@ module_param(rtw_fw_param_init, int, 0644);
 uint rtw_wakeup_event = RTW_WAKEUP_EVENT;
 module_param(rtw_wakeup_event, uint, 0644);
 #endif
+
+module_param(rtw_keep_alive, int, 0644);
+MODULE_PARM_DESC(rtw_keep_alive, "Keep chip alive on rmmod for warm takeover");
 
 void rtw_regsty_load_target_tx_power(struct registry_priv *regsty)
 {

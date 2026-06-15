@@ -1164,6 +1164,13 @@ static void CardDisableRTL8723BSdio(PADAPTER padapter)
 	u8		bMacPwrCtrlOn;
 	u8		ret = _FAIL;
 
+	extern int rtw_keep_alive;
+
+	if (rtw_keep_alive) {
+		pr_err("vendor: keep_alive=1, skipping CardDisable\n");
+		return;
+	}
+
 	/* Run LPS WL RFOFF flow */
 	ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, rtl8723B_enter_lps_flow);
 	if (ret == _FAIL)

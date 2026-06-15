@@ -1799,6 +1799,32 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 	bool wifi_only;
 	int ret;
 
+	if (rtw_warm_start) {
+		/*
+		 * Warm takeover: vendor driver already loaded firmware,
+		 * configured MAC/PHY/RF/coex.  Just set up the HCI
+		 * and report the chip as ready.
+		 */
+		pr_err("warm_start: skipping firmware download and chip init\n");
+
+		ret = rtw_hci_setup(rtwdev);
+		if (ret) {
+			rtw_err(rtwdev, "warm_start: failed to setup hci\n");
+			goto err;
+		}
+
+		ret = rtw_hci_start(rtwdev);
+		if (ret) {
+			rtw_err(rtwdev, "warm_start: failed to start hci\n");
+			goto err;
+		}
+
+		set_bit(RTW_FLAG_FW_RUNNING, rtwdev->flags);
+
+		pr_err("warm_start: takeover complete, chip running with vendor init\n");
+		return 0;
+	}
+
 	ret = rtw_hci_setup(rtwdev);
 	if (ret) {
 		rtw_err(rtwdev, "failed to setup hci\n");
@@ -2177,6 +2203,10 @@ int rtw_core_start(struct rtw_dev *rtwdev)
 
 void rtw_power_off(struct rtw_dev *rtwdev)
 {
+	if (rtw_warm_start) {
+		rtw_hci_stop(rtwdev);
+		return;
+	}
 	rtw_hci_stop(rtwdev);
 	rtw_coex_power_off_setting(rtwdev);
 	rtw_mac_power_off(rtwdev);
