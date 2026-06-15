@@ -1162,6 +1162,7 @@ void rtw_phy_setup_phy_cond(struct rtw_dev *rtwdev, u32 pkg)
 	rtw_dbg(rtwdev, RTW_DBG_PHY, "phy cond=0x%08x cond2=0x%08x\n",
 		*((u32 *)&hal->phy_cond), *((u32 *)&hal->phy_cond2));
 }
+EXPORT_SYMBOL(rtw_phy_setup_phy_cond);
 
 static bool check_positive(struct rtw_dev *rtwdev, struct rtw_phy_cond cond,
 			   struct rtw_phy_cond2 cond2)
@@ -2428,6 +2429,7 @@ void rtw_phy_tx_power_by_rate_config(struct rtw_hal *hal)
 			rtw_phy_tx_power_by_rate_config_by_path(hal, path, rs,
 				rtw_rate_size[rs], rtw_rate_section[rs]);
 }
+EXPORT_SYMBOL(rtw_phy_tx_power_by_rate_config);
 
 static void
 __rtw_phy_tx_power_limit_config(struct rtw_hal *hal, u8 regd, u8 bw, u8 rs)
@@ -2458,6 +2460,7 @@ void rtw_phy_tx_power_limit_config(struct rtw_hal *hal)
 			for (rs = 0; rs < RTW_RATE_SECTION_NUM; rs++)
 				__rtw_phy_tx_power_limit_config(hal, regd, bw, rs);
 }
+EXPORT_SYMBOL(rtw_phy_tx_power_limit_config);
 
 static void rtw_phy_init_tx_power_limit(struct rtw_dev *rtwdev,
 					u8 regd, u8 bw, u8 rs)
@@ -2495,6 +2498,7 @@ void rtw_phy_init_tx_power(struct rtw_dev *rtwdev)
 				rtw_phy_init_tx_power_limit(rtwdev, regd, bw,
 							    rs);
 }
+EXPORT_SYMBOL(rtw_phy_init_tx_power);
 
 void rtw_phy_config_swing_table(struct rtw_dev *rtwdev,
 				struct rtw_swing_table *swing_table)
