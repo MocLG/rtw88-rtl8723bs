@@ -472,7 +472,6 @@ make -j"$(nproc)" KVER="$RUNNING_KVER" > "$OUTDIR/test-00-build-rtw88.log" 2>&1 
     echo "ERROR: rtw88 build failed; see $OUTDIR/test-00-build-rtw88.log"
     exit 1
 }
-depmod -a "$RUNNING_KVER" 2>/dev/null || true
 
 # Build vendor (force rebuild to get keep_alive support)
 echo "Building vendor (with keep_alive support)..."
@@ -495,7 +494,7 @@ echo "Vendor .ko: $VENDOR_KO"
 MOD_EXTRA="/lib/modules/$RUNNING_KVER/extra"
 mkdir -p "$MOD_EXTRA"
 ln -sf "$VENDOR_KO" "$MOD_EXTRA/8723bs.ko"
-depmod -a "$RUNNING_KVER"
+depmod -a "$RUNNING_KVER" 2>/dev/null || true
 
 echo "Build complete."
 echo ""
@@ -510,9 +509,12 @@ BEFORE_VENDOR=$(list_managed_ifaces || true)
 
 echo "+ modprobe 8723bs keep_alive=1"
 if ! modprobe 8723bs keep_alive=1 2>&1; then
-    echo "ERROR: vendor failed to load"
-    dmesg > "$OUTDIR/test-01-vendor-load.log"
-    exit 1
+    echo "modprobe failed, trying insmod directly..."
+    if ! insmod "$VENDOR_KO" keep_alive=1 2>&1; then
+        echo "ERROR: vendor failed to load (both modprobe and insmod)"
+        dmesg > "$OUTDIR/test-01-vendor-load.log"
+        exit 1
+    fi
 fi
 sleep 6
 dmesg > "$OUTDIR/test-01-vendor-load.log"
