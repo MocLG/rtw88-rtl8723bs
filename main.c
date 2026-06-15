@@ -1827,9 +1827,10 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 			struct rtw_sdio *rtwsdio =
 				(struct rtw_sdio *)rtwdev->priv;
-			u32 free_txpg = rtw_read32(rtwdev,
-						   REG_SDIO_FREE_TXPG);
+			u32 free_txpg, stale;
 
+			free_txpg = rtw_read32(rtwdev,
+					       REG_SDIO_FREE_TXPG);
 			if (free_txpg != 0) {
 				atomic_set(&rtwsdio->free_pg_high,
 					   free_txpg & 0xff);
@@ -1840,6 +1841,25 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 				atomic_set(&rtwsdio->free_pg_pub,
 					   (free_txpg >> 24) & 0xff);
 			}
+
+			/* Drain stale HISR bits so a pending vendor
+			 * interrupt doesn't fire the ISR with zero-
+			 * length buffers.
+			 */
+			stale = rtw_read32(rtwdev, REG_SDIO_HISR);
+			if (stale)
+				rtw_write32(rtwdev, REG_SDIO_HISR,
+					    stale);
+
+			/* Claim the Linux IRQ (deferred from probe) */
+			ret = rtw_sdio_request_irq(rtwdev,
+						   rtwsdio->sdio_func);
+			if (ret) {
+				rtw_err(rtwdev,
+					"warm_start: IRQ claim failed\n");
+				goto err;
+			}
+
 			rtw_write32(rtwdev, REG_SDIO_HIMR,
 				    rtwsdio->irq_mask);
 		}

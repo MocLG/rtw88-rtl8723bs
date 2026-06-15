@@ -1992,7 +1992,7 @@ static const struct rtw_hci_ops rtw_sdio_ops = {
 	.write_data_h2c = rtw_sdio_write_data_h2c,
 };
 
-static int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
+int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
 				struct sdio_func *sdio_func)
 {
 	int ret;
@@ -2311,9 +2311,11 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		}
 	}
 
-	ret = rtw_sdio_request_irq(rtwdev, sdio_func);
-	if (ret)
-		goto err_destroy_txwq;
+	if (!rtw_warm_start) {
+		ret = rtw_sdio_request_irq(rtwdev, sdio_func);
+		if (ret)
+			goto err_destroy_txwq;
+	}
 
 	ret = rtw_register_hw(rtwdev, hw);
 	if (ret) {

@@ -187,6 +187,8 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		   const struct sdio_device_id *id);
 void rtw_sdio_remove(struct sdio_func *sdio_func);
 void rtw_sdio_shutdown(struct device *dev);
+int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
+			 struct sdio_func *sdio_func);
 
 static inline bool rtw_sdio_is_sdio30_supported(struct rtw_dev *rtwdev)
 {
