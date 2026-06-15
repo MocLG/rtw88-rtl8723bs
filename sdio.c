@@ -899,58 +899,82 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	unsigned int pages_free, pages_needed;
 
+	pages_needed = DIV_ROUND_UP(count, rtwdev->chip->page_size);
+
 	if (rtw_chip_wcpu_8051(rtwdev)) {
-		u32 free_txpg;
+		int dedicated;
 
-		free_txpg = rtw_sdio_read32(rtwdev, REG_SDIO_FREE_TXPG);
-
-		/* If HW reports valid counts, update SW counters and use
-		 * them.  Otherwise fall back to the current SW values
-		 * (seeded at init time from the page table).
+		/*
+		 * Check the local SW cache first, matching the vendor's
+		 * rtw_hal_sdio_query_tx_freepage().  Only re-sync from
+		 * the hardware register when the cache indicates
+		 * insufficient pages.  Reading REG_SDIO_FREE_TXPG on
+		 * every TX can reset the firmware's internal free-page
+		 * accumulator on some 8051 steppings.
 		 */
-		if (free_txpg != 0) {
-			atomic_set(&rtwsdio->free_pg_high,
-				   free_txpg & 0xff);
-			atomic_set(&rtwsdio->free_pg_normal,
-				   (free_txpg >> 8) & 0xff);
-			atomic_set(&rtwsdio->free_pg_low,
-				   (free_txpg >> 16) & 0xff);
-			atomic_set(&rtwsdio->free_pg_pub,
-				   (free_txpg >> 24) & 0xff);
+		switch (queue) {
+		case RTW_TX_QUEUE_BCN:
+		case RTW_TX_QUEUE_H2C:
+		case RTW_TX_QUEUE_HI0:
+		case RTW_TX_QUEUE_MGMT:
+			dedicated = atomic_read(&rtwsdio->free_pg_high);
+			break;
+		case RTW_TX_QUEUE_VO:
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+				dedicated = atomic_read(&rtwsdio->free_pg_high);
+			else
+				dedicated = atomic_read(&rtwsdio->free_pg_normal);
+			break;
+		case RTW_TX_QUEUE_VI:
+			dedicated = atomic_read(&rtwsdio->free_pg_normal);
+			break;
+		case RTW_TX_QUEUE_BE:
+		case RTW_TX_QUEUE_BK:
+			dedicated = atomic_read(&rtwsdio->free_pg_low);
+			break;
+		default:
+			rtw_warn(rtwdev, "Unknown mapping for queue %u\n",
+				 queue);
+			return -EINVAL;
 		}
+
+		pages_free = dedicated +
+			     atomic_read(&rtwsdio->free_pg_pub);
+
+		if (pages_needed <= pages_free)
+			return 0;
+
+		/*
+		 * SW cache says not enough — re-sync from hardware
+		 * and try once more, matching the vendor's
+		 * HalQueryTxBufferStatus8723BSdio() retry path.
+		 */
+		rtw_sdio_sync_free_txpg(rtwdev);
 
 		switch (queue) {
 		case RTW_TX_QUEUE_BCN:
 		case RTW_TX_QUEUE_H2C:
 		case RTW_TX_QUEUE_HI0:
 		case RTW_TX_QUEUE_MGMT:
-			/* high */
-			pages_free = atomic_read(&rtwsdio->free_pg_high);
+			dedicated = atomic_read(&rtwsdio->free_pg_high);
 			break;
 		case RTW_TX_QUEUE_VO:
-			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
-				/* 8723BS staging maps VO to the high queue. */
-				pages_free = atomic_read(&rtwsdio->free_pg_high);
-				break;
-			}
-			pages_free = atomic_read(&rtwsdio->free_pg_normal);
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+				dedicated = atomic_read(&rtwsdio->free_pg_high);
+			else
+				dedicated = atomic_read(&rtwsdio->free_pg_normal);
 			break;
 		case RTW_TX_QUEUE_VI:
-			/* normal */
-			pages_free = atomic_read(&rtwsdio->free_pg_normal);
+			dedicated = atomic_read(&rtwsdio->free_pg_normal);
 			break;
 		case RTW_TX_QUEUE_BE:
 		case RTW_TX_QUEUE_BK:
-			/* low */
-			pages_free = atomic_read(&rtwsdio->free_pg_low);
+			dedicated = atomic_read(&rtwsdio->free_pg_low);
 			break;
-		default:
-			rtw_warn(rtwdev, "Unknown mapping for queue %u\n", queue);
-			return -EINVAL;
 		}
 
-		/* add the pages from the public queue */
-		pages_free += atomic_read(&rtwsdio->free_pg_pub);
+		pages_free = dedicated +
+			     atomic_read(&rtwsdio->free_pg_pub);
 	} else {
 		u32 free_txpg[3];
 
@@ -980,15 +1004,14 @@ static int rtw_sdio_check_free_txpg(struct rtw_dev *rtwdev, u8 queue,
 			pages_free = free_txpg[2] & 0xfff;
 			break;
 		default:
-			rtw_warn(rtwdev, "Unknown mapping for queue %u\n", queue);
+			rtw_warn(rtwdev, "Unknown mapping for queue %u\n",
+				 queue);
 			return -EINVAL;
 		}
 
 		/* add the pages from the public queue */
 		pages_free += (free_txpg[1] >> 16) & 0xfff;
 	}
-
-	pages_needed = DIV_ROUND_UP(count, rtwdev->chip->page_size);
 
 	if (pages_needed > pages_free) {
 		rtw_dbg(rtwdev, RTW_DBG_SDIO,
@@ -1188,23 +1211,45 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	/* Update SW free-page counters after a successful write,
 	 * matching the vendor's rtw_hal_sdio_update_tx_freepage().
+	 * Deduct from the dedicated queue first; any remainder
+	 * comes from the public pool.
 	 */
 	if (!ret && rtw_chip_wcpu_8051(rtwdev)) {
+		int dedicated, consumed = pages_used;
+
 		switch (page_idx) {
 		case 1:
-			atomic_sub(min(pages_used,
-				       (unsigned int)atomic_read(&rtwsdio->free_pg_normal)),
-				   &rtwsdio->free_pg_normal);
+			dedicated = atomic_read(&rtwsdio->free_pg_normal);
+			if (consumed <= dedicated) {
+				atomic_sub(consumed,
+					   &rtwsdio->free_pg_normal);
+			} else {
+				atomic_sub(consumed - dedicated,
+					   &rtwsdio->free_pg_pub);
+				atomic_set(&rtwsdio->free_pg_normal, 0);
+			}
 			break;
 		case 2:
-			atomic_sub(min(pages_used,
-				       (unsigned int)atomic_read(&rtwsdio->free_pg_low)),
-				   &rtwsdio->free_pg_low);
+			dedicated = atomic_read(&rtwsdio->free_pg_low);
+			if (consumed <= dedicated) {
+				atomic_sub(consumed,
+					   &rtwsdio->free_pg_low);
+			} else {
+				atomic_sub(consumed - dedicated,
+					   &rtwsdio->free_pg_pub);
+				atomic_set(&rtwsdio->free_pg_low, 0);
+			}
 			break;
 		default:
-			atomic_sub(min(pages_used,
-				       (unsigned int)atomic_read(&rtwsdio->free_pg_high)),
-				   &rtwsdio->free_pg_high);
+			dedicated = atomic_read(&rtwsdio->free_pg_high);
+			if (consumed <= dedicated) {
+				atomic_sub(consumed,
+					   &rtwsdio->free_pg_high);
+			} else {
+				atomic_sub(consumed - dedicated,
+					   &rtwsdio->free_pg_pub);
+				atomic_set(&rtwsdio->free_pg_high, 0);
+			}
 			break;
 		}
 	}
