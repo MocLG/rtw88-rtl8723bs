@@ -18,6 +18,7 @@
 #include "rx.h"
 #include "sdio.h"
 #include "tx.h"
+#include "phy.h"
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
@@ -2280,6 +2281,28 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		efuse->hw_cap.nss = 1;
 		efuse->hw_cap.ptcl = 0;
 		efuse->hw_cap.ant_num = 1;
+
+		/*
+		 * Populate TX power tables so rtw_set_channel() has
+		 * valid data and doesn't write garbage to hardware.
+		 * The vendor already programmed the hardware TXAGC
+		 * registers — we just need the SW cache populated
+		 * so the rtw88 compute path returns valid values.
+		 */
+		{
+			const struct rtw_rfe_def *rfe_def;
+
+			hal->pkg_type = 0;
+			rtw_phy_setup_phy_cond(rtwdev, hal->pkg_type);
+			rtw_phy_init_tx_power(rtwdev);
+			rfe_def = rtw_get_rfe_def(rtwdev);
+			if (rfe_def) {
+				rtw_load_table(rtwdev, rfe_def->phy_pg_tbl);
+				rtw_load_table(rtwdev, rfe_def->txpwr_lmt_tbl);
+			}
+			rtw_phy_tx_power_by_rate_config(hal);
+			rtw_phy_tx_power_limit_config(hal);
+		}
 	} else {
 		ret = rtw_chip_info_setup(rtwdev);
 		if (ret) {
