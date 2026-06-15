@@ -468,13 +468,11 @@ sleep 1
 
 # Build rtw88
 echo "Building rtw88..."
-make clean 2>&1 | head -3
 make -j"$(nproc)" KVER="$RUNNING_KVER" > "$OUTDIR/test-00-build-rtw88.log" 2>&1 || {
     echo "ERROR: rtw88 build failed; see $OUTDIR/test-00-build-rtw88.log"
     exit 1
 }
-make install KVER="$RUNNING_KVER" > /dev/null 2>&1
-depmod -a "$RUNNING_KVER" 2>/dev/null
+depmod -a "$RUNNING_KVER" 2>/dev/null || true
 
 # Build vendor (force rebuild to get keep_alive support)
 echo "Building vendor (with keep_alive support)..."
