@@ -1804,13 +1804,6 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 	int ret;
 
 	if (rtw_warm_start) {
-		/*
-		 * Warm takeover: vendor driver already loaded firmware,
-		 * configured MAC/PHY/RF/coex, and set up SDIO TX page
-		 * allocation and RX aggregation.  Only re-enable SDIO
-		 * interrupts — the vendor disabled them at rmmod via
-		 * rtw_hal_disable_interrupt().
-		 */
 		pr_err("warm_start: skipping firmware download and chip init\n");
 
 		ret = rtw_hci_setup(rtwdev);
@@ -1819,49 +1812,10 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			goto err;
 		}
 
-		/* Seed SW TX page counters from the hardware state the
-		 * vendor left behind.  Do NOT call rtw_hci_start() —
-		 * that would reconfigure TX page allocation and RX
-		 * aggregation, overwriting the vendor's known-good setup.
-		 */
-		if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-			struct rtw_sdio *rtwsdio =
-				(struct rtw_sdio *)rtwdev->priv;
-			u32 free_txpg, stale;
-
-			free_txpg = rtw_read32(rtwdev,
-					       REG_SDIO_FREE_TXPG);
-			if (free_txpg != 0) {
-				atomic_set(&rtwsdio->free_pg_high,
-					   free_txpg & 0xff);
-				atomic_set(&rtwsdio->free_pg_normal,
-					   (free_txpg >> 8) & 0xff);
-				atomic_set(&rtwsdio->free_pg_low,
-					   (free_txpg >> 16) & 0xff);
-				atomic_set(&rtwsdio->free_pg_pub,
-					   (free_txpg >> 24) & 0xff);
-			}
-
-			/* Drain stale HISR bits so a pending vendor
-			 * interrupt doesn't fire the ISR with zero-
-			 * length buffers.
-			 */
-			stale = rtw_read32(rtwdev, REG_SDIO_HISR);
-			if (stale)
-				rtw_write32(rtwdev, REG_SDIO_HISR,
-					    stale);
-
-			/* Claim the Linux IRQ (deferred from probe) */
-			ret = rtw_sdio_request_irq(rtwdev,
-						   rtwsdio->sdio_func);
-			if (ret) {
-				rtw_err(rtwdev,
-					"warm_start: IRQ claim failed\n");
-				goto err;
-			}
-
-			rtw_write32(rtwdev, REG_SDIO_HIMR,
-				    rtwsdio->irq_mask);
+		ret = rtw_hci_start(rtwdev);
+		if (ret) {
+			rtw_err(rtwdev, "warm_start: failed to start hci\n");
+			goto err;
 		}
 
 		set_bit(RTW_FLAG_FW_RUNNING, rtwdev->flags);

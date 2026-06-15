@@ -1299,9 +1299,41 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 	return 0;
 }
 
+static int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
+				struct sdio_func *sdio_func);
+
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	u32 stale;
+
+	if (rtw_warm_start) {
+		/* Warm takeover: vendor already configured TX pages and
+		 * RX aggregation.  Just seed SW counters from hardware,
+		 * drain stale interrupts, claim the Linux IRQ (deferred
+		 * from probe), and re-enable the hardware interrupt mask.
+		 */
+		u32 free_txpg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+
+		if (free_txpg != 0) {
+			atomic_set(&rtwsdio->free_pg_high,
+				   free_txpg & 0xff);
+			atomic_set(&rtwsdio->free_pg_normal,
+				   (free_txpg >> 8) & 0xff);
+			atomic_set(&rtwsdio->free_pg_low,
+				   (free_txpg >> 16) & 0xff);
+			atomic_set(&rtwsdio->free_pg_pub,
+				   (free_txpg >> 24) & 0xff);
+		}
+
+		stale = rtw_read32(rtwdev, REG_SDIO_HISR);
+		if (stale)
+			rtw_write32(rtwdev, REG_SDIO_HISR, stale);
+
+		rtw_sdio_request_irq(rtwdev, rtwsdio->sdio_func);
+		rtw_write32(rtwdev, REG_SDIO_HIMR, rtwsdio->irq_mask);
+		return 0;
+	}
 
 	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
@@ -1992,7 +2024,7 @@ static const struct rtw_hci_ops rtw_sdio_ops = {
 	.write_data_h2c = rtw_sdio_write_data_h2c,
 };
 
-int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
+static int rtw_sdio_request_irq(struct rtw_dev *rtwdev,
 				struct sdio_func *sdio_func)
 {
 	int ret;
