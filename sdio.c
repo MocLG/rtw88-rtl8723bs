@@ -2247,10 +2247,24 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		 * read the MAC address directly from the running
 		 * chip's MAC ID register.
 		 */
+		struct rtw_hal *hal = &rtwdev->hal;
 		struct rtw_efuse *efuse = &rtwdev->efuse;
+		const struct rtw_chip_info *chip = rtwdev->chip;
 		int i;
 
 		pr_err("warm_start: skipping chip_info_setup, reading MAC from running chip\n");
+
+		/* rtw_chip_parameter_setup equivalents */
+		rtwdev->hci.rpwm_addr = REG_SDIO_HRPWM1;
+		rtwdev->hci.cpwm_addr = REG_SDIO_HCPWM1_V2;
+		hal->rf_type = RF_1T1R;
+		hal->rf_path_num = 1;
+		hal->antenna_tx = BB_PATH_A;
+		hal->antenna_rx = BB_PATH_A;
+		hal->rf_phy_num = chip->fix_rf_phy_num ? chip->fix_rf_phy_num : 1;
+		efuse->physical_size = chip->phy_efuse_size;
+		efuse->logical_size = chip->log_efuse_size;
+		efuse->protect_size = chip->ptct_efuse_size;
 
 		/* Read MAC address from REG_MACID (0x0610 per vendor spec) */
 		for (i = 0; i < ETH_ALEN; i++)
@@ -2266,7 +2280,6 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		efuse->hw_cap.nss = 1;
 		efuse->hw_cap.ptcl = 0;
 		efuse->hw_cap.ant_num = 1;
-		rtwdev->hal.rf_path_num = 1;
 	} else {
 		ret = rtw_chip_info_setup(rtwdev);
 		if (ret) {
