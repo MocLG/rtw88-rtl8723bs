@@ -1197,6 +1197,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	case RTW_TX_QUEUE_BK:
 		page_idx = 2;	/* low = byte 2 */
 		break;
+	default:
+		break;
 	}
 
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
