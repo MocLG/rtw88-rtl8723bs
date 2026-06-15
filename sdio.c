@@ -2267,7 +2267,6 @@ int rtw_sdio_probe(struct sdio_func *sdio_func,
 		efuse->hw_cap.ptcl = 0;
 		efuse->hw_cap.ant_num = 1;
 		rtwdev->hal.rf_path_num = 1;
-		rtwdev->hal.rfe_type = 0;
 	} else {
 		ret = rtw_chip_info_setup(rtwdev);
 		if (ret) {
