@@ -466,6 +466,48 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_write8(rtwdev, REG_BCN_CTRL,
 		   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION | BIT_DIS_ATIM);
 
+	/*
+	 * The vendor rtl8723bs v5.2.17 driver's start_clnt_join() calls
+	 * StopTxBeacon() which clears BIT_EN_BCNQ_DL from
+	 * REG_FWHW_TXQ_CTRL+2.  This tells the 8051 firmware that the
+	 * BCN queue is not being used for periodic beacon transmissions
+	 * — it transitions the firmware's TX state machine out of AP
+	 * mode.  rtw88 only clears this bit in AP mode when
+	 * BSS_CHANGED_BEACON_ENABLED fires with enable_beacon=false;
+	 * for pure STA mode the bit is left at the init value.
+	 *
+	 * The STA-mode join path must clear it as well so the firmware
+	 * does not gate management TX on non-existent beacon timing.
+	 *
+	 * StopTxBeacon() also programs REG_TBTT_PROHIBIT with the
+	 * stop-beacon hold time (0x64 = 3.2 ms) to prevent early TX
+	 * around the phantom TBTT.
+	 */
+	{
+		u32 fwtq_before = rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL);
+
+		rtw_write32_clr(rtwdev, REG_FWHW_TXQ_CTRL, BIT_EN_BCNQ_DL);
+		rtw_dbg(rtwdev, RTW_DBG_STATE,
+			"MGMT_TX_DEBUG: join_prepare bcnq_dl FWTQ 0x%08x->0x%08x\n",
+			fwtq_before,
+			rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL));
+
+		rtw_write8(rtwdev, REG_TBTT_PROHIBIT + 1,
+			   0x64 & 0xff);
+		rtw_write8(rtwdev, REG_TBTT_PROHIBIT + 2,
+			   (rtw_read8(rtwdev, REG_TBTT_PROHIBIT + 2) & 0xf0) |
+			   (0x64 >> 8));
+	}
+
+	/*
+	 * The vendor's update_wireless_mode() in start_clnt_join()
+	 * writes HW_VAR_RESP_SIFS = 0x0a0a0808 every join attempt.
+	 * rtw88 sets this once at MAC init; reassert here to match
+	 * the vendor's join-time contract.
+	 */
+	rtw_write16(rtwdev, REG_RESP_SIFS_CCK, 0x0808);
+	rtw_write16(rtwdev, REG_RESP_SIFS_OFDM, 0x0a0a);
+
 	rtw_write16(rtwdev, REG_RXFLTMAP0, 0xffff);
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0xffff);
 	rtw8723bs_auth_rx_filter(rtwdev, "join_prepare", true);
