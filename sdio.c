@@ -1098,6 +1098,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (ret) {
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
+		if (txsize > orig_len)
+			skb_trim(skb, orig_len);
+
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
 				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
@@ -1138,6 +1141,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
+
+		if (txsize > orig_len)
+			skb_trim(skb, orig_len);
 
 		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
 			rtw_info(rtwdev,
@@ -1210,6 +1216,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
+
+	if (ret == 0 && txsize > orig_len)
+		skb_trim(skb, orig_len);
 
 	/* Update SW free-page counters after a successful write,
 	 * matching the vendor's rtw_hal_sdio_update_tx_freepage().

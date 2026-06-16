@@ -1631,6 +1631,7 @@ static void rtw8723b_init_adaptive_ctrl(struct rtw_dev *rtwdev)
 	 * discarding all management TX from SDIO.
 	 */
 	rtw_write32_mask(rtwdev, REG_RRSR, 0xfffff, 0xffff1);
+	rtwdev->dm_info.rrsr_val_init = 0xffff1;
 	rtw_write16(rtwdev, REG_RETRY_LIMIT, 0x3030);
 }
 
