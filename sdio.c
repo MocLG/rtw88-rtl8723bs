@@ -1283,15 +1283,15 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d free_txpg=0x%08x oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x\n",
+			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, queue, txaddr, skb->len, txsize,
-			 ret, rtw_read32(rtwdev, REG_SDIO_FREE_TXPG),
-			 atomic_read(&rtwsdio->tx_oqt_free),
+			 ret,
 			 atomic_read(&rtwsdio->free_pg_high),
 			 atomic_read(&rtwsdio->free_pg_normal),
 			 atomic_read(&rtwsdio->free_pg_low),
 			 atomic_read(&rtwsdio->free_pg_pub),
+			 atomic_read(&rtwsdio->tx_oqt_free),
 			 rtw_read32(rtwdev, REG_SDIO_HISR),
 			 rtw_read32(rtwdev, REG_TXDMA_STATUS),
 			 rtw_read8(rtwdev, REG_TXPAUSE),
@@ -2211,6 +2211,12 @@ static void rtw_sdio_tx_handler(struct work_struct *work)
 		for (limit = 0; limit < 1000; limit++) {
 			if (rtw_sdio_process_tx_queue(rtwdev, queue))
 				break;
+
+			if (queue == RTW_TX_QUEUE_MGMT) {
+				queue_work(rtwsdio->txwq,
+					   &work_data->work);
+				return;
+			}
 
 			if (skb_queue_empty(&rtwsdio->tx_queue[queue]))
 				break;
