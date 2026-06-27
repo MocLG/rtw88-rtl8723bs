@@ -15,6 +15,22 @@ static const struct sdio_device_id rtw_8723bs_id_table[] = {
 			    SDIO_DEVICE_ID_REALTEK_RTW8723BS),
 		.driver_data = (kernel_ulong_t)&rtw8723b_hw_spec,
 	},
+	{
+		SDIO_DEVICE(SDIO_VENDOR_ID_REALTEK, 0x0523),
+		.driver_data = (kernel_ulong_t)&rtw8723b_hw_spec,
+	},
+	{
+		SDIO_DEVICE(SDIO_VENDOR_ID_REALTEK, 0x0525),
+		.driver_data = (kernel_ulong_t)&rtw8723b_hw_spec,
+	},
+	{
+		SDIO_DEVICE(SDIO_VENDOR_ID_REALTEK, 0x0623),
+		.driver_data = (kernel_ulong_t)&rtw8723b_hw_spec,
+	},
+	{
+		SDIO_DEVICE(SDIO_VENDOR_ID_REALTEK, 0x0626),
+		.driver_data = (kernel_ulong_t)&rtw8723b_hw_spec,
+	},
 	{}
 };
 MODULE_DEVICE_TABLE(sdio, rtw_8723bs_id_table);
