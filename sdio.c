@@ -265,8 +265,12 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 	if (pkt_info->rate < DESC_RATE_MAX)
 		pwr_idx = hal->tx_pwr_tbl[RF_PATH_A][pkt_info->rate];
 
+	/* This can run from .tx before queueing; do not read SDIO registers
+	 * here.  The write_result trace captures live register state later
+	 * from the sleepable TX workqueue.
+	 */
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: prepared stype=%s fc=0x%04x queue=%u qsel=%u mac_id=%u len=%u skb_len=%u offset=%u pkt_offset=%u rate=%u rate_id=%u bw=%u seq=%u sn=%u report=%d use_rate=%d dis_fb=%d dis_qseq=%d ls=%d fs=%d en_hwseq=%d retry_en=%d retry_lmt=%u rts=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+		 "MGMT_TX_DEBUG: prepared stype=%s fc=0x%04x queue=%u qsel=%u mac_id=%u len=%u skb_len=%u offset=%u pkt_offset=%u rate=%u rate_id=%u bw=%u seq=%u sn=%u report=%d use_rate=%d dis_fb=%d dis_qseq=%d ls=%d fs=%d en_hwseq=%d retry_en=%d retry_lmt=%u rts=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
 		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, tx_data->queue, pkt_info->qsel,
 		 pkt_info->mac_id, pkt_info->tx_pkt_size, skb->len,
@@ -279,12 +283,6 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 		 pkt_info->en_hwseq, pkt_info->retry_limit_en,
 		 pkt_info->data_retry_limit, pkt_info->rts, pkt_info->sec_type,
 		 hal->current_channel, hal->current_band_width, pwr_idx,
-		 rtw_read32(rtwdev, REG_RRSR), rtw_read32(rtwdev, REG_RCR),
-		 rtw_read8(rtwdev, REG_CR + 2),
-		 rtw_read8(rtwdev, REG_BCN_CTRL),
-		 rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL),
-		 rtw_read32(rtwdev, 0x948), rtw_read8(rtwdev, REG_SYS_FUNC_EN),
-		 rtw_read8(rtwdev, REG_RF_CTRL),
 		 le32_to_cpu(tx_desc->w0), le32_to_cpu(tx_desc->w1),
 		 le32_to_cpu(tx_desc->w2), le32_to_cpu(tx_desc->w3),
 		 le32_to_cpu(tx_desc->w4), le32_to_cpu(tx_desc->w5),
@@ -1704,8 +1702,11 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 		tx_data->queue = queue;
 		tx_data->rate = pkt_info->rate;
 
+		/* mac80211 can call .tx with BH/RCU state held; keep this
+		 * trace free of SDIO register reads because they can sleep.
+		 */
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: enqueue stype=%s scan=%d queue=%u len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d txpwr0=%d txpwr1m=%d txpwr6m=%d RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
+			 "MGMT_TX_DEBUG: enqueue stype=%s scan=%d queue=%u len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d txpwr0=%d txpwr1m=%d txpwr6m=%d\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), queue,
 			 skb->len, tx_data->frame_control, tx_data->seq_ctrl,
@@ -1719,15 +1720,7 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 			 hal->current_band_width, pwr_idx,
 			 hal->tx_pwr_tbl[RF_PATH_A][0],
 			 hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE1M],
-			 hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M],
-			 rtw_read32(rtwdev, REG_RRSR),
-			 rtw_read32(rtwdev, REG_RCR),
-			 rtw_read8(rtwdev, REG_CR + 2),
-			 rtw_read8(rtwdev, REG_BCN_CTRL),
-			 rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL),
-			 rtw_read32(rtwdev, 0x948),
-			 rtw_read8(rtwdev, REG_SYS_FUNC_EN),
-			 rtw_read8(rtwdev, REG_RF_CTRL));
+			 hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M]);
 	}
 
 	rtw_sdio_trace_eapol_tx(rtwdev, pkt_info, skb, queue);
