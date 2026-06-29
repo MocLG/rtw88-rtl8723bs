@@ -2172,15 +2172,20 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 }
 
 static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
-				     enum rtw_tx_queue_type queue)
+				     enum rtw_tx_queue_type queue,
+				     bool *processed)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	struct sk_buff *skb;
 	int ret;
 
+	*processed = false;
+
 	skb = skb_dequeue(&rtwsdio->tx_queue[queue]);
 	if (!skb)
 		return 0;
+
+	*processed = true;
 
 	ret = rtw_sdio_write_port(rtwdev, skb, queue);
 	if (ret) {
@@ -2200,6 +2205,7 @@ static void rtw_sdio_tx_handler(struct work_struct *work)
 	struct rtw_sdio *rtwsdio;
 	struct rtw_dev *rtwdev;
 	int limit, queue;
+	bool processed;
 
 	rtwdev = work_data->rtwdev;
 	rtwsdio = (struct rtw_sdio *)rtwdev->priv;
@@ -2209,10 +2215,11 @@ static void rtw_sdio_tx_handler(struct work_struct *work)
 
 	for (queue = RTK_MAX_TX_QUEUE_NUM - 1; queue >= 0; queue--) {
 		for (limit = 0; limit < 1000; limit++) {
-			if (rtw_sdio_process_tx_queue(rtwdev, queue))
+			if (rtw_sdio_process_tx_queue(rtwdev, queue,
+						      &processed))
 				break;
 
-			if (queue == RTW_TX_QUEUE_MGMT) {
+			if (queue == RTW_TX_QUEUE_MGMT && processed) {
 				queue_work(rtwsdio->txwq,
 					   &work_data->work);
 				return;
