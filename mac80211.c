@@ -26,6 +26,27 @@
 #define RTW8723BS_ACK_PREAMBLE_SHORT BIT(7)
 #define RTW8723BS_SHORT_SLOT_TIME 9
 #define RTW8723BS_LONG_SLOT_TIME 20
+#define RTW8723BS_RRSR_1M BIT(0)
+#define RTW8723BS_RRSR_2M BIT(1)
+#define RTW8723BS_RRSR_5_5M BIT(2)
+#define RTW8723BS_RRSR_11M BIT(3)
+#define RTW8723BS_RRSR_6M BIT(4)
+#define RTW8723BS_RRSR_9M BIT(5)
+#define RTW8723BS_RRSR_12M BIT(6)
+#define RTW8723BS_RRSR_18M BIT(7)
+#define RTW8723BS_RRSR_24M BIT(8)
+#define RTW8723BS_RRSR_36M BIT(9)
+#define RTW8723BS_RRSR_48M BIT(10)
+#define RTW8723BS_RRSR_54M BIT(11)
+#define RTW8723BS_RRSR_CCK_RATES \
+	(RTW8723BS_RRSR_1M | RTW8723BS_RRSR_2M | \
+	 RTW8723BS_RRSR_5_5M | RTW8723BS_RRSR_11M)
+#define RTW8723BS_RRSR_2G_FORCE \
+	(RTW8723BS_RRSR_1M | RTW8723BS_RRSR_5_5M | \
+	 RTW8723BS_RRSR_11M)
+#define RTW8723BS_RRSR_2G_ALLOW \
+	(RTW8723BS_RRSR_CCK_RATES | RTW8723BS_RRSR_6M | \
+	 RTW8723BS_RRSR_12M | RTW8723BS_RRSR_24M)
 
 static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 {
@@ -187,6 +208,134 @@ static void rtw8723bs_set_slot_time(struct rtw_dev *rtwdev,
 	rtw_info(rtwdev,
 		 "MGMT_TX_DEBUG: %s slot_time short=%d SLOT 0x%02x->0x%02x\n",
 		 where, short_slot, before, rtw_read8(rtwdev, REG_SLOT));
+}
+
+static u16 rtw8723bs_rrsr_from_ie_rate(u8 rate)
+{
+	switch (rate & 0x7f) {
+	case 2:
+		return RTW8723BS_RRSR_1M;
+	case 4:
+		return RTW8723BS_RRSR_2M;
+	case 11:
+		return RTW8723BS_RRSR_5_5M;
+	case 22:
+		return RTW8723BS_RRSR_11M;
+	case 12:
+		return RTW8723BS_RRSR_6M;
+	case 18:
+		return RTW8723BS_RRSR_9M;
+	case 24:
+		return RTW8723BS_RRSR_12M;
+	case 36:
+		return RTW8723BS_RRSR_18M;
+	case 48:
+		return RTW8723BS_RRSR_24M;
+	case 72:
+		return RTW8723BS_RRSR_36M;
+	case 96:
+		return RTW8723BS_RRSR_48M;
+	case 108:
+		return RTW8723BS_RRSR_54M;
+	default:
+		return 0;
+	}
+}
+
+static void rtw8723bs_collect_basic_rates(const u8 *ie, u16 *basic_rates,
+					  bool *valid)
+{
+	int i;
+
+	if (!ie)
+		return;
+
+	for (i = 0; i < ie[1]; i++) {
+		u16 rrsr_rate;
+
+		if (!(ie[i + 2] & 0x80))
+			continue;
+
+		rrsr_rate = rtw8723bs_rrsr_from_ie_rate(ie[i + 2]);
+		if (!rrsr_rate)
+			continue;
+
+		*basic_rates |= rrsr_rate;
+		*valid = true;
+	}
+}
+
+static void rtw8723bs_apply_basic_rates(struct rtw_dev *rtwdev,
+					struct ieee80211_vif *vif,
+					const u8 *bssid,
+					const char *where)
+{
+	struct ieee80211_bss_conf *conf = &vif->bss_conf;
+	struct cfg80211_bss *lookup_bss = NULL;
+	struct cfg80211_bss *bss = NULL;
+	const char *source = "none";
+	bool valid = false;
+	u16 basic_rates = 0;
+	u16 before_basic;
+	u32 before;
+	u32 after;
+
+	if (!rtw8723bs_sdio(rtwdev) ||
+	    vif->type != NL80211_IFTYPE_STATION)
+		return;
+
+	if (conf->bss) {
+		bss = conf->bss;
+		source = "bss_conf";
+	} else if (bssid && is_valid_ether_addr(bssid)) {
+		lookup_bss = cfg80211_get_bss(rtwdev->hw->wiphy, NULL, bssid,
+					      NULL, 0, IEEE80211_BSS_TYPE_ESS,
+					      IEEE80211_PRIVACY_ANY);
+		if (lookup_bss) {
+			bss = lookup_bss;
+			source = "scan_bss";
+		}
+	}
+
+	if (bss) {
+		const u8 *rates;
+		const u8 *ext_rates;
+
+		rcu_read_lock();
+		rates = ieee80211_bss_get_ie(bss, WLAN_EID_SUPP_RATES);
+		ext_rates = ieee80211_bss_get_ie(bss,
+						  WLAN_EID_EXT_SUPP_RATES);
+		rtw8723bs_collect_basic_rates(rates, &basic_rates, &valid);
+		rtw8723bs_collect_basic_rates(ext_rates, &basic_rates, &valid);
+		rcu_read_unlock();
+	}
+
+	if (!valid) {
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: %s basic_rate skip source=%s valid=0 RRSR=0x%08x\n",
+			 where, source, rtw_read32(rtwdev, REG_RRSR));
+		goto out;
+	}
+
+	before_basic = basic_rates;
+	basic_rates |= RTW8723BS_RRSR_2G_FORCE;
+	basic_rates &= RTW8723BS_RRSR_2G_ALLOW;
+
+	before = rtw_read32(rtwdev, REG_RRSR);
+	rtw_write16(rtwdev, REG_RRSR, basic_rates);
+	rtw_write8(rtwdev, REG_RRSR + 2,
+		   rtw_read8(rtwdev, REG_RRSR + 2) & 0xf0);
+	rtwdev->dm_info.rrsr_val_init = basic_rates;
+	after = rtw_read32(rtwdev, REG_RRSR);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s basic_rate source=%s valid=1 basic=0x%04x masked=0x%04x RRSR 0x%08x->0x%08x init=0x%08x\n",
+		 where, source, before_basic, basic_rates, before, after,
+		 rtwdev->dm_info.rrsr_val_init);
+
+out:
+	if (lookup_bss)
+		cfg80211_put_bss(rtwdev->hw->wiphy, lookup_bss);
 }
 
 static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
@@ -445,6 +594,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_vif_port_config(rtwdev, rtwvif,
 			    PORT_SET_BSSID | PORT_SET_AID | PORT_SET_NET_TYPE);
 
+	rtw8723bs_apply_basic_rates(rtwdev, vif, bssid, "join_prepare");
 	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare");
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);

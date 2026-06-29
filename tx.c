@@ -671,19 +671,6 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->mac_id = rtwvif->mac_id;
 	}
 
-	/* The v41 firmware (rtw88/rtw8723b_fw.bin) on 8723BS SDIO
-	 * expects mac_id=1 in the TX descriptor W1.  The vendor
-	 * rtl8723bs v5.2.17 driver uses mac_id=1 for ALL management
-	 * and data frames (confirmed by vendor_txdesc trace: W1 bits
-	 * 0-7 = 0x01 for every MGNT_FRAMETAG, EAP_FRAMETAG, and
-	 * ARP_FRAMETAG).  With mac_id=0 the firmware silently drops
-	 * the frame because mac_id 0's station context has not been
-	 * initialised at boot.
-	 */
-	if (chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		pkt_info->mac_id = 1;
-
 	if (is_mgmt || ieee80211_is_nullfunc(fc))
 		rtw_tx_mgmt_pkt_info_update(rtwdev, pkt_info, sta, skb);
 	else if (ieee80211_is_data(fc))
