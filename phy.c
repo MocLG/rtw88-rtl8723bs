@@ -664,6 +664,7 @@ static void rtw_phy_rrsr_mask_min_iter(void *data, struct ieee80211_sta *sta)
 static void rtw_phy_rrsr_update(struct rtw_dev *rtwdev)
 {
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
+	u32 before;
 	u32 rrsr;
 
 	dm_info->rrsr_mask_min = RRSR_RATE_ORDER_MAX;
@@ -674,6 +675,15 @@ static void rtw_phy_rrsr_update(struct rtw_dev *rtwdev)
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
 		rrsr |= rtw_read32(rtwdev, REG_RRSR) &
 			RTW8723BS_RRSR_ACK_PREAMBLE;
+
+	before = rtw_read32(rtwdev, REG_RRSR);
+	if (before != rrsr &&
+	    rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: rrsr_watchdog init=0x%08x mask_min=0x%08x RRSR 0x%08x->0x%08x\n",
+			 dm_info->rrsr_val_init, dm_info->rrsr_mask_min,
+			 before, rrsr);
 
 	rtw_write32(rtwdev, REG_RRSR, rrsr);
 }

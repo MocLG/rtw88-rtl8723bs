@@ -557,6 +557,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	bool fresh_join;
 	u8 bcn_ctrl_before;
 	u32 rcr_before;
+	u32 rrsr_before;
 	u16 rxfltmap2_before;
 	u16 retry_before;
 	u16 sec_before;
@@ -575,6 +576,7 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	msr_before = rtw_read8(rtwdev, REG_CR + 2);
 	bcn_ctrl_before = rtw_read8(rtwdev, REG_BCN_CTRL);
 	rcr_before = rtw_read32(rtwdev, REG_RCR);
+	rrsr_before = rtw_read32(rtwdev, REG_RRSR);
 	rxfltmap2_before = rtw_read16(rtwdev, REG_RXFLTMAP2);
 	retry_before = rtw_read16(rtwdev, REG_RETRY_LIMIT);
 	sec_before = rtw_read16(rtwdev, RTW_SEC_CONFIG);
@@ -669,11 +671,12 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RRSR 0x%08x->0x%08x init=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
 		 bssid, fresh_join, old_net_type, rtwvif->net_type,
 		 msr_before, rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
-		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr,
+		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr, rrsr_before,
+		 rtw_read32(rtwdev, REG_RRSR), rtwdev->dm_info.rrsr_val_init,
 		 rxfltmap2_before, rtw_read16(rtwdev, REG_RXFLTMAP2),
 		 retry_before, rtw_read16(rtwdev, REG_RETRY_LIMIT),
 		 sec_before, rtw_read16(rtwdev, RTW_SEC_CONFIG));
