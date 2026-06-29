@@ -671,6 +671,16 @@ void rtw_tx_pkt_info_update(struct rtw_dev *rtwdev,
 		pkt_info->mac_id = rtwvif->mac_id;
 	}
 
+	/* The vendor 8723BS SDIO path sends MGNT_FRAMETAG frames through
+	 * the shared BCMC station context.  In station mode that context is
+	 * macid 1, and the successful staging trace for probe/auth/assoc
+	 * renders W1 with MACID=1.  Keep data on the normal peer/vif macid;
+	 * only management TX needs the BCMC descriptor context.
+	 */
+	if (chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO && is_mgmt)
+		pkt_info->mac_id = 1;
+
 	if (is_mgmt || ieee80211_is_nullfunc(fc))
 		rtw_tx_mgmt_pkt_info_update(rtwdev, pkt_info, sta, skb);
 	else if (ieee80211_is_data(fc))
