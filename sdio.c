@@ -1287,7 +1287,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
+			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, queue, txaddr, skb->len, txsize,
 			 ret,
@@ -1299,6 +1299,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			 rtw_read32(rtwdev, REG_SDIO_HISR),
 			 rtw_read32(rtwdev, REG_TXDMA_STATUS),
 			 rtw_read8(rtwdev, REG_TXPAUSE),
+			 rtw_read32(rtwdev, REG_SDIO_TX_CTRL),
+			 rtw_read32(rtwdev, REG_MACID_PKT_DROP0_8723B),
+			 rtw_read32(rtwdev, REG_MACID_PKT_SLEEP_8723B),
+			 rtw_read8(rtwdev, REG_EARLY_MODE_CONTROL_8723B),
+			 rtw_read8(rtwdev, REG_HWSEQ_CTRL),
 			 rtw_read16(rtwdev, REG_TXPKT_EMPTY),
 			 rtw_read32(rtwdev, REG_RQPN),
 			 rtw_read8(rtwdev, REG_RQPN_NPQ),
@@ -1514,6 +1519,8 @@ static void rtw_sdio_interface_cfg(struct rtw_dev *rtwdev)
 
 	val = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
 	val &= 0xfff8;
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+		val |= BIT_SDIO_TX_CTRL_ALWAYS_RECOGNIZE;
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val);
 }
 

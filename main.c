@@ -1936,11 +1936,15 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			u16 rxfltmap0_in, rxfltmap1_in, rxfltmap2_in;
 			u32 secfg_in, rqpn_in;
 			u32 fwhw_txq_ctrl_in;
+			u32 sdio_tx_ctrl_in = 0;
+			u32 macid_drop_in = 0;
+			u32 macid_sleep_in = 0;
 			u16 retry_limit_in;
 			u8 slot_val_in, txpause_in;
 			u16 sys_func_in;
 			u32 pad_ctrl1_in, bb_sel_btg_in;
 			u8 rf_ctrl_in;
+			u8 early_mode_in = 0;
 
 			rcr_in = rtw_read32(rtwdev, REG_RCR);
 			rrsr_in = rtw_read32(rtwdev, REG_RRSR);
@@ -1959,6 +1963,20 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 			pad_ctrl1_in = rtw_read32(rtwdev, REG_PAD_CTRL1);
 			bb_sel_btg_in = rtw_read32(rtwdev, 0x948);
 			rf_ctrl_in = rtw_read8(rtwdev, REG_RF_CTRL);
+			if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+				sdio_tx_ctrl_in =
+					rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
+			if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+				macid_drop_in =
+					rtw_read32(rtwdev,
+						   REG_MACID_PKT_DROP0_8723B);
+				macid_sleep_in =
+					rtw_read32(rtwdev,
+						   REG_MACID_PKT_SLEEP_8723B);
+				early_mode_in =
+					rtw_read8(rtwdev,
+						  REG_EARLY_MODE_CONTROL_8723B);
+			}
 
 			rtw_info(rtwdev,
 				 "INIT_DBG: power_on_done "
@@ -1967,6 +1985,8 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 				 "RXFLT=0x%04x/0x%04x/0x%04x "
 				 "SEC=0x%04x RQPN=0x%08x FWTQ=0x%08x "
 				 "RETRY=0x%04x SLOT=0x%02x TXPAUS=0x%02x "
+				 "SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x "
+				 "MACID_SLEEP=0x%08x EARLY=0x%02x "
 				 "PAD1=0x%08x BB_SEL=0x%08x RFCTRL=0x%02x\n",
 				 sys_func_in, cr_in,
 				 rtw_read8(rtwdev, REG_BCN_CTRL),
@@ -1974,7 +1994,9 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 				 rxfltmap0_in, rxfltmap1_in, rxfltmap2_in,
 				 secfg_in, rqpn_in, fwhw_txq_ctrl_in,
 				 retry_limit_in, slot_val_in, txpause_in,
-				 pad_ctrl1_in, bb_sel_btg_in, rf_ctrl_in);
+				 sdio_tx_ctrl_in, macid_drop_in,
+				 macid_sleep_in, early_mode_in, pad_ctrl1_in,
+				 bb_sel_btg_in, rf_ctrl_in);
 		}
 	}
 

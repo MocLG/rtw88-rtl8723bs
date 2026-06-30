@@ -1351,6 +1351,14 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	}
 
 	rtw_write8(rtwdev, REG_EARLY_MODE_CONTROL_8723B, 0);
+
+	/* Vendor headers map 0x04d0/0x04d4 to MACID packet drop/sleep
+	 * masks on 8723B.  Keep every MACID eligible for firmware-scheduled
+	 * TX at power-on; mac80211/firmware state handles the real peer
+	 * lifetime.
+	 */
+	rtw_write32(rtwdev, REG_MACID_PKT_DROP0_8723B, 0);
+	rtw_write32(rtwdev, REG_MACID_PKT_SLEEP_8723B, 0);
 }
 
 /* vendor: hal/rtl8723b/rtl8723b_phycfg.c
@@ -1921,9 +1929,11 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	 * Only clear necessary bits 0x0[2:0] and 0x2[15:0] and keep 0x0[15:3]
 	 * 2015.03.19.
 	 */
-	// NOTE: also done by the mac poer on rtw88 routines, we can remove it probably here
+	// NOTE: also done by the MAC power-on rtw88 routines, we can remove it probably here
 	val32 = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
 	val32 &= 0x0000fff8;
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		val32 |= BIT_SDIO_TX_CTRL_ALWAYS_RECOGNIZE;
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val32);
 
 	rtw_write16(rtwdev, REG_ATIMWND, 0x2);
