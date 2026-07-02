@@ -3548,6 +3548,7 @@ static void rtw8723b_coex_cfg_ant_switch(struct rtw_dev *rtwdev,
 							COEX_SWITCH_TO_NOCARE);
 
 	rtw8723b_coex_write_bb_sel_btg(rtwdev, ant_path, "ant_switch");
+	rtw8723b_sdio_restore_pad_ctrl(rtwdev, "ant_switch");
 
 	rtw_dbg(rtwdev, RTW_DBG_COEX,
 		"[BTCoex], 8723bs ant switch ctrl=%u pos=%u BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x67=0x%02x 0x765=0x%02x 0x76e=0x%02x\n",
