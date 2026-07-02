@@ -1659,6 +1659,40 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_BUF));
 }
 
+void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
+{
+	struct rtw_coex_info_req req = {0};
+
+	lockdep_assert_held(&rtwdev->mutex);
+
+	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
+		return;
+
+	/* Vendor rtl8723bs v5.2.17 replays this fire-and-forget coex
+	 * train at the scan-to-auth boundary.  It is separate from
+	 * ConnectNotify(), which returns early when BT is disabled.
+	 */
+	req.seq = 0x0e;
+	req.op_code = BT_MP_INFO_OP_SUPP_VER;
+	rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+	req.seq = 0x0f;
+	req.op_code = BT_MP_INFO_OP_PATCH_VER;
+	rtw_fw_query_bt_mp_info(rtwdev, &req);
+
+	rtw_fw_query_bt_info(rtwdev);
+	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
+
+	rtw_info(rtwdev,
+		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=e0:2b/f0:00 bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x\n",
+		 rtw_read32(rtwdev, 0x948),
+		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
+		 rtw_read32(rtwdev, REG_SDIO_TX_CTRL));
+}
+
 /**
  * rtw_coex_8723bs_ensure_pta_path() - Minimal PTA antenna path for RF writes
  * @rtwdev: rtw device

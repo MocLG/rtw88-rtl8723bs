@@ -862,6 +862,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join\n",
 			 bssid);
 	}
+
+	rtw_coex_8723bs_pre_auth_h2c(rtwdev);
 }
 #endif
 
