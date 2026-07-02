@@ -11,6 +11,8 @@
 #include "phy.h"
 #include "sdio.h"
 
+#define RTW8723BS_COEX_H_WLAN_ACTIVE	0x1800101b
+
 static u8 rtw_coex_next_rssi_state(struct rtw_dev *rtwdev, u8 pre_state,
 				   u8 rssi, u8 rssi_thresh)
 {
@@ -1507,13 +1509,22 @@ static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
 	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
 		return;
 
-	/* The BT-disabled 8723BS path still uses the PTA mux. Auth/probe TX is
-	 * now 1 Mbps CCK for B/G/N APs, so keep CCK TX/RX on the same high
-	 * priority side as ACK/beacon traffic while scan/join is in progress.
+	/* The BT-disabled 8723BS path still uses the PTA mux. The generic
+	 * per-bit helper only toggles CCK TX/RX priority bits; on this SDIO
+	 * part that can leave REG_BT_COEX_TABLE_H at 0x10001003, where the
+	 * scan/auth workaround is effectively a no-op. Restore the full
+	 * vendor-shaped WLAN-active priority mask observed in working staging
+	 * scan/join windows, then let later coex states rewrite the table when
+	 * they intentionally leave the active window.
 	 */
 	before = rtw_read32(rtwdev, REG_BT_COEX_TABLE_H);
-	rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_TX_CCK, high);
-	rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_RX_CCK, high);
+	if (high) {
+		rtw_write32(rtwdev, REG_BT_COEX_TABLE_H,
+			    RTW8723BS_COEX_H_WLAN_ACTIVE);
+	} else {
+		rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_TX_CCK, false);
+		rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_RX_CCK, false);
+	}
 
 	rtw_info(rtwdev,
 		 "COEX_AUTH_DEBUG: 8723bs cck_pri %s high=%d COEX_H 0x%08x->0x%08x\n",
