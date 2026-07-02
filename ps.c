@@ -106,13 +106,14 @@ int rtw_enter_ips(struct rtw_dev *rtwdev)
 	 *
 	 * Instead of powering off (which would trigger a full
 	 * phy_set_param / RF table reload on the next leave_ips), enter
-	 * "soft IPS": keep the chip powered on, set the soft-IPS flag,
-	 * and let leave_ips just re-establish the PTA antenna path.
+	 * "soft IPS": keep the chip powered on and leave the coex/RF
+	 * state intact.  The normal IPS-enter coex notify still switches
+	 * to the WLAN-off/BT antenna path and sends the all-off coex action,
+	 * which staging does not do at the scan->connect boundary.
 	 */
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		set_bit(RTW_FLAG_SOFT_IPS, rtwdev->flags);
-		rtw_coex_ips_notify(rtwdev, COEX_IPS_ENTER);
 		return 0;
 	}
 
@@ -140,10 +141,10 @@ int rtw_leave_ips(struct rtw_dev *rtwdev)
 	if (test_bit(RTW_FLAG_SOFT_IPS, rtwdev->flags)) {
 		/*
 		 * 8723BS SDIO soft IPS: the chip was never powered off.
-		 * Clear the soft-IPS flag and re-establish the PTA
-		 * antenna path (the IPS-enter coex notify switched it
-		 * to the BT path).  No power-on / phy_set_param is
-		 * needed — the firmware state is intact from init.
+		 * Clear the soft-IPS flag and refresh the active WLAN
+		 * scoreboard/PTA antenna path.  No power-on /
+		 * phy_set_param is needed — the firmware state is
+		 * intact from init.
 		 */
 		clear_bit(RTW_FLAG_SOFT_IPS, rtwdev->flags);
 		rtwdev->coex.stat.wl_under_ips = false;
