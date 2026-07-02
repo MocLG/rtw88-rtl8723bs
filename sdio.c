@@ -1287,7 +1287,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
+			 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x PAD1=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 tx_data->frame_control, queue, txaddr, skb->len, txsize,
 			 ret,
@@ -1314,6 +1314,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			 rtw_read8(rtwdev, REG_CR + 2),
 			 rtw_read8(rtwdev, REG_BCN_CTRL),
 			 rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL),
+			 rtw_read32(rtwdev, REG_PAD_CTRL1),
 			 rtw_read32(rtwdev, 0x948),
 			 rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 			 rtw_read8(rtwdev, REG_RF_CTRL));

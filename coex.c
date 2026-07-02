@@ -1520,6 +1520,24 @@ static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
 		 tag, high, before, rtw_read32(rtwdev, REG_BT_COEX_TABLE_H));
 }
 
+static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
+					     const char *tag)
+{
+	u32 before;
+	u32 after;
+
+	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
+	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
+			   BIT_SW_DPDT_SEL_DATA);
+	if (after == before)
+		return;
+
+	rtw_write32(rtwdev, REG_PAD_CTRL1, after);
+	rtw_info(rtwdev,
+		 "PAD_DEBUG: 8723bs coex_%s PAD1 0x%08x->0x%08x\n",
+		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
+}
+
 static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
@@ -1551,14 +1569,14 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
 						    "assoc_pta_ant");
 
-	/* Keep external DPDT switch routed to WiFi side for auth/assoc TX */
-	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_pta");
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
-		 ant_target, ant_path, rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
+		 ant_target, ant_path, rtw_read32(rtwdev, REG_PAD_CTRL1),
+		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
 		 rtw_read32(rtwdev, REG_LED_CFG),
 		 rtw_read8(rtwdev, REG_8723BS_SDIO_ANT_INV),
 		 rtw_read8(rtwdev, 0x64), rtw_read8(rtwdev, 0x765),
@@ -1634,18 +1652,15 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
-	/* Re-assert the external DPDT switch: keep BIT(0) of REG_PAD_CTRL1
-	 * set so the external RF switch routes air-side TX to the WiFi
-	 * antenna, matching what staging programs at power-on.
-	 */
-	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_pta");
 
 	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 "pta", rtw_coex_8723bs_ant_is_aux(rtwdev),
 		 "2",
 		 coex_stat->bt_disabled, efuse->bt_setting, efuse->share_ant,
 		 efuse->rfe_option, ant_target, ant_path,
+		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE0),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE1),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
@@ -1687,8 +1702,9 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=e0:2b/f0:00 bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x\n",
+		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=e0:2b/f0:00 bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x\n",
 		 rtw_read32(rtwdev, 0x948),
+		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
 		 rtw_read32(rtwdev, REG_SDIO_TX_CTRL));
 }
@@ -1703,10 +1719,10 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
  * PTA path (0x200 or 0x80) so that subsequent RF channel/programming
  * writes reach the chip correctly.
  *
- * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
- * DPDT routing.  It performs no firmware H2C, coex table, or TDMA
- * changes; those are covered by scan_workaround / force_assoc_pta_ant
- * later in the connect window.
+	 * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
+	 * vendor PAD_CTRL1 restore. It performs no firmware H2C, coex
+	 * table, or TDMA changes; those are covered by scan_workaround /
+	 * force_assoc_pta_ant later in the connect window.
  */
 void rtw_coex_8723bs_ensure_pta_path(struct rtw_dev *rtwdev)
 {
@@ -1724,7 +1740,7 @@ void rtw_coex_8723bs_ensure_pta_path(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	rtw_coex_8723bs_write_bb_sel_btg(rtwdev, pta_path,
 					 "ips_set_channel");
-	rtw_write8_mask(rtwdev, REG_PAD_CTRL1, BIT(0), 0x1);
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "ips_set_channel");
 }
 
 #define case_ALGO(src) \
@@ -3233,8 +3249,9 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 		}
 
 		rtw_info(rtwdev,
-			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x\n",
-			 type, rtw_read32(rtwdev, 0x948));
+			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948),
+			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
 	}
 
@@ -3317,8 +3334,9 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 		}
 
 		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs bt-disabled connect_notify type=%u skip run_coex BB_SEL_BTG=0x%08x\n",
-			 type, rtw_read32(rtwdev, 0x948));
+			 "COEX_AUTH_DEBUG: 8723bs bt-disabled connect_notify type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948),
+			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
 	}
 
@@ -3379,8 +3397,9 @@ void rtw_coex_media_status_notify(struct rtw_dev *rtwdev, u8 type)
 
 	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
 		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs bt-disabled media_status type=%u skip run_coex BB_SEL_BTG=0x%08x\n",
-			 type, rtw_read32(rtwdev, 0x948));
+			 "COEX_AUTH_DEBUG: 8723bs bt-disabled media_status type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+			 type, rtw_read32(rtwdev, 0x948),
+			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
 	}
 

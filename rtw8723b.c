@@ -1295,6 +1295,9 @@ static void rtw8723b_spur_cal(struct rtw_dev *rtwdev, u8 channel)
 }
 #endif
 
+static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev);
+static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
+					   const char *tag);
 
 /* adapted from: _InitPowerOn_8723BS (steps after calling cardEnable)
  */
@@ -1319,23 +1322,12 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		rtw_write16_set(rtwdev, REG_PWR_DATA, BIT(11));
 
-		/* Re-assert PAPE_WLBT_SEL (bit 29) and LNAON_WLBT_SEL (bit 28)
-		 * in REG_PAD_CTRL1 after mac_power_on.  Both bits signal the
-		 * chip's pad mux to route the PA-PE (power-amplifier
-		 * power-enable) and LNA-ON (low-noise-amplifier on) control
-		 * signals to the WLAN block, which is required for any active
-		 * TX via the DPDT antenna switch path.
-		 *
-		 * Also assert BIT_SW_DPDT_SEL_DATA (bit 0) for the SDIO
-		 * external antenna-switch routing.  Staging programs bit 0 at
-		 * power-on as part of the DPDT init; with the bit clear the
-		 * switch may default to the BT antenna port, leaving on-air
-		 * TX unrouteable even though the chip MAC/BB drains frames
-		 * normally.
+		/* rtw_mac_power_on() sets the generic WLAN-owned PAPE/LNAON
+		 * mux bits. Vendor 8723BS SDIO init leaves those PAD bits
+		 * clear and explicitly clears the external DPDT bit, so put
+		 * the register back into that shape before active scan/auth.
 		 */
-		value32 = rtw_read32(rtwdev, REG_PAD_CTRL1);
-		value32 |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
-		rtw_write32(rtwdev, REG_PAD_CTRL1, value32);
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "post_enable");
 
 		/*
 		 * Vendor rtl8723bs v5.2.17 driver sets BIT(12) of
@@ -1360,11 +1352,6 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	rtw_write32(rtwdev, REG_MACID_PKT_DROP0_8723B, 0);
 	rtw_write32(rtwdev, REG_MACID_PKT_SLEEP_8723B, 0);
 }
-
-/* vendor: hal/rtl8723b/rtl8723b_phycfg.c
- * function: PHY_BBConfig8723B
- */
-static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev);
 
 static void rtw8723b_phy_bb_config(struct rtw_dev *rtwdev)
 {
@@ -1978,6 +1965,27 @@ static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev)
 	return rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
 }
 
+static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
+					   const char *tag)
+{
+	u32 before;
+	u32 after;
+
+	if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
+		return;
+
+	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
+	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
+			   BIT_SW_DPDT_SEL_DATA);
+	if (after == before)
+		return;
+
+	rtw_write32(rtwdev, REG_PAD_CTRL1, after);
+	rtw_info(rtwdev,
+		 "PAD_DEBUG: 8723bs %s PAD1 0x%08x->0x%08x\n",
+		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
+}
+
 static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
 {
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
@@ -1997,10 +2005,11 @@ static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 		return;
 
 	rtw_info(rtwdev,
-		 "CHAN_DEBUG: 8723bs %s scan=%d ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
+		 "CHAN_DEBUG: 8723bs %s scan=%d ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x PAD1=0x%08x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
 		 tag, test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ? 1 : 0,
 		 channel, bw, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rtw_read8(rtwdev, REG_RF_CTRL),
+		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_FPGA0_RFMOD),
 		 rtw_read32(rtwdev, REG_FPGA1_RFMOD),
 		 rtw_read32(rtwdev, REG_RXPSEL),
@@ -2211,11 +2220,7 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 	rtw8723b_reassert_rx_path(rtwdev, "set_channel");
 
 	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
-		/* BB/RF channel path can clear pad-control bits; re-assert */
-		u32 pad = rtw_read32(rtwdev, REG_PAD_CTRL1);
-
-		pad |= BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL | BIT(0);
-		rtw_write32(rtwdev, REG_PAD_CTRL1, pad);
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "set_channel");
 
 		/* RF_WLINT (0x01) is the RF wireless-interface register.
 		 * Bits 0-1 gate the TX/RX data path into the BB; if they
@@ -3382,9 +3387,10 @@ static void rtw8723b_coex_dump_rfe_state(struct rtw_dev *rtwdev,
 					 u8 ant_h2c_type)
 {
 	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x 0x4c=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x PAD1=0x%08x 0x4c=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 tag, aux, aux ? 1 : 0, ant_h2c_type,
 		 rtw_read32(rtwdev, REG_BB_SEL_BTG),
+		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_LED_CFG),
 		 rtw_read8(rtwdev, REG_SDIO_H2C),
 		 rtw_read8(rtwdev, REG_ANTSEL_SW_8723B),
@@ -3621,7 +3627,8 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		}
 
 		rtw8723b_coex_set_ant_ctrl_by_wifi(rtwdev);
-		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B, BIT(0), 0x1);
+		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B,
+				BIT_SW_DPDT_SEL_DATA, 0x0);
 		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
 
 		/* H2C 0x65 (COEX_ANT_SEL_RSV) is sent from the post-init
