@@ -1458,6 +1458,11 @@ static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x200;
 }
 
+static u32 rtw_coex_8723bs_wlan_active_ant_path(struct rtw_dev *rtwdev)
+{
+	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x280;
+}
+
 #define REG_8723BS_BT_COEX_CTRL		0x0039
 #define REG_8723BS_SDIO_ANT_INV		REG_SDIO_H2C
 #define REG_8723BS_BB_ANT_CFG		0x0930
@@ -1493,12 +1498,12 @@ static u32 rtw_coex_8723bs_write_bb_sel_btg(struct rtw_dev *rtwdev,
 	return rtw_read32(rtwdev, 0x948);
 }
 
-static u32 rtw_coex_8723bs_reassert_pta_ant(struct rtw_dev *rtwdev)
+static u32 rtw_coex_8723bs_reassert_wlan_active_ant(struct rtw_dev *rtwdev)
 {
-	u32 ant_path = rtw_coex_8723bs_pta_ant_path(rtwdev);
+	u32 ant_path = rtw_coex_8723bs_wlan_active_ant_path(rtwdev);
 
 	return rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_path,
-						"scan_pta_ant");
+						"scan_wlan_ant");
 }
 
 static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
@@ -1549,7 +1554,7 @@ static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
 }
 
-static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
+static void rtw_coex_8723bs_force_assoc_wlan_active_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
@@ -1559,31 +1564,25 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
 		return;
 
-	/* logs-rtw88-7dc65d5b: with the previous "WiFi ant" override
-	 * (BB_SEL_BTG=0x0, BBSW/WLG) the AP at -42 dBm never replies
-	 * to auth/assoc on-air, even though the on-chip TX descriptor
-	 * is byte-identical to staging. The only receive state proven
-	 * healthy for this hardware during scan uses the PTA antenna path
-	 * (BB_SEL_BTG=0x200, ctrl=PTA).
-	 *
-	 * Force the same PTA path during the connect window so auth
-	 * TX/RX stays on the known-good antenna routing the chip uses
-	 * for scan. This restores the behaviour that worked before
-	 * a5533c3, which incorrectly assumed the staging driver
-	 * "avoids the associate coex path" for BT-disabled boards.
+	/* logs-rtw88-c6e6fd30: auth descriptors and SDIO FIFO writes now
+	 * match staging, but neither an external monitor nor the AP sees
+	 * rtw88 auth/probe frames.  The same bundle's vendor init dump reports
+	 * BB_SEL_BTG=0x280 on this board, while rtw88 had kept active scan/auth
+	 * at 0x200.  Beacon RX at 0x200 only proves the receive side can hear
+	 * the AP; directed TX still needs the vendor WLAN-active path.
 	 */
-	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
+	ant_target = rtw_coex_8723bs_wlan_active_ant_path(rtwdev);
 
 	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_PTA,
 				COEX_SWITCH_TO_NOCARE);
-	rtw_coex_8723bs_set_cck_pri(rtwdev, true, "assoc_pta");
+	rtw_coex_8723bs_set_cck_pri(rtwdev, true, "assoc_wlan");
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
-						    "assoc_pta_ant");
+						    "assoc_wlan_ant");
 
-	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_pta");
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_wlan");
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+		 "COEX_AUTH_DEBUG: 8723bs assoc WLAN-active ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
 		 ant_target, ant_path, rtw_read32(rtwdev, REG_PAD_CTRL1),
@@ -1643,8 +1642,9 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 		return;
 
 	/* Start with staging's no-scan workaround: PS-TDMA type 8 with TDMA
-	 * off. The type-8 path forces the PTA antenna selection before staging
-	 * returns for BT-disabled devices, so keep the same selection here.
+	 * off.  For this BT-disabled SDIO board, the vendor driver leaves the
+	 * WLAN-active antenna selection at BB_SEL_BTG=0x280; keep active scan
+	 * probes on that path instead of the RF-write helper's 0x200 path.
 	 */
 	coex_dm->cur_ps_tdma_on = false;
 	coex_dm->cur_ps_tdma = 8;
@@ -1659,15 +1659,15 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	rtw_coex_8723bs_apply_scan_table(rtwdev);
 	if (coex_stat->bt_disabled)
-		rtw_coex_8723bs_set_cck_pri(rtwdev, true, "scan_pta");
-	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
-	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
+		rtw_coex_8723bs_set_cck_pri(rtwdev, true, "scan_wlan");
+	ant_target = rtw_coex_8723bs_wlan_active_ant_path(rtwdev);
+	ant_path = rtw_coex_8723bs_reassert_wlan_active_ant(rtwdev);
 
-	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_pta");
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_wlan");
 
 	rtw_info(rtwdev,
 		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
-		 "pta", rtw_coex_8723bs_ant_is_aux(rtwdev),
+		 "wlan-active", rtw_coex_8723bs_ant_is_aux(rtwdev),
 		 "2",
 		 coex_stat->bt_disabled, efuse->bt_setting, efuse->share_ant,
 		 efuse->rfe_option, ant_target, ant_path,
@@ -1710,7 +1710,7 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
-	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
+	rtw_coex_8723bs_force_assoc_wlan_active_ant(rtwdev);
 
 	rtw_info(rtwdev,
 		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=e0:2b/f0:00 bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x\n",
@@ -1733,7 +1733,7 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	 * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
 	 * vendor PAD_CTRL1 restore. It performs no firmware H2C, coex
 	 * table, or TDMA changes; those are covered by scan_workaround /
-	 * force_assoc_pta_ant later in the connect window.
+	 * force_assoc_wlan_active_ant later in the connect window.
  */
 void rtw_coex_8723bs_ensure_pta_path(struct rtw_dev *rtwdev)
 {
@@ -3260,7 +3260,7 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 		}
 
 		rtw_info(rtwdev,
-			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_wlan_state BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
 			 type, rtw_read32(rtwdev, 0x948),
 			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
@@ -3341,7 +3341,7 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 			 * CCK priority, and PS-TDMA H2C.  Keep only the
 			 * register-level PTA reassertion here.
 			 */
-			rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
+			rtw_coex_8723bs_force_assoc_wlan_active_ant(rtwdev);
 		}
 
 		rtw_info(rtwdev,
@@ -3379,7 +3379,7 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 		rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 
 		rtw_coex_run_coex(rtwdev, COEX_RSN_2GCONSTART);
-		rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
+		rtw_coex_8723bs_force_assoc_wlan_active_ant(rtwdev);
 
 		/* To keep TDMA case during connect process,
 		 * to avoid changed by Btinfo and runcoexmechanism
