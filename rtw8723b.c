@@ -3630,6 +3630,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B,
 				BIT_SW_DPDT_SEL_DATA, 0x0);
 		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "rfe_sdio");
 
 		/* H2C 0x65 (COEX_ANT_SEL_RSV) is sent from the post-init
 		 * block in rtw_power_on() after 0x6E (GNT_BT), matching
