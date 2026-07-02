@@ -977,6 +977,7 @@ struct rtw_vif {
 	u8 port;
 	u8 bcn_ctrl;
 	bool fw_media_connected;
+	bool pre_auth_h2c_sent;
 	struct list_head rsvd_page_list;
 	struct ieee80211_tx_queue_params tx_params[IEEE80211_NUM_ACS];
 	const struct rtw_vif_port *conf;

@@ -791,12 +791,15 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 					    struct ieee80211_prep_tx_info *info)
 {
 	static const u8 zero_addr[ETH_ALEN] = { 0 };
+	struct rtw_vif *rtwvif;
 	const u8 *bssid = NULL;
 
 	if (!rtw8723bs_mgd_prepare_is_auth(rtwdev, info) ||
 	    !vif ||
 	    test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
 		return;
+
+	rtwvif = (struct rtw_vif *)vif->drv_priv;
 
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 	if (!is_zero_ether_addr(vif->cfg.ap_addr))
@@ -863,7 +866,14 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 bssid);
 	}
 
-	rtw_coex_8723bs_pre_auth_h2c(rtwdev);
+	if (!rtwvif->pre_auth_h2c_sent) {
+		rtw_coex_8723bs_pre_auth_h2c(rtwdev);
+		rtwvif->pre_auth_h2c_sent = true;
+	} else {
+		rtw_info(rtwdev,
+			 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c skip bssid=%pM already_sent=1\n",
+			 bssid);
+	}
 }
 #endif
 
@@ -1007,6 +1017,7 @@ static int rtw_ops_add_interface(struct ieee80211_hw *hw,
 	rtwvif->stats.tx_cnt = 0;
 	rtwvif->stats.rx_cnt = 0;
 	rtwvif->scan_req = NULL;
+	rtwvif->pre_auth_h2c_sent = false;
 	memset(&rtwvif->bfee, 0, sizeof(struct rtw_bfee));
 	rtw_txq_init(rtwdev, vif->txq);
 	INIT_LIST_HEAD(&rtwvif->rsvd_page_list);
@@ -1332,9 +1343,19 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 
 	if (changed & BSS_CHANGED_BSSID) {
 		bool bssid_cleared = is_zero_ether_addr(conf->bssid);
+		bool bssid_changed = !ether_addr_equal(rtwvif->bssid,
+						       conf->bssid);
 
 		ether_addr_copy(rtwvif->bssid, conf->bssid);
 		config |= PORT_SET_BSSID;
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+		    vif->type == NL80211_IFTYPE_STATION && bssid_changed) {
+			rtwvif->pre_auth_h2c_sent = false;
+			rtw_info(rtwdev,
+				 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d\n",
+				 conf->bssid, bssid_cleared);
+		}
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 		    vif->type == NL80211_IFTYPE_STATION && bssid_cleared) {
