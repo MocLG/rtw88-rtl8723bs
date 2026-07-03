@@ -489,7 +489,10 @@ static void rtw_fw_send_h2c_command(struct rtw_dev *rtwdev,
 {
 	u8 cmd_id = h2c[0] & 0xff;
 
-	rtw_info(rtwdev, "H2C_DEBUG: send_h2c id=0x%02x\n", cmd_id);
+	rtw_info(rtwdev,
+		 "H2C_DEBUG: send_h2c id=0x%02x raw=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+		 cmd_id, h2c[0], h2c[1], h2c[2], h2c[3],
+		 h2c[4], h2c[5], h2c[6], h2c[7]);
 
 	struct rtw_h2c_cmd *h2c_cmd = (struct rtw_h2c_cmd *)h2c;
 	u8 box;

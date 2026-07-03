@@ -23,6 +23,7 @@
 #define RTW8723BS_AUTH_SYNC_WAIT_MIN_MS 80
 #define RTW8723BS_AUTH_SYNC_WAIT_MAX_MS 160
 #define RTW8723BS_MGMT_DUMP_BYTES 192
+#define RTW8723BS_MGMT_MACID 1
 #define RTW8723BS_ACK_PREAMBLE_SHORT BIT(7)
 #define RTW8723BS_SHORT_SLOT_TIME 9
 #define RTW8723BS_LONG_SLOT_TIME 20
@@ -50,6 +51,47 @@ static bool rtw8723bs_sdio(struct rtw_dev *rtwdev)
 {
 	return rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	       rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO;
+}
+
+static void rtw8723bs_pre_auth_macid_connect(struct rtw_dev *rtwdev,
+					     struct rtw_vif *rtwvif,
+					     const u8 *bssid)
+{
+	if (rtwvif->pre_auth_macid_sent) {
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: pre_auth macid skip already_connected macid=%u bssid=%pM\n",
+			 RTW8723BS_MGMT_MACID, bssid);
+		return;
+	}
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: pre_auth macid_cfg media_status connect macid=%u bssid=%pM raid=1 bw=0 sgi=1 mask=0x%06x\n",
+		 RTW8723BS_MGMT_MACID, bssid, 0x0ff015);
+
+	/*
+	 * 8723BS SDIO management descriptors use MACID 1 to match the vendor
+	 * driver. Prime that firmware context before auth so the v41 firmware
+	 * has a live rate table and media state for the descriptor MACID it is
+	 * about to consume from the host TX FIFO.
+	 */
+	rtw_fw_macid_cfg(rtwdev, RTW8723BS_MGMT_MACID, 1, 0, 1, 0x0ff015);
+	rtw_fw_media_status_report(rtwdev, RTW8723BS_MGMT_MACID, true);
+	rtwvif->pre_auth_macid_sent = true;
+}
+
+static void rtw8723bs_pre_auth_macid_disconnect(struct rtw_dev *rtwdev,
+						struct rtw_vif *rtwvif,
+						const char *where,
+						const u8 *bssid)
+{
+	if (!rtwvif->pre_auth_macid_sent)
+		return;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s pre_auth macid media_status disconnect macid=%u bssid=%pM\n",
+		 where, RTW8723BS_MGMT_MACID, bssid);
+	rtw_fw_media_status_report(rtwdev, RTW8723BS_MGMT_MACID, false);
+	rtwvif->pre_auth_macid_sent = false;
 }
 
 static bool rtw8723bs_mgd_prepare_skip_fresh_rfk(struct rtw_dev *rtwdev,
@@ -829,26 +871,6 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 
-		/*
-		 * The vendor rtl8723bs v5.2.17 driver's start_clnt_join()
-		 * sends MACID_CFG (0x40), MEDIA_STATUS_RPT (0x01), RSVD_PAGE
-		 * loc (0x00), and WL_CH_INFO (0x66) ONLY from
-		 * mlmeext_joinbss_event_callback AFTER association succeeds.
-		 * Sending MEDIA_STATUS_RPT(connect=true) pre-auth tells the
-		 * v41 firmware "media connected" when no connection exists.
-		 *
-		 * The vendor DOES send BT_MP_OPER (0x67) + BT_INFO (0x61) +
-		 * PS_TDMA (0x60) queries at the scan→connect boundary before
-		 * auth (confirmed by vendor_h2c trace, test-06-staging-dmesg.log).
-		 * These coexist queries are handled by rtw_ops_mgd_prepare_tx()
-		 * before this function runs.
-		 *
-		 * Our post-assoc path (rtw_ops_bss_info_changed →
-		 * rtw_vif_assoc_changed) handles MACID_CFG, MEDIA_STATUS_RPT,
-		 * RSVD_PAGE, and WL_CH_INFO after BSS_CHANGED_ASSOC fires,
-		 * matching the vendor's flow.
-		 */
-
 		/* Wait for a beacon from the target BSSID before auth,
 		 * matching staging/vendor start_clnt_join() behavior.
 		 */
@@ -874,6 +896,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 			 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c skip bssid=%pM already_sent=1\n",
 			 bssid);
 	}
+
+	rtw8723bs_pre_auth_macid_connect(rtwdev, rtwvif, bssid);
 }
 #endif
 
@@ -1018,6 +1042,7 @@ static int rtw_ops_add_interface(struct ieee80211_hw *hw,
 	rtwvif->stats.rx_cnt = 0;
 	rtwvif->scan_req = NULL;
 	rtwvif->pre_auth_h2c_sent = false;
+	rtwvif->pre_auth_macid_sent = false;
 	memset(&rtwvif->bfee, 0, sizeof(struct rtw_bfee));
 	rtw_txq_init(rtwdev, vif->txq);
 	INIT_LIST_HEAD(&rtwvif->rsvd_page_list);
@@ -1095,6 +1120,9 @@ static void rtw_ops_remove_interface(struct ieee80211_hw *hw,
 	mutex_lock(&rtwdev->mutex);
 
 	rtw_leave_lps_deep(rtwdev);
+	if (rtw8723bs_sdio(rtwdev) && vif->type == NL80211_IFTYPE_STATION)
+		rtw8723bs_pre_auth_macid_disconnect(rtwdev, rtwvif, "remove",
+						    rtwvif->bssid);
 
 	rtw_txq_cleanup(rtwdev, vif->txq);
 	rtw_remove_rsvd_page(rtwdev, rtwvif);
@@ -1331,9 +1359,13 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 				rtw_hw_scan_abort(rtwdev);
 
 			if (rtw8723bs_sdio(rtwdev) &&
-			    vif->type == NL80211_IFTYPE_STATION)
+			    vif->type == NL80211_IFTYPE_STATION) {
+				rtw8723bs_pre_auth_macid_disconnect(rtwdev, rtwvif,
+								    "disassoc",
+								    rtwvif->bssid);
 				rtw8723bs_auth_rx_filter(rtwdev, "disassoc",
 							 false);
+			}
 
 		}
 
@@ -1346,16 +1378,19 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 		bool bssid_changed = !ether_addr_equal(rtwvif->bssid,
 						       conf->bssid);
 
-		ether_addr_copy(rtwvif->bssid, conf->bssid);
-		config |= PORT_SET_BSSID;
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 		    vif->type == NL80211_IFTYPE_STATION && bssid_changed) {
+			rtw8723bs_pre_auth_macid_disconnect(rtwdev, rtwvif,
+							    "bssid_change",
+							    rtwvif->bssid);
 			rtwvif->pre_auth_h2c_sent = false;
 			rtw_info(rtwdev,
 				 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d\n",
 				 conf->bssid, bssid_cleared);
 		}
+		ether_addr_copy(rtwvif->bssid, conf->bssid);
+		config |= PORT_SET_BSSID;
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 		    vif->type == NL80211_IFTYPE_STATION && bssid_cleared) {
