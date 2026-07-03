@@ -296,7 +296,7 @@ void rtw_tx_report_handle(struct rtw_dev *rtwdev, struct sk_buff *skb, int src)
 	spin_unlock_irqrestore(&tx_report->q_lock, flags);
 }
 
-void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
+void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 report_type,
 				u8 *payload, u8 len)
 {
 	struct rtw_tx_report *tx_report = &rtwdev->tx_report;
@@ -306,16 +306,15 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
 	u8 sn = len >= 5 ? payload[4] : 0xff;
 	u8 *n;
 
-	/* v41 firmware TX report payload (vendor format):
-	 *   byte 0: 0x00
-	 *   byte 1: retry_count
-	 *   byte 2: 0x00
-	 *   byte 3: 0x00
-	 *   byte 4: seq_no (from TX descriptor SW_DEFINE / SPE_RPT sn)
+	/* 8723B SDIO v41 firmware reports management TX through C2H ID 0x03
+	 * (C2H_CCX_TX_RPT), matching staging.  Payload byte 0 is the vendor
+	 * report type: 0x32 for scan probes, 0x12 for auth/assoc/data.
+	 * The driver descriptor contract currently uses SW_DEFINE/sn=0 for
+	 * management TX, so this handler is primarily diagnostic for mgmt frames.
 	 */
 	rtw_info(rtwdev,
-		 "TX_REPORT_DEBUG: 8723b c2h=0x%02x len=%u payload=%*ph b1=0x%02x b2=0x%02x sn=%u\n",
-		 c2h_id, len, dump_len, payload,
+		 "TX_REPORT_DEBUG: 8723b type=0x%02x len=%u payload=%*ph status=0x%02x retry=0x%02x sn=%u\n",
+		 report_type, len, dump_len, payload,
 		 len > 1 ? payload[1] : 0xff,
 		 len > 2 ? payload[2] : 0xff, sn);
 

@@ -107,7 +107,7 @@ void rtw_tx_fill_tx_desc(struct rtw_dev *rtwdev,
 			 struct rtw_tx_desc *tx_desc);
 void rtw_tx_report_enqueue(struct rtw_dev *rtwdev, struct sk_buff *skb, u8 sn);
 void rtw_tx_report_handle(struct rtw_dev *rtwdev, struct sk_buff *skb, int src);
-void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
+void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 report_type,
 				u8 *payload, u8 len);
 void rtw_tx_rsvd_page_pkt_info_update(struct rtw_dev *rtwdev,
 				      struct rtw_tx_pkt_info *pkt_info,

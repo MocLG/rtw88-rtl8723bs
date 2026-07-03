@@ -318,6 +318,13 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 
 	switch (c2h->id) {
 	case C2H_CCX_TX_RPT:
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+			rtw_tx_report_handle_8723b(rtwdev,
+						   len ? c2h->payload[0] : 0,
+						   c2h->payload, len);
+			break;
+		}
 		rtw_tx_report_handle(rtwdev, skb, C2H_CCX_TX_RPT);
 		break;
 	case C2H_BT_INFO:
@@ -372,6 +379,13 @@ void rtw_fw_c2h_cmd_rx_irqsafe(struct rtw_dev *rtwdev, u32 pkt_offset,
 
 	rtw_dbg(rtwdev, RTW_DBG_FW, "recv C2H, id=0x%02x, seq=0x%02x, len=%d\n",
 		c2h->id, c2h->seq, len);
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_info(rtwdev,
+			 "C2H_PKT_DEBUG: 8723b id=0x%02x seq=0x%02x len=%u payload=%*ph\n",
+			 c2h->id, c2h->seq, len, min_t(int, len, 8),
+			 c2h->payload);
 
 	switch (c2h->id) {
 	case C2H_BT_MP_INFO:
