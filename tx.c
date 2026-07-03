@@ -303,22 +303,24 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 report_type,
 	struct sk_buff *cur, *tmp;
 	unsigned long flags;
 	int dump_len = min_t(int, len, 8);
-	u8 sn = len >= 5 ? payload[4] : 0xff;
+	bool failed = len > 0 && (payload[0] & (BIT(6) | BIT(7)));
+	u8 sn = len >= 7 ? payload[6] : 0xff;
 	u8 *n;
 
 	/* 8723B SDIO v41 firmware reports management TX through C2H ID 0x03
 	 * (C2H_CCX_TX_RPT), matching staging.  Payload byte 0 is the vendor
-	 * report type: 0x32 for scan probes, 0x12 for auth/assoc/data.
-	 * The driver descriptor contract currently uses SW_DEFINE/sn=0 for
-	 * management TX, so this handler is primarily diagnostic for mgmt frames.
+	 * report type/status: 0x32 for scan probes, 0x12 for auth/assoc/data,
+	 * with bit 6 as lifetime-over and bit 7 as retry-over.  The vendor
+	 * driver reads W6 SW_DEFINE back from payload byte 6.
 	 */
 	rtw_info(rtwdev,
-		 "TX_REPORT_DEBUG: 8723b type=0x%02x len=%u payload=%*ph status=0x%02x retry=0x%02x sn=%u\n",
+		 "TX_REPORT_DEBUG: 8723b type=0x%02x len=%u payload=%*ph mac_id=0x%02x retry=0x%02x final_rate=0x%02x failed=%d sn=%u\n",
 		 report_type, len, dump_len, payload,
 		 len > 1 ? payload[1] : 0xff,
-		 len > 2 ? payload[2] : 0xff, sn);
+		 len > 2 ? payload[2] : 0xff,
+		 len > 5 ? payload[5] : 0xff, failed, sn);
 
-	if (len < 5)
+	if (len < 7)
 		return;
 
 	spin_lock_irqsave(&tx_report->q_lock, flags);
@@ -326,12 +328,7 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 report_type,
 		n = (u8 *)IEEE80211_SKB_CB(cur)->status.status_driver_data;
 		if (*n == sn) {
 			__skb_unlink(cur, &tx_report->queue);
-			/* Report as ACKed: the frame was transmitted on air.
-			 * We don't distinguish success vs failure based on
-			 * retry count since the v41 firmware always reports
-			 * a retry count > 0 even on successful frames.
-			 */
-			rtw_tx_report_tx_status(rtwdev, cur, true);
+			rtw_tx_report_tx_status(rtwdev, cur, !failed);
 			break;
 		}
 	}
