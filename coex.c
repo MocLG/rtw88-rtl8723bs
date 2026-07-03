@@ -1552,6 +1552,18 @@ static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
 }
 
+static void rtw_coex_8723bs_fw_gnt_bt_low(struct rtw_dev *rtwdev,
+					  const char *tag)
+{
+	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
+		return;
+
+	rtw_fw_set_gnt_bt(rtwdev, 0);
+	rtw_info(rtwdev,
+		 "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c state=0 GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
+		 tag, rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x76e));
+}
+
 static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 {
 	struct rtw_coex_stat *coex_stat = &rtwdev->coex.stat;
@@ -1569,6 +1581,7 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	 */
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 
+	rtw_coex_8723bs_fw_gnt_bt_low(rtwdev, "assoc_pta");
 	rtw_coex_set_ant_switch(rtwdev, COEX_SWITCH_CTRL_BY_PTA,
 				COEX_SWITCH_TO_NOCARE);
 	rtw_coex_8723bs_set_cck_pri(rtwdev, true, "assoc_pta");
@@ -1649,6 +1662,7 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	coex_dm->ps_tdma_para[4] = 0x00;
 
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+	rtw_coex_8723bs_fw_gnt_bt_low(rtwdev, "scan_pta");
 	rtw_coex_set_ant_path(rtwdev, true, COEX_SET_ANT_2G);
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	rtw_coex_8723bs_apply_scan_table(rtwdev);
@@ -1704,6 +1718,7 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
 	rtw_fw_coex_tdma_type(rtwdev, 0x08, 0x00, 0x00, 0x00, 0x00);
+	rtw_coex_8723bs_fw_gnt_bt_low(rtwdev, "pre_auth");
 	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
