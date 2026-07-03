@@ -1555,8 +1555,20 @@ static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
 static void rtw_coex_8723bs_fw_gnt_bt_low(struct rtw_dev *rtwdev,
 					  const char *tag)
 {
+	u8 gnt_bt;
+	u8 wlan_act;
+
 	if (!rtw_coex_8723bs_bt_disabled(rtwdev))
 		return;
+
+	gnt_bt = rtw_read8(rtwdev, 0x765);
+	wlan_act = rtw_read8(rtwdev, 0x76e);
+	if (gnt_bt == 0x00 && wlan_act == 0x0c) {
+		rtw_info(rtwdev,
+			 "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c skip already_low GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
+			 tag, gnt_bt, wlan_act);
+		return;
+	}
 
 	rtw_fw_set_gnt_bt(rtwdev, 0);
 	rtw_info(rtwdev,
