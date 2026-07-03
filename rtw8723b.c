@@ -1322,10 +1322,9 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		rtw_write16_set(rtwdev, REG_PWR_DATA, BIT(11));
 
-		/* rtw_mac_power_on() sets generic PAD mux bits.  On 8723BS,
-		 * REG_PAD_CTRL1 bit 29 is byte 0x67 bit 5, which the vendor
-		 * path uses for WiFi-owned S0/S1 selection.  Keep that bit
-		 * available and clear only the non-vendor LNAON/DPDT state.
+		/* rtw_mac_power_on() sets generic PAD mux bits that the
+		 * 8723BS vendor path leaves clear.  Restore the SDIO PAD
+		 * mux to staging's hal_init_done value before RF/coex setup.
 		 */
 		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "post_enable");
 
@@ -1975,11 +1974,8 @@ static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		return;
 
 	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
-	/* Do not clear BIT_PAPE_WLBT_SEL on 8723BS SDIO.  It aliases
-	 * REG_BT_ANT_SEL_8723B bit 5, and vendor PTA scan/auth keeps that
-	 * bit set so WiFi controls the BT S0/S1 antenna select.
-	 */
-	after = before & ~(BIT_LNAON_WLBT_SEL | BIT_SW_DPDT_SEL_DATA);
+	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
+			   BIT_SW_DPDT_SEL_DATA);
 	if (after == before)
 		return;
 

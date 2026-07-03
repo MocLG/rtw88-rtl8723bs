@@ -1538,11 +1538,12 @@ static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
 	u32 after;
 
 	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
-	/* On 8723B byte 0x67 bit 5 aliases BIT_PAPE_WLBT_SEL.  Vendor
-	 * set_ant_path(PTA) sets it so WiFi controls BT S0/S1 selection;
-	 * clearing it leaves the scan/auth PTA path half-programmed.
+	/* Keep PAD_CTRL1 on the vendor 8723BS SDIO value.  The staging
+	 * hal_init_done trace for this board has both WL/BT mux bits clear;
+	 * BB_SEL_BTG still selects the PTA antenna path for scan/auth.
 	 */
-	after = before & ~(BIT_LNAON_WLBT_SEL | BIT_SW_DPDT_SEL_DATA);
+	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
+			   BIT_SW_DPDT_SEL_DATA);
 	if (after == before)
 		return;
 
