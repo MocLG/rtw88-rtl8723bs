@@ -302,7 +302,8 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
 	struct rtw_tx_report *tx_report = &rtwdev->tx_report;
 	struct sk_buff *cur, *tmp;
 	unsigned long flags;
-	u8 sn;
+	int dump_len = min_t(int, len, 8);
+	u8 sn = len >= 5 ? payload[4] : 0xff;
 	u8 *n;
 
 	/* v41 firmware TX report payload (vendor format):
@@ -312,14 +313,14 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 c2h_id,
 	 *   byte 3: 0x00
 	 *   byte 4: seq_no (from TX descriptor SW_DEFINE / SPE_RPT sn)
 	 */
+	rtw_info(rtwdev,
+		 "TX_REPORT_DEBUG: 8723b c2h=0x%02x len=%u payload=%*ph b1=0x%02x b2=0x%02x sn=%u\n",
+		 c2h_id, len, dump_len, payload,
+		 len > 1 ? payload[1] : 0xff,
+		 len > 2 ? payload[2] : 0xff, sn);
+
 	if (len < 5)
 		return;
-
-	sn = payload[4];
-
-	rtw_dbg(rtwdev, RTW_DBG_TX,
-		"TX report c2h=0x%02x retry=%u sn=%u\n",
-		c2h_id, payload[1], sn);
 
 	spin_lock_irqsave(&tx_report->q_lock, flags);
 	skb_queue_walk_safe(&tx_report->queue, cur, tmp) {

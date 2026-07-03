@@ -1392,6 +1392,10 @@ static void rtw_sdio_enable_interrupt(struct rtw_dev *rtwdev)
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 
 	rtw_write32(rtwdev, REG_SDIO_HIMR, rtwsdio->irq_mask);
+	/* Vendor clears stale C2H events after enabling SDIO interrupts;
+	 * otherwise firmware may stop scheduling later C2H commands.
+	 */
+	rtw_write8(rtwdev, REG_C2HEVT_CLEAR, C2H_EVT_HOST_CLOSE);
 }
 
 static void rtw_sdio_disable_interrupt(struct rtw_dev *rtwdev)
@@ -1955,8 +1959,14 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 	trigger = rtw_read8(rtwdev, REG_C2HEVT_CLEAR);
 	if (trigger == C2H_EVT_HOST_CLOSE)
 		return;
-	if (trigger != C2H_EVT_FW_CLOSE)
+	if (trigger != C2H_EVT_FW_CLOSE) {
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+			rtw_info(rtwdev,
+				 "C2H_REG_DEBUG: unexpected trigger=0x%02x\n",
+				 trigger);
 		goto clear_evt;
+	}
 
 	id = rtw_read8(rtwdev, REG_C2HEVT);
 	seq = rtw_read8(rtwdev, REG_C2HEVT_CMD_SEQ);
@@ -1970,6 +1980,12 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 	skb_put_u8(skb, seq);
 	for (i = 0; i < plen; i++)
 		skb_put_u8(skb, rtw_read8(rtwdev, REG_C2HEVT + 2 + i));
+
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		rtw_info(rtwdev,
+			 "C2H_REG_DEBUG: id=0x%02x seq=%u plen=%u payload=%*ph\n",
+			 id, seq, plen, min_t(int, plen, 8), skb->data + 2);
 
 	*((u32 *)skb->cb) = 0;
 	skb_queue_tail(&rtwdev->c2h_queue, skb);
@@ -1998,10 +2014,11 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
 		scan_irq_count++;
 		if (scan_irq_count <= 10 || scan_irq_count % 20 == 0)
-			pr_info("RTW88 IRQ during scan #%d: HISR=0x%08x (RX=%d AVAL=%d)\n",
+			pr_info("RTW88 IRQ during scan #%d: HISR=0x%08x (RX=%d AVAL=%d C2H=%d)\n",
 				scan_irq_count, hisr,
 				!!(hisr & REG_SDIO_HISR_RX_REQUEST),
-				!!(hisr & REG_SDIO_HISR_AVAL));
+				!!(hisr & REG_SDIO_HISR_AVAL),
+				!!(hisr & REG_SDIO_HISR_C2HCMD));
 	}
 
 	if (hisr & REG_SDIO_HISR_TXERR)
