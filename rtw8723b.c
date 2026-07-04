@@ -2222,7 +2222,13 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 	rtw8723b_reassert_rx_path(rtwdev, "set_channel");
 
 	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
-		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "set_channel", false);
+		bool keep_pta_owner;
+
+		keep_pta_owner = test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ||
+				 (rtw_read32(rtwdev, REG_PAD_CTRL1) &
+				  BIT_PAPE_WLBT_SEL);
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "set_channel",
+					       keep_pta_owner);
 
 		/* RF_WLINT (0x01) is the RF wireless-interface register.
 		 * Bits 0-1 gate the TX/RX data path into the BB; if they
