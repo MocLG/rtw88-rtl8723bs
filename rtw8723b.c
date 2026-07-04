@@ -1994,7 +1994,7 @@ static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
 	 * staging BT-disabled scan path leaves them. Run IQK through the same
 	 * mux so the calibration is applied to the path used for auth/assoc TX.
 	 */
-	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x280;
 }
 
 static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
@@ -3492,7 +3492,7 @@ static u32 rtw8723b_coex_ant_path_value(struct rtw_dev *rtwdev, u8 pos_type)
 	case COEX_SWITCH_TO_WLG_BT:
 	case COEX_SWITCH_TO_NOCARE:
 	default:
-		return aux ? 0x80 : 0x200;
+		return aux ? 0x80 : 0x280;
 	}
 }
 
