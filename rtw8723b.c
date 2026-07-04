@@ -1918,8 +1918,6 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	// NOTE: also done by the MAC power-on rtw88 routines, we can remove it probably here
 	val32 = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
 	val32 &= 0x0000fff8;
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		val32 |= BIT_SDIO_TX_CTRL_ALWAYS_RECOGNIZE;
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val32);
 
 	rtw_write16(rtwdev, REG_ATIMWND, 0x2);
