@@ -1036,6 +1036,12 @@ static int rtw_sdio_wait_tx_oqt(struct rtw_dev *rtwdev, u8 needed)
 	if (!rtw_chip_wcpu_8051(rtwdev))
 		return 0;
 
+	oqt_free = atomic_read(&rtwsdio->tx_oqt_free);
+	if (oqt_free >= needed) {
+		atomic_sub(needed, &rtwsdio->tx_oqt_free);
+		return 0;
+	}
+
 	for (i = 0; i < RTW_SDIO_OQT_TIMEOUT_MS; i++) {
 		oqt_free = rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG);
 		if (oqt_free >= needed) {
