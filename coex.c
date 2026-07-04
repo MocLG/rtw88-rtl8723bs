@@ -1455,7 +1455,7 @@ static bool rtw_coex_8723bs_bt_disabled(struct rtw_dev *rtwdev)
 
 static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 {
-	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x280;
+	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x200;
 }
 
 #define REG_8723BS_BT_COEX_CTRL		0x0039
@@ -1532,18 +1532,21 @@ static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
 }
 
 static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
-					     const char *tag)
+					     const char *tag,
+					     bool keep_pta_owner)
 {
 	u32 before;
 	u32 after;
 
 	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
-	/* Keep PAD_CTRL1 on the vendor 8723BS SDIO value.  The staging
-	 * hal_init_done trace for this board has both WL/BT mux bits clear;
-	 * BB_SEL_BTG still selects the active RF path for scan/auth.
+	/* Vendor init leaves the PAD mux bits clear, but the non-connected
+	 * PTA path later sets 0x67[5] so WiFi owns S0/S1 selection.
 	 */
-	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
-			   BIT_SW_DPDT_SEL_DATA);
+	after = before & ~(BIT_LNAON_WLBT_SEL | BIT_SW_DPDT_SEL_DATA);
+	if (keep_pta_owner)
+		after |= BIT_PAPE_WLBT_SEL;
+	else
+		after &= ~BIT_PAPE_WLBT_SEL;
 	if (after == before)
 		return;
 
@@ -1589,8 +1592,8 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 
 	/* Vendor halbtc8723b1ant_action_wifi_not_connected_{scan,asso_auth}()
 	 * uses BTC_ANT_PATH_PTA here: GNT_BT low, WLAN_ACT controlled by PTA,
-	 * 0x67[5] set for WiFi-owned S0/S1 selection, and the same
-	 * main-antenna BB_SEL_BTG value that staging programs at BB init.
+	 * 0x67[5] set for WiFi-owned S0/S1 selection, and BB_SEL_BTG=0x200
+	 * on main-antenna boards.
 	 */
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 
@@ -1601,7 +1604,7 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 	ant_path = rtw_coex_8723bs_write_bb_sel_btg(rtwdev, ant_target,
 						    "assoc_pta_ant");
 
-	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_pta");
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_pta", true);
 
 	rtw_info(rtwdev,
 		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
@@ -1684,7 +1687,7 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 	ant_path = rtw_coex_8723bs_reassert_pta_ant(rtwdev);
 
-	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_pta");
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_pta", true);
 
 	rtw_info(rtwdev,
 		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
@@ -1727,11 +1730,13 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
 	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=deferred bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x\n",
+		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=deferred bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x BT_CTRL=0x%02x GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_read32(rtwdev, 0x948),
 		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
-		 rtw_read32(rtwdev, REG_SDIO_TX_CTRL));
+		 rtw_read32(rtwdev, REG_SDIO_TX_CTRL),
+		 rtw_read8(rtwdev, 0x67), rtw_read8(rtwdev, 0x765),
+		 rtw_read8(rtwdev, 0x76e));
 }
 
 /**
@@ -1740,9 +1745,9 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
  *
  * On 8723BS SDIO, after IPS leave or power-on init the chip may be on
  * a stale antenna-switch state where RF register writes silently fail.
- * Call this before rtw_set_channel() to restore the vendor/staging
- * 8723BS SDIO RF path (0x280 on main-antenna boards, 0x80 on aux) so
- * that subsequent RF channel/programming writes reach the chip correctly.
+ * Call this before rtw_set_channel() to restore the vendor/staging PTA
+ * path (0x200 on main-antenna boards, 0x80 on aux) so that subsequent
+ * RF channel/programming writes reach the chip correctly.
  *
  * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
  * vendor PAD_CTRL1 restore. It performs no firmware H2C, coex table, or
@@ -1765,7 +1770,7 @@ void rtw_coex_8723bs_ensure_pta_path(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_reassert_ant_buffer(rtwdev);
 	rtw_coex_8723bs_write_bb_sel_btg(rtwdev, pta_path,
 					 "ips_set_channel");
-	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "ips_set_channel");
+	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "ips_set_channel", false);
 }
 
 #define case_ALGO(src) \

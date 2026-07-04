@@ -1297,7 +1297,8 @@ static void rtw8723b_spur_cal(struct rtw_dev *rtwdev, u8 channel)
 
 static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev);
 static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
-					   const char *tag);
+					   const char *tag,
+					   bool keep_pta_owner);
 
 /* adapted from: _InitPowerOn_8723BS (steps after calling cardEnable)
  */
@@ -1326,7 +1327,7 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 		 * 8723BS vendor path leaves clear.  Restore the SDIO PAD
 		 * mux to staging's hal_init_done value before RF/coex setup.
 		 */
-		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "post_enable");
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "post_enable", false);
 
 		/*
 		 * Vendor rtl8723bs v5.2.17 driver sets BIT(12) of
@@ -1963,7 +1964,8 @@ static bool rtw8723b_sdio_needs_rx_path_fix(struct rtw_dev *rtwdev)
 }
 
 static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
-					   const char *tag)
+					   const char *tag,
+					   bool keep_pta_owner)
 {
 	u32 before;
 	u32 after;
@@ -1972,8 +1974,11 @@ static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		return;
 
 	before = rtw_read32(rtwdev, REG_PAD_CTRL1);
-	after = before & ~(BIT_PAPE_WLBT_SEL | BIT_LNAON_WLBT_SEL |
-			   BIT_SW_DPDT_SEL_DATA);
+	after = before & ~(BIT_LNAON_WLBT_SEL | BIT_SW_DPDT_SEL_DATA);
+	if (keep_pta_owner)
+		after |= BIT_PAPE_WLBT_SEL;
+	else
+		after &= ~BIT_PAPE_WLBT_SEL;
 	if (after == before)
 		return;
 
@@ -1992,7 +1997,7 @@ static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
 	 * staging BT-disabled scan path leaves them. Run IQK through the same
 	 * mux so the calibration is applied to the path used for auth/assoc TX.
 	 */
-	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x280;
+	return (rtwdev->efuse.bt_setting & BIT(6)) ? 0x80 : 0x200;
 }
 
 static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
@@ -2217,7 +2222,7 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 	rtw8723b_reassert_rx_path(rtwdev, "set_channel");
 
 	if (rtw8723b_sdio_needs_rx_path_fix(rtwdev)) {
-		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "set_channel");
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "set_channel", false);
 
 		/* RF_WLINT (0x01) is the RF wireless-interface register.
 		 * Bits 0-1 gate the TX/RX data path into the BB; if they
@@ -3490,7 +3495,7 @@ static u32 rtw8723b_coex_ant_path_value(struct rtw_dev *rtwdev, u8 pos_type)
 	case COEX_SWITCH_TO_WLG_BT:
 	case COEX_SWITCH_TO_NOCARE:
 	default:
-		return aux ? 0x80 : 0x280;
+		return aux ? 0x80 : 0x200;
 	}
 }
 
@@ -3545,7 +3550,8 @@ static void rtw8723b_coex_cfg_ant_switch(struct rtw_dev *rtwdev,
 							COEX_SWITCH_TO_NOCARE);
 
 	rtw8723b_coex_write_bb_sel_btg(rtwdev, ant_path, "ant_switch");
-	rtw8723b_sdio_restore_pad_ctrl(rtwdev, "ant_switch");
+	rtw8723b_sdio_restore_pad_ctrl(rtwdev, "ant_switch",
+				       ctrl_type == COEX_SWITCH_CTRL_BY_PTA);
 
 	rtw_dbg(rtwdev, RTW_DBG_COEX,
 		"[BTCoex], 8723bs ant switch ctrl=%u pos=%u BB_SEL_BTG=0x%08x 0x4c=0x%08x 0x67=0x%02x 0x765=0x%02x 0x76e=0x%02x\n",
@@ -3628,7 +3634,7 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 		rtw_write8_mask(rtwdev, REG_ANTSEL_SW_8723B,
 				BIT_SW_DPDT_SEL_DATA, 0x0);
 		rtw8723b_coex_cfg_ant_buffer(rtwdev, "rfe_sdio_ant_buf");
-		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "rfe_sdio");
+		rtw8723b_sdio_restore_pad_ctrl(rtwdev, "rfe_sdio", false);
 
 		/* H2C 0x65 (COEX_ANT_SEL_RSV) is sent from the post-init
 		 * block in rtw_power_on() after 0x6E (GNT_BT), matching
