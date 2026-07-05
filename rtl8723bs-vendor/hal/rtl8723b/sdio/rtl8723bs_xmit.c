@@ -55,6 +55,7 @@ s32 _dequeue_writeport(PADAPTER padapter)
 	struct xmit_buf *pxmitbuf;
 	u8	PageIdx = 0;
 	u32	deviceId;
+	u32	write_ret;
 #ifdef CONFIG_SDIO_TX_ENABLE_AVAL_INT
 	u8	bUpdatePageNum = _FALSE;
 #else
@@ -128,6 +129,10 @@ query_free_page:
 		u16 fc = le16_to_cpu(*(__le16 *)(pdesc + TXDESC_SIZE));
 		u8 stype = (fc >> 4) & 0x0f;
 		u8 ftype = fc & 0x0f;
+		u32 txsize = _RND4(pxmitbuf->len);
+		u32 cmdaddr = (deviceId << 13) |
+			      ((txsize >> 2) & WLAN_FIFO_MSK);
+
 		pr_err("vendor_sdio_write: deviceId=%u len=%u ff_hwaddr=%u pg_num=%u PageIdx=%u fc=0x%04x ftype=%u stype=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
 			deviceId, pxmitbuf->len, pxmitbuf->ff_hwaddr,
 			pxmitbuf->pg_num, PageIdx, fc, ftype, stype,
@@ -136,8 +141,78 @@ query_free_page:
 			le32_to_cpu(d[4]), le32_to_cpu(d[5]),
 			le32_to_cpu(d[6]), le32_to_cpu(d[7]),
 			le32_to_cpu(d[8]), le32_to_cpu(d[9]));
+		pr_err("vendor_tx_state_pre: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+			deviceId, cmdaddr, txsize, pxmitbuf->len,
+			pxmitbuf->pg_num, PageIdx, fc, ftype, stype,
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[HI_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[MID_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[LOW_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[PUBLIC_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxOQTFreeSpace,
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_OQT_FREE_PG),
+			SdioLocalCmd53Read4Byte(padapter, SDIO_REG_HISR),
+			SdioLocalCmd53Read4Byte(padapter, SDIO_REG_HIMR),
+			rtw_read32(padapter, REG_TXDMA_STATUS),
+			rtw_read8(padapter, REG_TXPAUSE),
+			rtw_read16(padapter, REG_TXPKT_EMPTY),
+			rtw_read32(padapter, REG_MGQ_INFO),
+			rtw_read16(padapter, REG_BCNQ_INFO),
+			rtw_read32(padapter, REG_CPU_MGQ_INFORMATION),
+			rtw_read32(padapter, REG_FWHW_TXQ_CTRL),
+			rtw_read8(padapter, 0x5a7),
+			rtw_read32(padapter, REG_RQPN),
+			rtw_read8(padapter, REG_RQPN_NPQ),
+			rtw_read16(padapter, REG_TRXDMA_CTRL),
+			rtw_read8(padapter, REG_QUEUE_CTRL),
+			rtw_read32(padapter, REG_DWBCN0_CTRL),
+			rtw_read32(padapter, REG_DWBCN1_CTRL),
+			rtw_read8(padapter, REG_BCN_CTRL),
+			rtw_read32(padapter, REG_TBTT_PROHIBIT),
+			rtw_read32(padapter, REG_CR),
+			rtw_read8(padapter, REG_CR + 2));
 	}
-	rtw_write_port(padapter, deviceId, pxmitbuf->len, (u8 *)pxmitbuf);
+	write_ret = rtw_write_port(padapter, deviceId, pxmitbuf->len,
+				   (u8 *)pxmitbuf);
+	{
+		u8 *pdesc = pxmitbuf->phead;
+		u16 fc = le16_to_cpu(*(__le16 *)(pdesc + TXDESC_SIZE));
+		u8 stype = (fc >> 4) & 0x0f;
+		u8 ftype = fc & 0x0f;
+		u32 txsize = _RND4(pxmitbuf->len);
+		u32 cmdaddr = (deviceId << 13) |
+			      ((txsize >> 2) & WLAN_FIFO_MSK);
+
+		rtw_usleep_os(1000);
+		pr_err("vendor_tx_state_post: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u ret=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+			deviceId, cmdaddr, txsize, pxmitbuf->len,
+			pxmitbuf->pg_num, PageIdx, write_ret, fc, ftype, stype,
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[HI_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[MID_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[LOW_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[PUBLIC_QUEUE_IDX],
+			GET_HAL_DATA(padapter)->SdioTxOQTFreeSpace,
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_OQT_FREE_PG),
+			SdioLocalCmd53Read4Byte(padapter, SDIO_REG_HISR),
+			SdioLocalCmd53Read4Byte(padapter, SDIO_REG_HIMR),
+			rtw_read32(padapter, REG_TXDMA_STATUS),
+			rtw_read8(padapter, REG_TXPAUSE),
+			rtw_read16(padapter, REG_TXPKT_EMPTY),
+			rtw_read32(padapter, REG_MGQ_INFO),
+			rtw_read16(padapter, REG_BCNQ_INFO),
+			rtw_read32(padapter, REG_CPU_MGQ_INFORMATION),
+			rtw_read32(padapter, REG_FWHW_TXQ_CTRL),
+			rtw_read8(padapter, 0x5a7),
+			rtw_read32(padapter, REG_RQPN),
+			rtw_read8(padapter, REG_RQPN_NPQ),
+			rtw_read16(padapter, REG_TRXDMA_CTRL),
+			rtw_read8(padapter, REG_QUEUE_CTRL),
+			rtw_read32(padapter, REG_DWBCN0_CTRL),
+			rtw_read32(padapter, REG_DWBCN1_CTRL),
+			rtw_read8(padapter, REG_BCN_CTRL),
+			rtw_read32(padapter, REG_TBTT_PROHIBIT),
+			rtw_read32(padapter, REG_CR),
+			rtw_read8(padapter, REG_CR + 2));
+	}
 
 	rtw_hal_sdio_update_tx_freepage(padapter, PageIdx, pxmitbuf->pg_num);
 

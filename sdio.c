@@ -304,6 +304,55 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 		 payload_len, pkt_info->offset, dump_len, payload);
 }
 
+static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
+					   struct rtw_sdio_tx_data *tx_data,
+					   const char *tag,
+					   enum rtw_tx_queue_type queue,
+					   u32 txaddr, size_t txsize,
+					   size_t write_size, int ret)
+{
+	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+
+	if (!(tx_data->flags & RTW_SDIO_TX_TRACE_MGMT))
+		return;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+		 tag, rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+		 tx_data->frame_control, queue, txaddr, txsize, write_size,
+		 ret, atomic_read(&rtwsdio->free_pg_high),
+		 atomic_read(&rtwsdio->free_pg_normal),
+		 atomic_read(&rtwsdio->free_pg_low),
+		 atomic_read(&rtwsdio->free_pg_pub),
+		 atomic_read(&rtwsdio->tx_oqt_free),
+		 rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG),
+		 rtw_read32(rtwdev, REG_SDIO_HISR),
+		 rtw_read32(rtwdev, REG_SDIO_HIMR),
+		 rtw_read32(rtwdev, REG_TXDMA_STATUS),
+		 rtw_read8(rtwdev, REG_TXPAUSE),
+		 rtw_read32(rtwdev, REG_SDIO_TX_CTRL),
+		 rtw_read16(rtwdev, REG_TXPKT_EMPTY),
+		 rtw_read32(rtwdev, REG_MGQ_INFO),
+		 rtw_read16(rtwdev, REG_BCNQ_INFO),
+		 rtw_read32(rtwdev, REG_CPU_MGQ_INFO),
+		 rtw_read32(rtwdev, REG_FWHW_TXQ_CTRL),
+		 rtw_read8(rtwdev, REG_HIQ_NO_LMT_EN),
+		 rtw_read32(rtwdev, REG_RQPN),
+		 rtw_read8(rtwdev, REG_RQPN_NPQ),
+		 rtw_read16(rtwdev, REG_TXDMA_PQ_MAP),
+		 rtw_read8(rtwdev, REG_QUEUE_CTRL),
+		 rtw_read32(rtwdev, REG_DWBCN0_CTRL),
+		 rtw_read32(rtwdev, REG_DWBCN1_CTRL),
+		 rtw_read8(rtwdev, REG_BCN_CTRL),
+		 rtw_read32(rtwdev, REG_TBTT_PROHIBIT),
+		 rtw_read32(rtwdev, REG_CR),
+		 rtw_read8(rtwdev, REG_CR + 2));
+}
+
 static u32 rtw_sdio_to_bus_offset(struct rtw_dev *rtwdev, u32 addr)
 {
 	switch (addr & RTW_SDIO_BUS_MSK) {
@@ -1225,6 +1274,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
 
+	if (quiet_after_mgmt_tx)
+		rtw_sdio_trace_8723bs_tx_state(rtwdev, tx_data, "pre",
+					       queue, txaddr, txsize,
+					       write_size, 0);
+
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
@@ -1242,6 +1296,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	 */
 	if (!ret && quiet_after_mgmt_tx)
 		usleep_range(1000, 2000);
+
+	if (quiet_after_mgmt_tx)
+		rtw_sdio_trace_8723bs_tx_state(rtwdev, tx_data, "post",
+					       queue, txaddr, txsize,
+					       write_size, ret);
 
 	if (write_size > orig_len)
 		skb_trim(skb, orig_len);
