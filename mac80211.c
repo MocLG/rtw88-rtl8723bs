@@ -793,6 +793,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 	static const u8 zero_addr[ETH_ALEN] = { 0 };
 	struct rtw_vif *rtwvif;
 	const u8 *bssid = NULL;
+	bool fresh_join;
+	bool do_join_sync;
 
 	if (!rtw8723bs_mgd_prepare_is_auth(rtwdev, info) ||
 	    !vif ||
@@ -822,10 +824,16 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		return;
 	}
 
-	if (rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid)) {
+	fresh_join = rtw8723bs_mgd_prepare_join(rtwdev, vif, bssid);
+	do_join_sync = fresh_join || !rtwvif->pre_auth_join_done;
+
+	if (do_join_sync) {
 		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
 		bool beacon_seen;
 
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: join_prepare sync bssid=%pM fresh=%d join_done=%d\n",
+			 bssid, fresh_join, rtwvif->pre_auth_join_done);
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
 
@@ -840,10 +848,11 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		rtw_info(rtwdev,
 			 "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
 			 bssid, beacon_seen, wait_ms);
+		rtwvif->pre_auth_join_done = true;
 	} else {
 		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join\n",
-			 bssid);
+			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join fresh=%d join_done=%d\n",
+			 bssid, fresh_join, rtwvif->pre_auth_join_done);
 	}
 
 	if (!rtwvif->pre_auth_h2c_sent) {
@@ -999,6 +1008,7 @@ static int rtw_ops_add_interface(struct ieee80211_hw *hw,
 	rtwvif->stats.rx_cnt = 0;
 	rtwvif->scan_req = NULL;
 	rtwvif->pre_auth_h2c_sent = false;
+	rtwvif->pre_auth_join_done = false;
 	memset(&rtwvif->bfee, 0, sizeof(struct rtw_bfee));
 	rtw_txq_init(rtwdev, vif->txq);
 	INIT_LIST_HEAD(&rtwvif->rsvd_page_list);
@@ -1315,6 +1325,11 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			    vif->type == NL80211_IFTYPE_STATION) {
 				rtw8723bs_auth_rx_filter(rtwdev, "disassoc",
 							 false);
+				rtwvif->pre_auth_h2c_sent = false;
+				rtwvif->pre_auth_join_done = false;
+				rtw_info(rtwdev,
+					 "COEX_AUTH_DEBUG: 8723bs pre_auth_state reset reason=disassoc bssid=%pM\n",
+					 conf->bssid);
 			}
 
 		}
@@ -1332,8 +1347,9 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 		    vif->type == NL80211_IFTYPE_STATION && bssid_changed) {
 			rtwvif->pre_auth_h2c_sent = false;
+			rtwvif->pre_auth_join_done = false;
 			rtw_info(rtwdev,
-				 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d\n",
+				 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d join_done=0\n",
 				 conf->bssid, bssid_cleared);
 		}
 		ether_addr_copy(rtwvif->bssid, conf->bssid);
