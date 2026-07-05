@@ -16,6 +16,8 @@
 
 #include <rtl8723b_hal.h>
 
+u32 SdioLocalCmd53Read4Byte(PADAPTER padapter, u32 addr);
+
 static u8 rtw_sdio_wait_enough_TxOQT_space(PADAPTER padapter, u8 agg_num)
 {
 	u32 n = 0;
@@ -164,8 +166,8 @@ query_free_page:
 			rtw_read8(padapter, REG_RQPN_NPQ),
 			rtw_read16(padapter, REG_TRXDMA_CTRL),
 			rtw_read8(padapter, REG_QUEUE_CTRL),
-			rtw_read32(padapter, REG_DWBCN0_CTRL),
-			rtw_read32(padapter, REG_DWBCN1_CTRL),
+			rtw_read32(padapter, REG_DWBCN0_CTRL_8723B),
+			rtw_read32(padapter, REG_DWBCN1_CTRL_8723B),
 			rtw_read8(padapter, REG_BCN_CTRL),
 			rtw_read32(padapter, REG_TBTT_PROHIBIT),
 			rtw_read32(padapter, REG_CR),
@@ -206,8 +208,8 @@ query_free_page:
 			rtw_read8(padapter, REG_RQPN_NPQ),
 			rtw_read16(padapter, REG_TRXDMA_CTRL),
 			rtw_read8(padapter, REG_QUEUE_CTRL),
-			rtw_read32(padapter, REG_DWBCN0_CTRL),
-			rtw_read32(padapter, REG_DWBCN1_CTRL),
+			rtw_read32(padapter, REG_DWBCN0_CTRL_8723B),
+			rtw_read32(padapter, REG_DWBCN1_CTRL_8723B),
 			rtw_read8(padapter, REG_BCN_CTRL),
 			rtw_read32(padapter, REG_TBTT_PROHIBIT),
 			rtw_read32(padapter, REG_CR),
