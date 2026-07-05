@@ -1072,6 +1072,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	bool quiet_after_mgmt_tx;
 	bool bus_claim;
 	size_t txsize;
+	size_t write_size;
 	u32 txaddr;
 	u8 page_idx;
 	unsigned int pages_used;
@@ -1083,19 +1084,22 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	/*
 	 * Match the vendor rtl8723bs v5.2.17 driver's sdio_write_port():
-	 * round the transfer size to a 4-byte boundary and use that
-	 * SAME rounded value for both the CMD53 address dword-count
-	 * and the actual sdio_memcpy_toio transfer.  The vendor never
-	 * uses sdio_align_size for TX FIFO writes.
+	 * round the packet length to a 4-byte boundary for the FIFO address
+	 * dword-count, free-page accounting, and page index decisions.  Only
+	 * the actual CMD53 byte count is block-rounded for transfers larger
+	 * than one SDIO block.
 	 */
 	txsize = round_up(orig_len, 4);
+	write_size = txsize;
+	if (write_size > RTW_SDIO_BLOCK_SIZE)
+		write_size = round_up(write_size, RTW_SDIO_BLOCK_SIZE);
 
-	/* Ensure the skb has enough tailroom for the 4-byte-rounded write.
+	/* Ensure the skb has enough tailroom for the CMD53 write.
 	 * Without this, sdio_memcpy_toio would read past skb->tail if the
-	 * original length wasn't a multiple of 4.
+	 * original length is smaller than the rounded transfer size.
 	 */
-	if (txsize > orig_len) {
-		unsigned int pad_needed = txsize - orig_len;
+	if (write_size > orig_len) {
+		unsigned int pad_needed = write_size - orig_len;
 
 		if (skb_tailroom(skb) < pad_needed) {
 			ret = pskb_expand_head(skb, 0,
@@ -1108,12 +1112,15 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	}
 
 	txaddr = rtw_sdio_get_tx_addr(rtwdev, txsize, queue);
-	if (!txaddr)
+	if (!txaddr) {
+		if (write_size > orig_len)
+			skb_trim(skb, orig_len);
 		return -EINVAL;
+	}
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
 	if (ret) {
-		if (txsize > orig_len)
+		if (write_size > orig_len)
 			skb_trim(skb, orig_len);
 
 		if (trace_mgmt)
@@ -1153,7 +1160,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
-		if (txsize > orig_len)
+		if (write_size > orig_len)
 			skb_trim(skb, orig_len);
 
 		if (trace_mgmt)
@@ -1221,7 +1228,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (bus_claim)
 		sdio_claim_host(rtwsdio->sdio_func);
 
-	ret = sdio_memcpy_toio(rtwsdio->sdio_func, txaddr, skb->data, txsize);
+	ret = sdio_memcpy_toio(rtwsdio->sdio_func, txaddr, skb->data,
+			       write_size);
 
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
@@ -1235,7 +1243,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (!ret && quiet_after_mgmt_tx)
 		usleep_range(1000, 2000);
 
-	if (ret == 0 && txsize > orig_len)
+	if (write_size > orig_len)
 		skb_trim(skb, orig_len);
 
 	/* Update SW free-page counters after a successful write,
@@ -1287,9 +1295,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		scan_tx_port_count++;
 		if (scan_tx_port_count <= 20 || scan_tx_port_count % 20 == 0)
 			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
+				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
 				 scan_tx_port_count, queue, txaddr, skb->len,
-				 txsize, ret, atomic_read(&rtwsdio->tx_oqt_free),
+				 txsize, write_size, ret,
+				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
 				 atomic_read(&rtwsdio->free_pg_normal),
 				 atomic_read(&rtwsdio->free_pg_low),
@@ -1300,10 +1309,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d align=%lu txfree=%d/%d/%d/%d oqt=%d quiet=1\n",
+				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d align=%lu txfree=%d/%d/%d/%d oqt=%d quiet=1\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, txaddr,
-				 skb->len, txsize, ret,
+				 skb->len, txsize, write_size, ret,
 				 (unsigned long)skb->data &
 				 (RTW_SDIO_DATA_PTR_ALIGN - 1),
 				 atomic_read(&rtwsdio->free_pg_high),
@@ -1313,10 +1322,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->tx_oqt_free));
 		} else {
 			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x CR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x PAD1=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
+				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x CR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x PAD1=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, txaddr,
-				 skb->len, txsize, ret,
+				 skb->len, txsize, write_size, ret,
 				 atomic_read(&rtwsdio->free_pg_high),
 				 atomic_read(&rtwsdio->free_pg_normal),
 				 atomic_read(&rtwsdio->free_pg_low),
@@ -1351,7 +1360,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (ret)
 		rtw_warn(rtwdev,
 			 "Failed to write %zu byte(s) to SDIO port 0x%08x",
-			 txsize, txaddr);
+			 write_size, txaddr);
 
 	return ret;
 }
