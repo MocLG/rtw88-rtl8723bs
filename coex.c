@@ -1455,7 +1455,7 @@ static bool rtw_coex_8723bs_bt_disabled(struct rtw_dev *rtwdev)
 
 static u32 rtw_coex_8723bs_pta_ant_path(struct rtw_dev *rtwdev)
 {
-	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x280;
+	return rtw_coex_8723bs_ant_is_aux(rtwdev) ? 0x80 : 0x200;
 }
 
 #define REG_8723BS_BT_COEX_CTRL		0x0039
@@ -1591,10 +1591,9 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 		return;
 
 	/* Vendor halbtc8723b1ant_action_wifi_not_connected_{scan,asso_auth}()
-	 * uses BTC_ANT_PATH_PTA here: GNT_BT low, WLAN_ACT controlled by PTA
-	 * and 0x67[5] set for WiFi-owned S0/S1 selection. Keep the main SDIO
-	 * board on the same RF_PATH_A/S1 BB_SEL_BTG value used by vendor PHY
-	 * init; aux boards still use the PTA S0 value.
+	 * uses BTC_ANT_PATH_PTA here: GNT_BT low, WLAN_ACT controlled by PTA,
+	 * 0x67[5] set for WiFi-owned S0/S1 selection, and BB_SEL_BTG=0x200
+	 * on main-antenna boards.
 	 */
 	ant_target = rtw_coex_8723bs_pta_ant_path(rtwdev);
 
@@ -1747,8 +1746,8 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
  * On 8723BS SDIO, after IPS leave or power-on init the chip may be on
  * a stale antenna-switch state where RF register writes silently fail.
  * Call this before rtw_set_channel() to restore the vendor/staging PTA
- * path (the vendor RF_PATH_A/S1 value on main-antenna boards, 0x80 on aux)
- * so that subsequent RF channel/programming writes reach the chip correctly.
+ * path (0x200 on main-antenna boards, 0x80 on aux) so that subsequent
+ * RF channel/programming writes reach the chip correctly.
  *
  * This is a minimal setup: ant_buffer reassert + BB_SEL_BTG write +
  * vendor PAD_CTRL1 restore. It performs no firmware H2C, coex table, or
