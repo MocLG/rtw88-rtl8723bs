@@ -1065,14 +1065,21 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			       enum rtw_tx_queue_type queue)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
+	struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
 	static int scan_tx_port_count;
 	unsigned int orig_len = skb->len;
+	bool trace_mgmt = tx_data->flags & RTW_SDIO_TX_TRACE_MGMT;
+	bool quiet_after_mgmt_tx;
 	bool bus_claim;
 	size_t txsize;
 	u32 txaddr;
 	u8 page_idx;
 	unsigned int pages_used;
 	int ret;
+
+	quiet_after_mgmt_tx = rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+			      rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+			      trace_mgmt;
 
 	/*
 	 * Match the vendor rtl8723bs v5.2.17 driver's sdio_write_port():
@@ -1106,12 +1113,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	ret = rtw_sdio_check_free_txpg(rtwdev, queue, txsize);
 	if (ret) {
-		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
-
 		if (txsize > orig_len)
 			skb_trim(skb, orig_len);
 
-		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
+		if (trace_mgmt)
 			rtw_info(rtwdev,
 				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
@@ -1148,12 +1153,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 
 	ret = rtw_sdio_wait_tx_oqt(rtwdev, 1);
 	if (ret) {
-		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
-
 		if (txsize > orig_len)
 			skb_trim(skb, orig_len);
 
-		if (tx_data->flags & RTW_SDIO_TX_TRACE_MGMT)
+		if (trace_mgmt)
 			rtw_info(rtwdev,
 				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
@@ -1223,6 +1226,15 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (bus_claim)
 		sdio_release_host(rtwsdio->sdio_func);
 
+	/*
+	 * The working vendor SDIO TX thread leaves the bus immediately after
+	 * the CMD53 FIFO write.  On 8723BS management TX, give the 8051 a
+	 * short host-free window before our debug/accounting reads touch SDIO
+	 * and MAC registers again.
+	 */
+	if (!ret && quiet_after_mgmt_tx)
+		usleep_range(1000, 2000);
+
 	if (ret == 0 && txsize > orig_len)
 		skb_trim(skb, orig_len);
 
@@ -1284,9 +1296,7 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->free_pg_pub));
 	}
 
-	if (rtw_sdio_get_tx_data(skb)->flags & RTW_SDIO_TX_TRACE_MGMT) {
-		struct rtw_sdio_tx_data *tx_data = rtw_sdio_get_tx_data(skb);
-
+	if (trace_mgmt) {
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 			rtw_info(rtwdev,
