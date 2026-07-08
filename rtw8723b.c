@@ -1684,10 +1684,10 @@ static void rtw8723b_init_beacon_parameters(struct rtw_dev *rtwdev)
 	 * that _InitBeaconParameters() set it; staging only sets
 	 * DIS_BCNQ_SUB from _BeaconFunctionEnable(), which is exclusive
 	 * to AP / IBSS modes via rtl8723b_SetBeaconRelatedRegisters().
-	 * STA mode picks up the correct BCN_CTRL value later in
-	 * hw_var_set_opmode(_HW_STATE_STATION_), which writes DIS_ATIM
-	 * instead of DIS_BCNQ_SUB.  Matching staging's init keeps the
-	 * chip BCN_CTRL state consistent across init -> opmode -> join.
+	 * The 8723BS SDIO STA join path keeps this 0x18 value until auth;
+	 * the vendor start_clnt_join() path only calls Set_MSR() directly
+	 * and the known-good v41 trace shows the same BCN_CTRL value at
+	 * probe/auth TX time.
 	 */
 	rtw_write16(rtwdev, REG_BCN_CTRL,
 		    (BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION) |

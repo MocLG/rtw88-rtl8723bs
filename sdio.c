@@ -21,6 +21,21 @@
 
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
+#define RTW_SDIO_HISR_CLEAR_MASK			\
+	(REG_SDIO_HISR_TXERR |			\
+	 REG_SDIO_HISR_RXERR |			\
+	 REG_SDIO_HISR_TXFOVW |			\
+	 REG_SDIO_HISR_RXFOVW |			\
+	 REG_SDIO_HISR_TXBCNOK |		\
+	 REG_SDIO_HISR_TXBCNERR |		\
+	 REG_SDIO_HISR_C2HCMD |			\
+	 REG_SDIO_HISR_CPWM1 |			\
+	 REG_SDIO_HISR_CPWM2 |			\
+	 REG_SDIO_HISR_HSISR_IND |		\
+	 REG_SDIO_HISR_GTINT3_IND |		\
+	 REG_SDIO_HISR_GTINT4_IND |		\
+	 REG_SDIO_HISR_PSTIMEOUT |		\
+	 REG_SDIO_HISR_OCPINT)
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
@@ -321,7 +336,7 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
 		 tag, rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, queue, txaddr, txsize, write_size,
 		 ret, atomic_read(&rtwsdio->free_pg_high),
@@ -345,6 +360,14 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		 rtw_read8(rtwdev, REG_RQPN_NPQ),
 		 rtw_read16(rtwdev, REG_TXDMA_PQ_MAP),
 		 rtw_read8(rtwdev, REG_QUEUE_CTRL),
+		 rtw_read32(rtwdev, REG_TRXFF_BNDY),
+		 rtw_read8(rtwdev, REG_BCNQ_BDNY),
+		 rtw_read8(rtwdev, REG_MGQ_BDNY),
+		 rtw_read8(rtwdev, REG_WMAC_LBK_BF_HD),
+		 rtw_read32(rtwdev, REG_DWBCN0_CTRL),
+		 rtw_read16(rtwdev, 0x218),
+		 rtw_read16(rtwdev, 0x21a),
+		 rtw_read16(rtwdev, 0x21c),
 		 rtw_read32(rtwdev, REG_DWBCN0_CTRL),
 		 rtw_read32(rtwdev, REG_DWBCN1_CTRL),
 		 rtw_read8(rtwdev, REG_BCN_CTRL),
@@ -1524,21 +1547,32 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
+	u32 clear;
 	u32 stale;
 
 	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
 
-	/* Drain any stale HISR bits left over from a previous power
-	 * cycle.  The firmware has just been downloaded and its RX DMA
-	 * is still being set up, so any pending RX_REQUEST is garbage.
+	/* The 8723BS vendor path enables SDIO interrupts without first
+	 * clearing SDIO_HISR.  Its working TX traces keep sticky
+	 * PSTIMEOUT / BCNERLY_INT state set while HIGH-queue writes are
+	 * accepted by firmware.  Preserve that state here; RX_REQUEST and
+	 * AVAL are serviced by the ISR, not acknowledged blindly.
 	 */
 	stale = rtw_read32(rtwdev, REG_SDIO_HISR);
-	if (stale) {
-		rtw_dbg(rtwdev, RTW_DBG_SDIO,
-			"clearing stale HISR 0x%08x before enabling IRQ\n",
-			stale);
-		rtw_write32(rtwdev, REG_SDIO_HISR, stale);
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		if (stale)
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"preserving stale HISR 0x%08x before enabling IRQ\n",
+				stale);
+	} else {
+		clear = stale & RTW_SDIO_HISR_CLEAR_MASK;
+		if (clear) {
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"clearing stale HISR 0x%08x/0x%08x before enabling IRQ\n",
+				stale, clear);
+			rtw_write32(rtwdev, REG_SDIO_HISR, clear);
+		}
 	}
 
 	rtw_sdio_enable_interrupt(rtwdev);
@@ -2094,6 +2128,7 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 	struct ieee80211_hw *hw = sdio_get_drvdata(sdio_func);
 	struct rtw_sdio *rtwsdio;
 	struct rtw_dev *rtwdev;
+	u32 clear;
 	u32 hisr;
 	static int scan_irq_count = 0;
 
@@ -2137,7 +2172,12 @@ static void rtw_sdio_handle_interrupt(struct sdio_func *sdio_func)
 		rtw_sdio_c2h_cmd_isr(rtwdev);
 	}
 
-	rtw_write32(rtwdev, REG_SDIO_HISR, hisr);
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+		clear = hisr & rtwsdio->irq_mask & RTW_SDIO_HISR_CLEAR_MASK;
+	else
+		clear = hisr & RTW_SDIO_HISR_CLEAR_MASK;
+	if (clear)
+		rtw_write32(rtwdev, REG_SDIO_HISR, clear);
 
 	rtwsdio->irq_thread = NULL;
 }

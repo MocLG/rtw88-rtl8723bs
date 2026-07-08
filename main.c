@@ -2062,9 +2062,18 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	config |= PORT_SET_MAC_ADDR | PORT_SET_NET_TYPE;
 	rtw_vif_port_config(rtwdev, rtwvif, config);
 
-	if (net_type_before == RTW_NET_MGD_LINKED ||
-	    net_type_before == RTW_NET_AD_HOC)
+	if (rtw_is_8723bs_sdio(rtwdev)) {
+		/* The vendor 8723BS SDIO scan path transmits probe requests
+		 * with BCN_CTRL=0x18.  Leaving DIS_TSF_UDT clear keeps rtw88's
+		 * first HIGH-queue management packet stuck at the initial
+		 * scheduler counters on this firmware.
+		 */
+		rtw_write8(rtwdev, REG_BCN_CTRL,
+			   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION);
+	} else if (net_type_before == RTW_NET_MGD_LINKED ||
+		   net_type_before == RTW_NET_AD_HOC) {
 		rtw_write8_set(rtwdev, REG_BCN_CTRL, BIT_DIS_TSF_UDT);
+	}
 
 	rtw_coex_scan_notify(rtwdev, COEX_SCAN_START);
 	rtw_core_fw_scan_notify(rtwdev, true);
