@@ -361,6 +361,53 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		 rtw_read8(rtwdev, REG_CR + 2));
 }
 
+static void rtw_sdio_trace_8723bs_write_desc(struct rtw_dev *rtwdev,
+					     struct rtw_sdio_tx_data *tx_data,
+					     struct sk_buff *skb,
+					     enum rtw_tx_queue_type queue,
+					     u32 txaddr, size_t txsize,
+					     size_t write_size)
+{
+	struct rtw_tx_desc *tx_desc = (struct rtw_tx_desc *)skb->data;
+	unsigned int payload_offset = tx_data->tx_pkt_offset;
+	unsigned int payload_len;
+	unsigned int dump_len;
+	const u8 *payload;
+
+	if (!(tx_data->flags & RTW_SDIO_TX_TRACE_MGMT))
+		return;
+
+	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B ||
+	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
+		return;
+
+	if (!payload_offset)
+		payload_offset = rtwdev->chip->tx_pkt_desc_sz;
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: write_desc stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu skb_len=%u offset=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+		 tx_data->frame_control, queue, txaddr, txsize, write_size,
+		 skb->len, payload_offset,
+		 le32_to_cpu(tx_desc->w0), le32_to_cpu(tx_desc->w1),
+		 le32_to_cpu(tx_desc->w2), le32_to_cpu(tx_desc->w3),
+		 le32_to_cpu(tx_desc->w4), le32_to_cpu(tx_desc->w5),
+		 le32_to_cpu(tx_desc->w6), le32_to_cpu(tx_desc->w7),
+		 le32_to_cpu(tx_desc->w8), le32_to_cpu(tx_desc->w9));
+
+	if (skb->len <= payload_offset)
+		return;
+
+	payload = skb->data + payload_offset;
+	payload_len = skb->len - payload_offset;
+	dump_len = min_t(unsigned int, payload_len, 64);
+
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: write_payload stype=%s len=%u offset=%u bytes=%*ph\n",
+		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
+		 payload_len, payload_offset, dump_len, payload);
+}
+
 static u32 rtw_sdio_to_bus_offset(struct rtw_dev *rtwdev, u32 addr)
 {
 	switch (addr & RTW_SDIO_BUS_MSK) {
@@ -1281,6 +1328,10 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	}
 
 	bus_claim = rtw_sdio_bus_claim_needed(rtwsdio);
+
+	if (quiet_after_mgmt_tx)
+		rtw_sdio_trace_8723bs_write_desc(rtwdev, tx_data, skb, queue,
+						 txaddr, txsize, write_size);
 
 	if (quiet_after_mgmt_tx)
 		rtw_sdio_trace_8723bs_tx_state(rtwdev, tx_data, "pre",

@@ -3684,25 +3684,15 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 	u16 checksum = 0;
 	int words = 32 / 2;
 
-	/*
-	 * The known-good rtl8723bs staging control computes a bitwise OR over
-	 * the first 16 half-words for normal SDIO TX descriptors.  Keep the
-	 * 8723BS SDIO path on that contract; the vendor v5.x USB/SDIO helper
-	 * uses XOR, so leave non-SDIO 8723B on the existing XOR algorithm.
-	 *
-	 * A valid but wrong non-zero W7 is a plausible way to get a successful
-	 * CMD53 write with no TXDMA scheduler consumption, which is exactly
-	 * what the 8723BS target shows when using XOR.
+	/* The rtl8723bs-vendor v5.2.17 reference computes an XOR checksum
+	 * over the first 16 half-words for SDIO TX descriptors in
+	 * rtl8723b_update_txdesc().  The vendor_txdesc trace is pre-checksum;
+	 * vendor_sdio_write is the authoritative write-time descriptor.
 	 */
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
-	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-		while (words--)
-			checksum |= le16_to_cpu(*data++);
-	} else {
-		while (words--)
-			checksum ^= le16_to_cpu(*data++);
-	}
+	while (words--)
+		checksum ^= le16_to_cpu(*data++);
 
 	le32p_replace_bits(&txdesc->w7, checksum,
 			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
