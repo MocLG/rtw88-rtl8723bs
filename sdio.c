@@ -1436,6 +1436,15 @@ static void rtw_sdio_init(struct rtw_dev *rtwdev)
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		/* The working rtl8723bs vendor path leaves only RX_REQUEST
+		 * unmasked.  Keep 8723BS on that contract so scan/auth TX runs
+		 * with the same SDIO scheduler interrupt state as vendor.
+		 */
+		rtwsdio->irq_mask = REG_SDIO_HIMR_RX_REQUEST;
+		return;
+	}
+
 	/* Enable RX request and CPWM1 interrupts. Also enable AVAL (availability)
 	 * interrupt so the driver is notified when free TX pages become available
 	 * (this is required to refill the H2C/command queue and avoid TX deadlock).
