@@ -1304,14 +1304,25 @@ static int __priority_queue_cfg_legacy(struct rtw_dev *rtwdev,
 			rtw_write32(rtwdev, REG_TXDMA_STATUS, txdma_status);
 		}
 
-		/* Clear stale SDIO interrupt status (including TXFOVW) that
-		 * may have been latched before the RQPN/LLT was configured.
+		/* 8723BS vendor leaves SDIO_HISR sticky state intact across
+		 * RQPN/LLT setup.  Its working TX traces keep TXFOVW and
+		 * PSTIMEOUT set while the firmware accepts HIGH-queue writes,
+		 * so do not acknowledge them here before rtw_sdio_start().
+		 * Other legacy SDIO chips still get the documented W1C subset
+		 * cleared, without echo-clearing RX_REQUEST/AVAL.
 		 */
 		hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
-		if (hisr) {
+		if (hisr && rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
 			rtw_dbg(rtwdev, RTW_DBG_SDIO,
-				"post-LLT: clearing stale HISR 0x%08x\n", hisr);
-			rtw_write32(rtwdev, REG_SDIO_HISR, hisr);
+				"post-LLT: preserving 8723b HISR 0x%08x\n",
+				hisr);
+		} else if (hisr & RTW_SDIO_HISR_CLEAR_MASK) {
+			u32 clear = hisr & RTW_SDIO_HISR_CLEAR_MASK;
+
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"post-LLT: clearing stale HISR 0x%08x/0x%08x\n",
+				hisr, clear);
+			rtw_write32(rtwdev, REG_SDIO_HISR, clear);
 		}
 
 		/* Dummy read to synchronize the SDIO-local free page counters
