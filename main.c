@@ -136,12 +136,21 @@ static void rtw_scan_clear_sdio_hisr_errs(struct rtw_dev *rtwdev,
 {
 	u32 hisr;
 	u32 clear;
+	u32 mask = RTW_SCAN_SDIO_HISR_ERRS;
 
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return;
 
+	/* The working 8723BS vendor trace carries TXFOVW as sticky SDIO-local
+	 * state through scan and auth TX.  Preserve it here; clearing it at
+	 * scan start recreates the rtw88-only 0x00800000 HISR state seen
+	 * before every unconsumed probe/auth write.
+	 */
+	if (rtw_is_8723bs_sdio(rtwdev))
+		mask &= ~REG_SDIO_HISR_TXFOVW;
+
 	hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
-	clear = hisr & RTW_SCAN_SDIO_HISR_ERRS;
+	clear = hisr & mask;
 	if (!clear)
 		return;
 
