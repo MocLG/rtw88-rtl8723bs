@@ -3685,28 +3685,24 @@ static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
 	int words = 32 / 2;
 
 	/*
-	 * The vendor rtl8723bs v5.2.17 driver computes an XOR checksum
-	 * over the first 16 half-words (32 bytes) of the TX descriptor
-	 * for ALL HCI types including SDIO in rtl8723b_update_txdesc().
+	 * The known-good rtl8723bs staging control computes a bitwise OR over
+	 * the first 16 half-words for normal SDIO TX descriptors.  Keep the
+	 * 8723BS SDIO path on that contract; the vendor v5.x USB/SDIO helper
+	 * uses XOR, so leave non-SDIO 8723B on the existing XOR algorithm.
 	 *
-	 * rtl8723b_cal_txdesc_chksum():
-	 *   XOR ~16 half-words, write result to W7 bits 0-15.
-	 *
-	 * The earlier vendor_txdesc debug trace showed W7=0 only
-	 * because it printed the descriptor BEFORE update_txdesc()
-	 * called the checksum function — the actual hardware descriptor
-	 * has a non-zero W7.
-	 *
-	 * Commit e39a7a36 mistakenly interpreted the pre-checksum
-	 * vendor_txdesc output as proof that W7 should be 0 for SDIO
-	 * and added the early-return.  That was wrong: the v41 firmware
-	 * on this stepping validates the W7 checksum and silently drops
-	 * frames where the XOR of the first 32 bytes does not match.
+	 * A valid but wrong non-zero W7 is a plausible way to get a successful
+	 * CMD53 write with no TXDMA scheduler consumption, which is exactly
+	 * what the 8723BS target shows when using XOR.
 	 */
 	le32p_replace_bits(&txdesc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
-	while (words--)
-		checksum ^= le16_to_cpu(*data++);
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		while (words--)
+			checksum |= le16_to_cpu(*data++);
+	} else {
+		while (words--)
+			checksum ^= le16_to_cpu(*data++);
+	}
 
 	le32p_replace_bits(&txdesc->w7, checksum,
 			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
