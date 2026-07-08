@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/mmc/host.h>
 #include <linux/mmc/sdio_func.h>
+#include <linux/unaligned.h>
 #include "main.h"
 #include "mac.h"
 #include "debug.h"
@@ -448,7 +449,7 @@ static void rtw_sdio_writel(struct rtw_dev *rtwdev, u32 val, u32 addr,
 		return;
 	}
 
-	*(__le32 *)buf = cpu_to_le32(val);
+	put_unaligned_le32(val, buf);
 
 	for (i = 0; i < 4; i++) {
 		sdio_writeb(rtwsdio->sdio_func, buf[i], addr + i, err_ret);
@@ -464,7 +465,7 @@ static void rtw_sdio_writew(struct rtw_dev *rtwdev, u16 val, u32 addr,
 	u8 buf[2];
 	int i;
 
-	*(__le16 *)buf = cpu_to_le16(val);
+	put_unaligned_le16(val, buf);
 
 	for (i = 0; i < 2; i++) {
 		sdio_writeb(rtwsdio->sdio_func, buf[i], addr + i, err_ret);
@@ -488,7 +489,7 @@ static u32 rtw_sdio_readl(struct rtw_dev *rtwdev, u32 addr, int *err_ret)
 			return 0;
 	}
 
-	return le32_to_cpu(*(__le32 *)buf);
+	return get_unaligned_le32(buf);
 }
 
 static u16 rtw_sdio_readw(struct rtw_dev *rtwdev, u32 addr, int *err_ret)
@@ -503,7 +504,7 @@ static u16 rtw_sdio_readw(struct rtw_dev *rtwdev, u32 addr, int *err_ret)
 			return 0;
 	}
 
-	return le16_to_cpu(*(__le16 *)buf);
+	return get_unaligned_le16(buf);
 }
 
 static u32 rtw_sdio_to_io_address(struct rtw_dev *rtwdev, u32 addr,
@@ -594,7 +595,7 @@ static u16 rtw_sdio_indirect_read16(struct rtw_dev *rtwdev, u32 addr,
 		if (*err_ret)
 			return 0;
 
-		return le16_to_cpu(*(__le16 *)buf);
+		return get_unaligned_le16(buf);
 	}
 
 	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,
@@ -617,7 +618,7 @@ static u32 rtw_sdio_indirect_read32(struct rtw_dev *rtwdev, u32 addr,
 		if (*err_ret)
 			return 0;
 
-		return le32_to_cpu(*(__le32 *)buf);
+		return get_unaligned_le32(buf);
 	}
 
 	*err_ret = rtw_sdio_indirect_reg_cfg(rtwdev, addr,

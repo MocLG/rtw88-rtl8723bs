@@ -5,6 +5,9 @@
 #ifndef __RTW_TX_H_
 #define __RTW_TX_H_
 
+#include <linux/build_bug.h>
+#include <linux/unaligned.h>
+
 #define RTK_TX_MAX_AGG_NUM_MASK		0x1f
 
 #define RTW_TX_PROBE_TIMEOUT		msecs_to_jiffies(500)
@@ -21,6 +24,7 @@ struct rtw_tx_desc {
 	__le32 w8;
 	__le32 w9;
 } __packed;
+static_assert(sizeof(struct rtw_tx_desc) == 40);
 
 #define RTW_TX_DESC_W0_TXPKTSIZE GENMASK(15, 0)
 #define RTW_TX_DESC_W0_OFFSET GENMASK(23, 16)
@@ -128,15 +132,17 @@ enum rtw_tx_queue_type rtw_tx_queue_mapping(struct sk_buff *skb);
 static inline
 void fill_txdesc_checksum_common(struct rtw_tx_desc *tx_desc, size_t words)
 {
-	__le16 chksum = 0;
-	__le16 *data = (__le16 *)(tx_desc);
+	const u8 *data = (const u8 *)tx_desc;
+	u16 chksum = 0;
 
 	le32p_replace_bits(&tx_desc->w7, 0, RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 
-	while (words--)
-		chksum ^= *data++;
+	while (words--) {
+		chksum ^= get_unaligned_le16(data);
+		data += sizeof(__le16);
+	}
 
-	le32p_replace_bits(&tx_desc->w7, __le16_to_cpu(chksum),
+	le32p_replace_bits(&tx_desc->w7, chksum,
 			   RTW_TX_DESC_W7_TXDESC_CHECKSUM);
 }
 
