@@ -103,6 +103,8 @@
 #define REG_SDIO_FREE_TXPG			(SDIO_LOCAL_OFFSET + 0x0020)
 /* HCI Current Power Mode 1 */
 #define REG_SDIO_HCPWM1				(SDIO_LOCAL_OFFSET + 0x0024)
+/* RTL8723B HCI Current Power Mode 1 */
+#define REG_SDIO_HCPWM1_8723B			(SDIO_LOCAL_OFFSET + 0x0025)
 /* HCI Current Power Mode 2 */
 #define REG_SDIO_HCPWM2				(SDIO_LOCAL_OFFSET + 0x0026)
 /* Free Tx Page Sequence */

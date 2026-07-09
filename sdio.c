@@ -322,7 +322,7 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x RPWM=0x%02x CPWM=0x%02x CPWM24=0x%02x CPWM25=0x%02x CPWM38=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x HWSEQ=0x%02x\n",
 		 tag, rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, queue, txaddr, txsize, write_size,
 		 ret, atomic_read(&rtwsdio->free_pg_high),
@@ -359,7 +359,16 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		 rtw_read8(rtwdev, REG_BCN_CTRL),
 		 rtw_read32(rtwdev, REG_TBTT_PROHIBIT),
 		 rtw_read32(rtwdev, REG_CR),
-		 rtw_read8(rtwdev, REG_CR + 2));
+		 rtw_read8(rtwdev, REG_CR + 2),
+		 rtw_read8(rtwdev, rtwdev->hci.rpwm_addr),
+		 rtw_read8(rtwdev, rtwdev->hci.cpwm_addr),
+		 rtw_read8(rtwdev, REG_SDIO_HCPWM1),
+		 rtw_read8(rtwdev, REG_SDIO_HCPWM1_8723B),
+		 rtw_read8(rtwdev, REG_SDIO_HCPWM1_V2),
+		 rtw_read8(rtwdev, REG_SDIO_HPS_CLKR),
+		 rtw_read8(rtwdev, REG_SDIO_HSUS_CTRL),
+		 rtw_read32(rtwdev, REG_TCR),
+		 rtw_read8(rtwdev, REG_HWSEQ_CTRL));
 }
 
 static void rtw_sdio_trace_8723bs_write_desc(struct rtw_dev *rtwdev,
@@ -2430,8 +2439,7 @@ static void rtw_sdio_tx_handler(struct work_struct *work)
 	rtwdev = work_data->rtwdev;
 	rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 
-	if (!rtw_fw_feature_check(&rtwdev->fw, FW_FEATURE_TX_WAKE))
-		rtw_sdio_deep_ps_leave(rtwdev);
+	rtw_sdio_deep_ps_leave(rtwdev);
 
 	for (queue = RTK_MAX_TX_QUEUE_NUM - 1; queue >= 0; queue--) {
 		for (limit = 0; limit < 1000; limit++) {
