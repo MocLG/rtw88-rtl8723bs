@@ -143,7 +143,7 @@ query_free_page:
 			le32_to_cpu(d[4]), le32_to_cpu(d[5]),
 			le32_to_cpu(d[6]), le32_to_cpu(d[7]),
 			le32_to_cpu(d[8]), le32_to_cpu(d[9]));
-		pr_err("vendor_tx_state_pre: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+		pr_err("vendor_tx_state_pre: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE24=0x%08x RPWM=0x%02x CPWM25=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x\n",
 			deviceId, cmdaddr, txsize, pxmitbuf->len,
 			pxmitbuf->pg_num, PageIdx, fc, ftype, stype,
 			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[HI_QUEUE_IDX],
@@ -179,7 +179,18 @@ query_free_page:
 			rtw_read8(padapter, REG_BCN_CTRL),
 			rtw_read32(padapter, REG_TBTT_PROHIBIT),
 			rtw_read32(padapter, REG_CR),
-			rtw_read8(padapter, REG_CR + 2));
+			rtw_read8(padapter, REG_CR + 2),
+			rtw_read16(padapter, REG_SYS_FUNC_EN),
+			rtw_read16(padapter, REG_SYS_CLKR),
+			rtw_read8(padapter, REG_APSD_CTRL),
+			rtw_read8(padapter, REG_RF_CTRL),
+			rtw_read32(padapter, REG_RSV_CTRL),
+			rtw_read32(padapter, 0x24),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HRPWM1),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HCPWM1_8723B),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HPS_CLKR),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HSUS_CTRL),
+			rtw_read32(padapter, REG_TCR));
 	}
 	write_ret = rtw_write_port(padapter, deviceId, pxmitbuf->len,
 				   (u8 *)pxmitbuf);
@@ -193,7 +204,7 @@ query_free_page:
 			      ((txsize >> 2) & WLAN_FIFO_MSK);
 
 		rtw_usleep_os(1000);
-		pr_err("vendor_tx_state_post: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u ret=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x\n",
+		pr_err("vendor_tx_state_post: deviceId=%u cmdaddr=0x%08x txsize=%u len=%u pg_num=%u PageIdx=%u ret=%u fc=0x%04x ftype=%u stype=%u sw_free=%u/%u/%u/%u oqt_sw=%u oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE24=0x%08x RPWM=0x%02x CPWM25=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x\n",
 			deviceId, cmdaddr, txsize, pxmitbuf->len,
 			pxmitbuf->pg_num, PageIdx, write_ret, fc, ftype, stype,
 			GET_HAL_DATA(padapter)->SdioTxFIFOFreePage[HI_QUEUE_IDX],
@@ -229,7 +240,18 @@ query_free_page:
 			rtw_read8(padapter, REG_BCN_CTRL),
 			rtw_read32(padapter, REG_TBTT_PROHIBIT),
 			rtw_read32(padapter, REG_CR),
-			rtw_read8(padapter, REG_CR + 2));
+			rtw_read8(padapter, REG_CR + 2),
+			rtw_read16(padapter, REG_SYS_FUNC_EN),
+			rtw_read16(padapter, REG_SYS_CLKR),
+			rtw_read8(padapter, REG_APSD_CTRL),
+			rtw_read8(padapter, REG_RF_CTRL),
+			rtw_read32(padapter, REG_RSV_CTRL),
+			rtw_read32(padapter, 0x24),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HRPWM1),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HCPWM1_8723B),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HPS_CLKR),
+			SdioLocalCmd52Read1Byte(padapter, SDIO_REG_HSUS_CTRL),
+			rtw_read32(padapter, REG_TCR));
 	}
 
 	rtw_hal_sdio_update_tx_freepage(padapter, PageIdx, pxmitbuf->pg_num);

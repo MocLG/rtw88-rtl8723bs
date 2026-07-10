@@ -1541,6 +1541,10 @@ static void rtw8723b_init_queue_reserved_page(struct rtw_dev *rtwdev)
 	 * TODO: probably this is not needed or handled somewhere else in rtw88?
 	 * also, there is no trace of this in rtl8xxxu driver
 	 */
+	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	    rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+		return;
+
 	rtw8723b_init_available_page_threshold(rtwdev);
 }
 
