@@ -1707,27 +1707,13 @@ static int rtw_sdio_start(struct rtw_dev *rtwdev)
 		rtw_write32(rtwdev, REG_SDIO_HISR, clear);
 	}
 
-	/* A latched TX FIFO overflow means the SDIO-local TX path stopped
-	 * forwarding writes into the TX packet buffer at some point.  Pulse
-	 * the HCI and packet-buffer TX DMA enables once so both movers
-	 * restart from a clean state before the first TX of this lifetime.
-	 * The vendor init performs a full REG_CR cycle (write 0, then
-	 * re-enable all blocks) at power-on, so briefly dropping these two
-	 * bits with no TX in flight is safe on this chip.
+	/* Do not pulse the CR TX DMA enables here: dropping them resets the
+	 * hardware free-page counters loaded by the RQPN latch (verified on
+	 * target: the counters read the full page split immediately after a
+	 * relatch and all-zero again right after such a pulse) and re-latches
+	 * TXFOVW.  A latched overflow at entry is handled by the W1C clear
+	 * above.
 	 */
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    (stale & REG_SDIO_HISR_TXFOVW)) {
-		u8 cr = rtw_read8(rtwdev, REG_CR);
-
-		rtw_write8(rtwdev, REG_CR,
-			   cr & ~(BIT_HCI_TXDMA_EN | BIT_TXDMA_EN));
-		usleep_range(20, 50);
-		rtw_write8(rtwdev, REG_CR, cr);
-		rtw_info(rtwdev,
-			 "INIT_DBG: sdio_start txdma_reset CR 0x%02x->0x%02x HISR=0x%08x\n",
-			 cr, rtw_read8(rtwdev, REG_CR),
-			 rtw_read32(rtwdev, REG_SDIO_HISR));
-	}
 
 	rtw_sdio_enable_interrupt(rtwdev);
 
