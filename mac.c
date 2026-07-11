@@ -1336,13 +1336,22 @@ static int __priority_queue_cfg_legacy(struct rtw_dev *rtwdev,
 		}
 
 		/* Dummy read to synchronize the SDIO-local free page counters
-		 * with the newly programmed RQPN values.
+		 * with the newly programmed RQPN values.  Logged at info level
+		 * on 8723B so target runs bracket the window between this
+		 * latch and HCI start: a full split here with zero at start
+		 * localizes whatever cleared the counters in between.
 		 */
 		freepg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
-		rtw_dbg(rtwdev, RTW_DBG_SDIO,
-			"post-LLT: FREE_TXPG=0x%08x (HPQ=%u NPQ=%u LPQ=%u PUBQ=%u)\n",
-			freepg, freepg & 0xff, (freepg >> 8) & 0xff,
-			(freepg >> 16) & 0xff, (freepg >> 24) & 0xff);
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+			rtw_info(rtwdev,
+				 "INIT_DBG: post_llt FREE_TXPG=0x%08x hi=%u mid=%u low=%u pub=%u\n",
+				 freepg, freepg & 0xff, (freepg >> 8) & 0xff,
+				 (freepg >> 16) & 0xff, (freepg >> 24) & 0xff);
+		else
+			rtw_dbg(rtwdev, RTW_DBG_SDIO,
+				"post-LLT: FREE_TXPG=0x%08x (HPQ=%u NPQ=%u LPQ=%u PUBQ=%u)\n",
+				freepg, freepg & 0xff, (freepg >> 8) & 0xff,
+				(freepg >> 16) & 0xff, (freepg >> 24) & 0xff);
 	}
 
 	return 0;
