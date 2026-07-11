@@ -54,7 +54,10 @@ enum rtw_c2h_cmd_id {
 	C2H_BT_MP_INFO = 0x0b,
 	C2H_BT_HID_INFO = 0x45,
 	C2H_RA_RPT = 0x0c,
-	C2H_MEDIA_STATUS_RPT = 0x15,
+	/* Vendor reference names 0x15 C2H_MAILBOX_STATUS: a debug-only
+	 * BT-mailbox status dump, not a media-status report.
+	 */
+	C2H_MAILBOX_STATUS = 0x15,
 	C2H_HW_FEATURE_REPORT = 0x19,
 	C2H_WLAN_INFO = 0x27,
 	/* 8723B v41 firmware: TX report for auth/assoc/data (C2H ID 0x12).

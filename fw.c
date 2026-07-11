@@ -353,8 +353,8 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 		rtw_tx_report_handle_8723b(rtwdev, c2h->id, c2h->payload,
 					   len);
 		break;
-	case C2H_MEDIA_STATUS_RPT:
-		rtw_info(rtwdev, "C2H media status: 0x%02x\n",
+	case C2H_MAILBOX_STATUS:
+		rtw_info(rtwdev, "C2H mailbox status: 0x%02x\n",
 			 len > 0 ? c2h->payload[0] : 0);
 		break;
 	default:
