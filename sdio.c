@@ -322,7 +322,7 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDE=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE1=0x%08x RPWM=0x%02x CPWM=0x%02x CPWM24=0x%02x CPWM25=0x%02x CPWM38=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x HWSEQ=0x%02x\n",
+		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDMA_CHK=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE1=0x%08x RPWM=0x%02x CPWM=0x%02x CPWM24=0x%02x CPWM25=0x%02x CPWM38=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x HWSEQ=0x%02x\n",
 		 tag, rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, queue, txaddr, txsize, write_size,
 		 ret, atomic_read(&rtwsdio->free_pg_high),
@@ -350,7 +350,7 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 		 rtw_read8(rtwdev, REG_BCNQ_BDNY),
 		 rtw_read8(rtwdev, REG_MGQ_BDNY),
 		 rtw_read8(rtwdev, REG_WMAC_LBK_BF_HD),
-		 rtw_read32(rtwdev, REG_DWBCN0_CTRL),
+		 rtw_read32(rtwdev, REG_TXDMA_OFFSET_CHK),
 		 rtw_read16(rtwdev, 0x218),
 		 rtw_read16(rtwdev, 0x21a),
 		 rtw_read16(rtwdev, 0x21c),
@@ -1491,6 +1491,36 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		}
 	}
 
+	/* One-shot hardware ground truth: after the third management write
+	 * of this module lifetime, read the free-page and OQT registers
+	 * once.  If no page was consumed, the FIFO-to-packet-buffer
+	 * transfer never ran for any of the writes; if pages drained,
+	 * frames landed in the packet buffer and were never scheduled out.
+	 * Kept to a single read well after the write because polling this
+	 * register per-TX can reset the firmware's free-page accumulator
+	 * on this stepping.
+	 */
+	if (!ret && trace_mgmt && rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		static int mgmt_tx_count;
+
+		if (++mgmt_tx_count == 3) {
+			u32 hw_free = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+
+			rtw_info(rtwdev,
+				 "MGMT_TX_DEBUG: hw_free_txpg_once FREE_TXPG=0x%08x hi=%u mid=%u low=%u pub=%u OQT=%u sw=%d/%d/%d/%d\n",
+				 hw_free, hw_free & 0xff,
+				 (hw_free >> 8) & 0xff,
+				 (hw_free >> 16) & 0xff,
+				 (hw_free >> 24) & 0xff,
+				 rtw_read8(rtwdev, REG_SDIO_OQT_FREE_PG),
+				 atomic_read(&rtwsdio->free_pg_high),
+				 atomic_read(&rtwsdio->free_pg_normal),
+				 atomic_read(&rtwsdio->free_pg_low),
+				 atomic_read(&rtwsdio->free_pg_pub));
+		}
+	}
+
 	if (ret)
 		rtw_warn(rtwdev,
 			 "Failed to write %zu byte(s) to SDIO port 0x%08x",
@@ -1660,6 +1690,21 @@ static int rtw_sdio_start(struct rtw_dev *rtwdev)
 	}
 
 	rtw_sdio_enable_interrupt(rtwdev);
+
+	/* Snapshot the SDIO-local register window once per start so the
+	 * bus-facing block's TX control, timeout, interrupt, power and
+	 * free-page state can be diffed against the working reference,
+	 * which dumps the same window at the end of its HAL init.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
+		u8 local[0x30];
+		unsigned int i;
+
+		for (i = 0; i < ARRAY_SIZE(local); i++)
+			local[i] = rtw_read8(rtwdev, SDIO_LOCAL_OFFSET + i);
+		rtw_info(rtwdev, "INIT_DBG: sdio_local 0x00-0x2f: %*ph\n",
+			 (int)ARRAY_SIZE(local), local);
+	}
 
 	return 0;
 }
