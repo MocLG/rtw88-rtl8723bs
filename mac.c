@@ -1163,7 +1163,17 @@ static int txdma_queue_mapping(struct rtw_dev *rtwdev)
 
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
-		rtw_write32(rtwdev, REG_SDIO_TX_CTRL, 0);
+		/* The 8723BS init contract keeps SDIO TX control bits [15:3]
+		 * and clears only [2:0]; zeroing the whole register wipes the
+		 * F-cut response-recognition bit the working reference runs
+		 * with (its live value is 0x10).
+		 */
+		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+			rtw_write32(rtwdev, REG_SDIO_TX_CTRL,
+				    rtw_read32(rtwdev, REG_SDIO_TX_CTRL) &
+				    0xfff8);
+		else
+			rtw_write32(rtwdev, REG_SDIO_TX_CTRL, 0);
 	} else if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_USB) {
 		rtw_write8_set(rtwdev, REG_TXDMA_PQ_MAP, BIT_RXDMA_ARBBW_EN);
 	}
