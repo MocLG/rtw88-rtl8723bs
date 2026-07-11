@@ -1166,16 +1166,24 @@ ip link set "$IFACE" down >> "$RTW88_UNLOAD_LOG" 2>&1 || \
 unload_rtw88_stack >> "$RTW88_UNLOAD_LOG" 2>&1
 sleep 2
 
-# 2. Build vendor reference driver (skip if .ko exists)
+# 2. Build vendor reference driver (skip only if .ko exists and is newer
+#    than every source file — a stale .ko silently drops trace changes)
 STAGING_BUILD_LOG="$OUTDIR/test-06-staging-build.log"
 STAGING_KO=$(find "$STAGING_SRC" -name "8723bs.ko" | head -1)
-
+STAGING_NEWER_SRC=""
 if [ -n "$STAGING_KO" ]; then
+    STAGING_NEWER_SRC=$(find "$STAGING_SRC" \( -name '*.c' -o -name '*.h' \) -newer "$STAGING_KO" -print -quit)
+fi
+
+if [ -n "$STAGING_KO" ] && [ -z "$STAGING_NEWER_SRC" ]; then
     echo "Vendor driver already built: $STAGING_KO — skipping build" > "$STAGING_BUILD_LOG"
     echo "Run: make -C /usr/src/linux-headers-7.0.11-zabbly+ M=\$(pwd)/rtl8723bs-vendor CONFIG_RTL8723BS=m clean" >> "$STAGING_BUILD_LOG"
     echo "  to force a rebuild after editing vendor source." >> "$STAGING_BUILD_LOG"
 else
     {
+        if [ -n "$STAGING_NEWER_SRC" ]; then
+            echo "Vendor source newer than .ko ($STAGING_NEWER_SRC) — rebuilding"
+        fi
         echo "+ make in vendor tree"
         make -j"$(nproc)" -C "/lib/modules/$RUNNING_KVER/build" M="$STAGING_SRC" CONFIG_RTL8723BS=m modules
     } > "$STAGING_BUILD_LOG" 2>&1 || {
