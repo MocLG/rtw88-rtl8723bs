@@ -1783,6 +1783,14 @@ static void rtw_sdio_interface_cfg(struct rtw_dev *rtwdev)
 
 	val = rtw_read32(rtwdev, REG_SDIO_TX_CTRL);
 	val &= 0xfff8;
+	/* The working 8723BS reference sets the F-cut "always response
+	 * recognition" patch bit at interface configure and keeps bits
+	 * [15:3] through init; its live TX-time value is 0x10 on this
+	 * silicon while a cleared bit leaves every TX FIFO write
+	 * unconsumed by the packet buffer.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
+		val |= BIT_SDIO_TX_CTRL_ALWAYS_RECOGNIZE;
 	rtw_write32(rtwdev, REG_SDIO_TX_CTRL, val);
 }
 
