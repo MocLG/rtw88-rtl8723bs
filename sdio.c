@@ -1614,26 +1614,27 @@ static int rtw_sdio_start(struct rtw_dev *rtwdev)
 	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
 
-	/* The 8723BS vendor path enables SDIO interrupts without first
-	 * clearing SDIO_HISR.  Its working TX traces keep sticky
-	 * PSTIMEOUT / BCNERLY_INT state set while HIGH-queue writes are
-	 * accepted by firmware.  Preserve that state here; RX_REQUEST and
-	 * AVAL are serviced by the ISR, not acknowledged blindly.
+	/* Clear the documented write-one-clear error subset before enabling
+	 * interrupts.  The only sticky bits the working 8723BS reference
+	 * carries through scan/auth TX are PSTIMEOUT and BCNERLY_INT, which
+	 * are not in the clear mask; TXFOVW/RXFOVW/TXERR/RXERR are genuine
+	 * error latches on that reference and are never observed set there.
+	 * Clearing them here makes any later assertion a fresh, per-lifetime
+	 * fault indication instead of an inherited one (the SDIO-local block
+	 * is powered from the bus rail and keeps state across reloads).
 	 */
 	stale = rtw_read32(rtwdev, REG_SDIO_HISR);
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
-		if (stale)
-			rtw_dbg(rtwdev, RTW_DBG_SDIO,
-				"preserving stale HISR 0x%08x before enabling IRQ\n",
-				stale);
-	} else {
-		clear = stale & RTW_SDIO_HISR_CLEAR_MASK;
-		if (clear) {
-			rtw_dbg(rtwdev, RTW_DBG_SDIO,
-				"clearing stale HISR 0x%08x/0x%08x before enabling IRQ\n",
-				stale, clear);
-			rtw_write32(rtwdev, REG_SDIO_HISR, clear);
-		}
+	clear = stale & RTW_SDIO_HISR_CLEAR_MASK;
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B && stale)
+		rtw_info(rtwdev,
+			 "INIT_DBG: sdio_start stale HISR=0x%08x clear=0x%08x txfovw=%d\n",
+			 stale, clear,
+			 !!(stale & REG_SDIO_HISR_TXFOVW));
+	if (clear) {
+		rtw_dbg(rtwdev, RTW_DBG_SDIO,
+			"clearing stale HISR 0x%08x/0x%08x before enabling IRQ\n",
+			stale, clear);
+		rtw_write32(rtwdev, REG_SDIO_HISR, clear);
 	}
 
 	rtw_sdio_enable_interrupt(rtwdev);

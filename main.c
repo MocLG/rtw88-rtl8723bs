@@ -141,14 +141,11 @@ static void rtw_scan_clear_sdio_hisr_errs(struct rtw_dev *rtwdev,
 	if (rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return;
 
-	/* The working 8723BS vendor trace carries TXFOVW as sticky SDIO-local
-	 * state through scan and auth TX.  Preserve it here; clearing it at
-	 * scan start recreates the rtw88-only 0x00800000 HISR state seen
-	 * before every unconsumed probe/auth write.
+	/* TXFOVW is cleared here like the other error latches.  The working
+	 * 8723BS reference never has it set at scan/auth time (its only
+	 * sticky HISR bits are PSTIMEOUT and BCNERLY_INT), so a set TXFOVW
+	 * after this point marks a TX FIFO overflow in the current window.
 	 */
-	if (rtw_is_8723bs_sdio(rtwdev))
-		mask &= ~REG_SDIO_HISR_TXFOVW;
-
 	hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
 	clear = hisr & mask;
 	if (!clear)
