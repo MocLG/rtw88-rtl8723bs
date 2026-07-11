@@ -339,7 +339,8 @@ out:
 static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 				    struct ieee80211_vif *vif,
 				    const u8 *bssid,
-				    const char *where)
+				    const char *where,
+				    bool set_preamble)
 {
 	struct ieee80211_bss_conf *conf = &vif->bss_conf;
 	struct cfg80211_bss *lookup_bss = NULL;
@@ -354,12 +355,13 @@ static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 	    vif->type != NL80211_IFTYPE_STATION)
 		return;
 
-	/* rtl8723bs staging runs update_capinfo() before auth. That programs
-	 * ACK preamble and slot time from the target AP capability bits before
-	 * sending auth/deauth, not only after association. At mgd_prepare_tx()
-	 * time mac80211 has not yet called ieee80211_handle_bss_capability(),
-	 * so bss_conf.use_short_* still carries the disconnected defaults even
-	 * though the selected scan result already has the AP capabilities.
+	/* At mgd_prepare_tx() time mac80211 has not yet called
+	 * ieee80211_handle_bss_capability(), so bss_conf.use_short_* still
+	 * carries the disconnected defaults; the selected scan result already
+	 * has the AP capabilities and is used instead.  Note the working
+	 * reference's live registers keep long-preamble responses through the
+	 * auth/assoc exchange, so callers in the pre-auth window pass
+	 * set_preamble=false and only slot time is programmed early.
 	 */
 	if (conf->bss) {
 		bss = conf->bss;
@@ -396,7 +398,17 @@ static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 		 where, source, have_cap, cap, conf->use_short_preamble,
 		 conf->use_short_slot);
 
-	rtw8723bs_set_ack_preamble(rtwdev, where, short_preamble);
+	/* Response preamble is only switched after the join succeeds; the
+	 * working reference keeps long-preamble responses through the
+	 * auth/assoc exchange (see the join-prepare caller).
+	 */
+	if (set_preamble)
+		rtw8723bs_set_ack_preamble(rtwdev, where, short_preamble);
+	else
+		rtw_info(rtwdev,
+			 "MGMT_TX_DEBUG: %s ack_preamble deferred short=%d RRSR2=0x%02x\n",
+			 where, short_preamble,
+			 rtw_read8(rtwdev, REG_RRSR + 2));
 	rtw8723bs_set_slot_time(rtwdev, where, short_slot);
 
 	if (lookup_bss)
@@ -594,8 +606,19 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	rtw_vif_port_config(rtwdev, rtwvif,
 			    PORT_SET_BSSID | PORT_SET_AID | PORT_SET_NET_TYPE);
 
-	rtw8723bs_apply_basic_rates(rtwdev, vif, bssid, "join_prepare");
-	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare");
+	/* Do not narrow RRSR or switch to short-preamble responses before
+	 * the auth/assoc exchange.  The working reference runs the whole
+	 * exchange with the init response set (0xffff1, long-preamble
+	 * responses) and applies basic-rate/preamble programming only after
+	 * the join succeeds.  Responses to the AP's 1 Mbps management frames
+	 * must be long-preamble 1 Mbps; a short-preamble response bit set
+	 * here makes the chip answer with a waveform the AP cannot decode,
+	 * the AP counts the exchange as unacknowledged, and it deauths with
+	 * reason 34 (LOW_ACK) right after association.  Basic rates and
+	 * preamble are applied from the assoc path instead; slot time alone
+	 * is programmed here (the reference also runs short slot from init).
+	 */
+	rtw8723bs_apply_bss_cap(rtwdev, vif, bssid, "join_prepare", false);
 
 	rtw_fw_beacon_filter_config(rtwdev, false, vif);
 
@@ -1237,7 +1260,9 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 				rtw8723bs_auth_rx_filter(rtwdev, "assoc",
 							 false);
 				rtw8723bs_apply_bss_cap(rtwdev, vif, NULL,
-							"assoc");
+							"assoc", true);
+				rtw8723bs_apply_basic_rates(rtwdev, vif, NULL,
+							    "assoc");
 				rtw8723bs_enable_tsf_update(rtwdev, "assoc");
 				/*
 				 * Vendor rtl8723bs v5.2.17 driver's
