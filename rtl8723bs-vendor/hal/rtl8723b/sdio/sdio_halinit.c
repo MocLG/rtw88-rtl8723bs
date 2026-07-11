@@ -1147,6 +1147,21 @@ static u32 rtl8723bs_hal_init(PADAPTER padapter)
 			_bb_sel, _rfctrl, _early);
 	}
 
+	/* Dump the SDIO-local register window so the bus-facing block's TX
+	 * control, timeout, interrupt, power and free-page state can be
+	 * diffed byte-for-byte against the rtw88 port's dump of the same
+	 * window at HCI start.
+	 */
+	{
+		u8 _local[0x30];
+		u32 _i;
+
+		for (_i = 0; _i < sizeof(_local); _i++)
+			_local[_i] = SdioLocalCmd52Read1Byte(padapter, _i);
+		pr_err("vendor_regs: sdio_local 0x00-0x2f: %*ph\n",
+		       (int)sizeof(_local), _local);
+	}
+
 	return _SUCCESS;
 }
 
