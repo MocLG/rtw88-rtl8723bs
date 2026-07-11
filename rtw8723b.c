@@ -1315,9 +1315,14 @@ static void rtw8723b_post_enable_flow(struct rtw_dev *rtwdev)
 
 	rtw_write16_set(rtwdev, REG_APS_FSMCO, BIT_EN_PDN);
 
-	rtw_write8(rtwdev, REG_CR, 0x00);
-
-	/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
+	/* The vendor runs its CR zero-then-enable cycle at power-on, before
+	 * the RQPN page split is latched.  Here we are after the latch:
+	 * writing CR to 0 drops the TX DMA enables and resets the hardware
+	 * free-page counters to zero, leaving the TX DMA with no allocatable
+	 * pages so every TX FIFO write is silently discarded.  Only OR in
+	 * the missing enables; the zero-then-enable cycle already ran in
+	 * the queue-mapping init.
+	 */
 	rtw_write16_set(rtwdev, REG_CR, MAC_TRX_ENABLE | BIT_MAC_SEC_EN |
 	BIT_32K_CAL_TMR_EN);
 
