@@ -1636,11 +1636,51 @@ static int rtw_sdio_setup(struct rtw_dev *rtwdev)
 	return 0;
 }
 
+static void rtw_sdio_8723bs_check_rqpn(struct rtw_dev *rtwdev)
+{
+	const struct rtw_chip_info *chip = rtwdev->chip;
+	struct rtw_fifo_conf *fifo = &rtwdev->fifo;
+	const struct rtw_page_table *pg_tbl;
+	u32 free_txpg, relatched;
+	u16 pubq_num;
+
+	if (chip->id != RTW_CHIP_TYPE_8723B)
+		return;
+
+	free_txpg = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+	if (free_txpg)
+		return;
+
+	if (fifo->acq_pg_num == 0)
+		return;
+
+	/* The hardware free-page counters should carry the RQPN split from
+	 * the load performed during MAC init; the working reference reads
+	 * hi/mid/low/pub = 12/2/2/231 here.  All-zero means the TX DMA has
+	 * no allocatable pages and every TX FIFO write will be discarded
+	 * even though the CMD53 completes.  Re-stage NPQ and re-latch RQPN
+	 * once so the counters are reloaded, and log both readings.
+	 */
+	pg_tbl = &chip->page_table[0];
+	pubq_num = fifo->acq_pg_num - pg_tbl->hq_num - pg_tbl->lq_num -
+		   pg_tbl->nq_num - pg_tbl->exq_num - pg_tbl->gapq_num;
+
+	rtw_write32(rtwdev, REG_RQPN_NPQ,
+		    BIT_RQPN_NE(pg_tbl->nq_num, pg_tbl->exq_num));
+	rtw_write32(rtwdev, REG_RQPN,
+		    BIT_RQPN_HLP(pg_tbl->hq_num, pg_tbl->lq_num, pubq_num));
+
+	relatched = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
+	rtw_info(rtwdev, "INIT_DBG: rqpn_relatch FREE_TXPG 0x%08x->0x%08x\n",
+		 free_txpg, relatched);
+}
+
 static int rtw_sdio_start(struct rtw_dev *rtwdev)
 {
 	u32 clear;
 	u32 stale;
 
+	rtw_sdio_8723bs_check_rqpn(rtwdev);
 	rtw_sdio_init_free_txpg(rtwdev);
 	rtw_sdio_enable_rx_aggregation(rtwdev);
 
