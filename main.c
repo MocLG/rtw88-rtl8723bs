@@ -2251,7 +2251,6 @@ static void rtw_init_ht_cap(struct rtw_dev *rtwdev,
 {
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	struct rtw_efuse *efuse = &rtwdev->efuse;
-	int i;
 
 	ht_cap->ht_supported = true;
 	ht_cap->cap = 0;
@@ -2272,10 +2271,22 @@ static void rtw_init_ht_cap(struct rtw_dev *rtwdev,
 	ht_cap->ampdu_density = chip->ampdu_density;
 	ht_cap->mcs.tx_params = IEEE80211_HT_MCS_TX_DEFINED;
 
-	for (i = 0; i < efuse->hw_cap.nss; i++)
-		ht_cap->mcs.rx_mask[i] = 0xFF;
-	ht_cap->mcs.rx_mask[4] = 0x01;
-	ht_cap->mcs.rx_highest = cpu_to_le16(150 * efuse->hw_cap.nss);
+	/* Always advertise at least the single-stream MCS 0-7 set.  An HT
+	 * capability with an empty RX MCS bitmask is accepted by APs at
+	 * association and then treated as a station with no usable rates:
+	 * the observed on-air result is an immediate deauthentication with
+	 * reason 34 after a clean exchange.
+	 */
+	if (efuse->hw_cap.nss > 1) {
+		ht_cap->mcs.rx_mask[0] = 0xFF;
+		ht_cap->mcs.rx_mask[1] = 0xFF;
+		ht_cap->mcs.rx_mask[4] = 0x01;
+		ht_cap->mcs.rx_highest = cpu_to_le16(300);
+	} else {
+		ht_cap->mcs.rx_mask[0] = 0xFF;
+		ht_cap->mcs.rx_mask[4] = 0x01;
+		ht_cap->mcs.rx_highest = cpu_to_le16(150);
+	}
 }
 
 static void rtw_init_vht_cap(struct rtw_dev *rtwdev,
@@ -2663,8 +2674,21 @@ static int rtw_dump_hw_feature(struct rtw_dev *rtwdev)
 	u8 bw;
 	int i;
 
-	if (!rtwdev->chip->hw_feature_report)
+	if (!rtwdev->chip->hw_feature_report) {
+		/* Chips without the firmware feature report leave hw_cap at
+		 * zero.  A zero nss builds an HT capability with an empty
+		 * MCS set (the association is granted and the AP then drops
+		 * the station for having no usable HT rates) and feeds a
+		 * zero stream count into rate-id selection after assoc.
+		 * Default from the chip parameters instead.
+		 */
+		efuse->hw_cap.nss = rtwdev->hal.rf_path_num ? : 1;
+		efuse->hw_cap.ant_num = rtwdev->hal.rf_path_num ? : 1;
+		rtw_dbg(rtwdev, RTW_DBG_EFUSE,
+			"no hw feature report, default nss=%d\n",
+			efuse->hw_cap.nss);
 		return 0;
+	}
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B) {
 		// rtl8723bs vendor driver
