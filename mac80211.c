@@ -263,6 +263,26 @@ static void rtw8723bs_collect_basic_rates(const u8 *ie, u16 *basic_rates,
 	}
 }
 
+static void rtw8723bs_reset_response_rates(struct rtw_dev *rtwdev,
+					   const char *where)
+{
+	u32 before = rtw_read32(rtwdev, REG_RRSR);
+
+	/* Restore the init response set (all rates, long-preamble
+	 * responses) so the next auth/assoc exchange starts from the same
+	 * state the working reference uses.  Without this, the per-BSS
+	 * narrowing and short-preamble bit applied by a successful
+	 * association leak into the next join attempt after a disconnect.
+	 * The assoc path re-applies both once a join succeeds.
+	 */
+	rtw_write32(rtwdev, REG_RRSR, 0xffff1);
+	rtwdev->dm_info.rrsr_val_init = 0xffff1;
+	rtw_info(rtwdev,
+		 "MGMT_TX_DEBUG: %s reset_rrsr RRSR 0x%08x->0x%08x init=0x%08x\n",
+		 where, before, rtw_read32(rtwdev, REG_RRSR),
+		 rtwdev->dm_info.rrsr_val_init);
+}
+
 static void rtw8723bs_apply_basic_rates(struct rtw_dev *rtwdev,
 					struct ieee80211_vif *vif,
 					const u8 *bssid,
@@ -1332,6 +1352,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			    vif->type == NL80211_IFTYPE_STATION) {
 				rtw8723bs_auth_rx_filter(rtwdev, "disassoc",
 							 false);
+				rtw8723bs_reset_response_rates(rtwdev,
+							       "disassoc");
 				rtwvif->pre_auth_h2c_sent = false;
 				rtwvif->pre_auth_join_done = false;
 				rtw_info(rtwdev,
