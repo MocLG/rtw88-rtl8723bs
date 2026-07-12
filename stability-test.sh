@@ -82,7 +82,7 @@ detect_iface() {
 load_rtw88() {
     local m
     modprobe mac80211 2>/dev/null
-    for m in rtw_core rtw_sdio rtw_8723bs; do
+    for m in rtw_core rtw_sdio rtw_8723x rtw_8723b rtw_8723bs; do
         lsmod | grep -q "^$m " && continue
         if [ -f "$REPO_DIR/$m.ko" ]; then
             insmod "$REPO_DIR/$m.ko" 2>> "$OUT/run.log" || \
@@ -95,9 +95,10 @@ load_rtw88() {
 }
 
 unload_rtw88() {
-    rmmod rtw_8723bs 2>/dev/null
-    rmmod rtw_sdio 2>/dev/null
-    rmmod rtw_core 2>/dev/null
+    local m
+    for m in rtw_8723bs rtw_8723b rtw_8723x rtw_sdio rtw_core; do
+        rmmod "$m" 2>/dev/null
+    done
 }
 
 ensure_driver() {
@@ -109,11 +110,12 @@ ensure_driver() {
         return 0
     fi
 
-    # A partial stack (core/sdio loaded without the chip module, e.g.
-    # left behind by an interrupted diagnostic run) blocks insmod of a
-    # fresh chip module.  Tear it down and load the full set.
-    if lsmod | grep -q "^rtw_" && ! lsmod | grep -q "^rtw_8723bs "; then
-        log "partial rtw88 stack loaded - reloading the full set"
+    # No interface but rtw88 modules present: either a partial stack
+    # left by an interrupted run, or a stale system-installed build that
+    # auto-loaded at boot without binding the device.  Either way, tear
+    # it down and load the in-tree set.
+    if lsmod | grep -q "^rtw_"; then
+        log "rtw88 stack loaded without an interface - reloading in-tree set"
         unload_rtw88
         sleep 1
     fi
@@ -258,7 +260,7 @@ phase_reload() {
             log "  reload $i: FAILED (rtw_8723bs unload hang)"
             continue
         fi
-        rmmod rtw_sdio rtw_core 2>/dev/null
+        unload_rtw88
         sleep 2
         load_rtw88
         sleep 4
