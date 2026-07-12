@@ -324,12 +324,45 @@ phase_throughput() {
     if ! iperf3 --help 2>&1 | grep -q bind-dev; then
         bind="-B $(ip -4 -o addr show dev "$IFACE" | awk '{ split($4, a, "/"); print a[1]; exit }')"
     fi
+    # snapshot byte counters so we can prove the traffic actually rode
+    # the wireless interface (a wired NIC on the same subnet can answer
+    # ARP for the wlan address and silently carry the test traffic)
+    local wired wlan_rx0 wlan_tx0 wired_rx0 wired_tx0
+    wired=$(ip -o link show up | awk -F': ' '$2 ~ /^(en|eth)/ { print $2; exit }')
+    wlan_rx0=$(cat "/sys/class/net/$IFACE/statistics/rx_bytes")
+    wlan_tx0=$(cat "/sys/class/net/$IFACE/statistics/tx_bytes")
+    if [ -n "$wired" ]; then
+        wired_rx0=$(cat "/sys/class/net/$wired/statistics/rx_bytes")
+        wired_tx0=$(cat "/sys/class/net/$wired/statistics/tx_bytes")
+    fi
     iperf3 $bind -c "$IPERF_SERVER" -t 30       > "$OUT/iperf-tcp-up.log"   2>&1
     iperf3 $bind -c "$IPERF_SERVER" -t 30 -R    > "$OUT/iperf-tcp-down.log" 2>&1
     iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20    > "$OUT/iperf-udp-up.log"   2>&1
     iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20 -R > "$OUT/iperf-udp-down.log" 2>&1
     kmsg "throughput end"
+    local wlan_rx wlan_tx
+    wlan_rx=$(( $(cat "/sys/class/net/$IFACE/statistics/rx_bytes") - wlan_rx0 ))
+    wlan_tx=$(( $(cat "/sys/class/net/$IFACE/statistics/tx_bytes") - wlan_tx0 ))
+    log "throughput bytes on $IFACE: rx=$wlan_rx tx=$wlan_tx"
+    if [ -n "$wired" ]; then
+        local wired_rx wired_tx
+        wired_rx=$(( $(cat "/sys/class/net/$wired/statistics/rx_bytes") - wired_rx0 ))
+        wired_tx=$(( $(cat "/sys/class/net/$wired/statistics/tx_bytes") - wired_tx0 ))
+        log "throughput bytes on $wired: rx=$wired_rx tx=$wired_tx"
+        if [ "$wired_rx" -gt "$wlan_rx" ] || [ "$wired_tx" -gt "$wlan_tx" ]; then
+            log "WARNING: wired NIC $wired carried more bytes than $IFACE - iperf results are NOT wireless numbers"
+        fi
+    fi
     grep -h "receiver\|sender" "$OUT"/iperf-*.log | tail -8 | tee -a "$OUT/run.log"
+}
+
+# count ERE matches in a file; always prints exactly one number
+# (grep -c prints 0 itself on no match, so no || echo fallback that
+# would emit a second line)
+count() {
+    local n
+    n=$(grep -ciE "$1" "$2" 2>/dev/null)
+    echo "${n:-0}"
 }
 
 summarize() {
@@ -351,17 +384,16 @@ summarize() {
         echo "max tx bitrate seen: $(awk -F, 'NR>1 { print $3 }' "$STA_LOG" 2>/dev/null | sort -n | tail -1)"
         echo
         echo "--- red flags in kernel log ---"
-        local flags
-        flags=$(grep -ciE "deauthenticated|disassociated|beacon loss" "$DMESG_LOG" 2>/dev/null || echo 0)
-        echo "deauth/disassoc/beacon-loss events: $flags"
-        echo "rqpn_relatch (page pool regressed):  $(grep -c rqpn_relatch "$DMESG_LOG" 2>/dev/null || echo 0)"
-        echo "txfovw=1 at start (stale overflow):  $(grep -c "txfovw=1" "$DMESG_LOG" 2>/dev/null || echo 0)"
-        echo "sdio/dma errors:                     $(grep -ciE "sdio.*(err|fail)|txdma_status 0x[1-9a-f]" "$DMESG_LOG" 2>/dev/null || echo 0)"
-        echo "kernel warnings/oops:                $(grep -ciE "WARNING:|BUG:|Oops" "$DMESG_LOG" 2>/dev/null || echo 0)"
+        echo "deauth/disassoc/beacon-loss events: $(count "deauthenticated|disassociated|beacon loss" "$DMESG_LOG")"
+        echo "rqpn_relatch (page pool regressed):  $(count "rqpn_relatch" "$DMESG_LOG")"
+        echo "txfovw=1 at start (stale overflow):  $(count "txfovw=1" "$DMESG_LOG")"
+        echo "sdio/dma errors:                     $(count "sdio.*(err|fail)|txdma_status 0x[1-9a-f]" "$DMESG_LOG")"
+        # \bBUG so our own *_DEBUG trace lines do not count as kernel bugs
+        echo "kernel warnings/oops:                $(count "WARNING:|\\bBUG:|Oops|Call Trace" "$DMESG_LOG")"
         echo
         echo "--- wpa events ---"
-        echo "rekeys completed: $(grep -c "Key negotiation completed" "$WPA_LOG" 2>/dev/null || echo 0)"
-        echo "disconnect events: $(grep -c "CTRL-EVENT-DISCONNECTED" "$WPA_LOG" 2>/dev/null || echo 0)"
+        echo "rekeys completed: $(count "Key negotiation completed" "$WPA_LOG")"
+        echo "disconnect events: $(count "CTRL-EVENT-DISCONNECTED" "$WPA_LOG")"
         echo
         echo "full logs in: $OUT"
     } | tee "$SUMMARY"
@@ -377,12 +409,13 @@ kmsg "run start commit=$GITHASH"
 ensure_driver || { log "FATAL: no wireless interface"; exit 1; }
 log "interface: $IFACE"
 
-# The wired NIC of the test machine may share the subnet with wlan0.
-# Without strict ARP handling, peers resolve the wireless address to
-# the wired MAC and replies bypass the radio entirely, invalidating
-# every measurement.  Applies until reboot.
-sysctl -qw net.ipv4.conf.all.arp_ignore=1 net.ipv4.conf.all.arp_announce=2
-log "arp_ignore=1 arp_announce=2 set (test traffic pinned to $IFACE)"
+# The wired NIC of the test machine may share the subnet with wlan0, so
+# peers can resolve the wireless address to the wired MAC (ARP flux) and
+# replies bypass the radio.  Strict-ARP sysctls would prevent that but
+# also break access paths that depend on the flux (e.g. SSH reaching the
+# wlan address over ethernet), so instead all test traffic is bound to
+# $IFACE and the throughput phase compares interface byte counters to
+# prove the bytes actually rode the radio.
 
 connect || exit 1
 start_monitors
