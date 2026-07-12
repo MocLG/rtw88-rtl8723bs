@@ -165,7 +165,18 @@ EOF
     timeout 25 dhclient -1 -v "$IFACE" >> "$OUT/dhclient.log" 2>&1
     GW="$(ip route show default dev "$IFACE" | awk '{ print $3; exit }')"
     if [ -z "$GW" ]; then
-        log "FATAL: no default route after DHCP"
+        # The test machine's wired NIC can sit on the same subnet, in
+        # which case DHCP does not add a second default route.  Fall
+        # back to the DHCP-provided router, then to .1 of the subnet.
+        GW="$(awk '/option routers/ { gsub(/[;,]/, "", $3); r = $3 } END { print r }' \
+              /var/lib/dhcp/dhclient.leases 2>/dev/null)"
+    fi
+    if [ -z "$GW" ]; then
+        GW="$(ip -4 -o addr show dev "$IFACE" | \
+              awk '{ split($4, a, /[./]/); printf "%s.%s.%s.1", a[1], a[2], a[3]; exit }')"
+    fi
+    if ! ping -c1 -W3 -I "$IFACE" "$GW" > /dev/null 2>&1; then
+        log "FATAL: gateway $GW not reachable over $IFACE"
         return 1
     fi
     log "connected, gateway $GW, addr $(ip -4 -o addr show dev "$IFACE" | awk '{ print $4 }')"
@@ -196,7 +207,7 @@ start_monitors() {
 phase_soak() {
     log "phase 1: ping soak for $SOAK_MINUTES min against $GW"
     kmsg "soak start"
-    ping -i 0.2 -w "$((SOAK_MINUTES * 60))" "$GW" > "$PING_LOG" 2>&1
+    ping -I "$IFACE" -i 0.2 -w "$((SOAK_MINUTES * 60))" "$GW" > "$PING_LOG" 2>&1
     kmsg "soak end"
     tail -2 "$PING_LOG" | tee -a "$OUT/run.log"
 }
@@ -280,7 +291,7 @@ phase_reload() {
 phase_scan_under_traffic() {
     log "phase 5: $SCANS scans while traffic is flowing"
     kmsg "scan-under-traffic start"
-    ping -i 0.2 "$GW" > "$OUT/ping-during-scan.log" 2>&1 &
+    ping -I "$IFACE" -i 0.2 "$GW" > "$OUT/ping-during-scan.log" 2>&1 &
     local ping_pid=$! i ok=0
     for i in $(seq 1 "$SCANS"); do
         iw dev "$IFACE" scan > /dev/null 2>&1
@@ -307,12 +318,16 @@ phase_throughput() {
         log "phase 6: skipped (iperf3 not installed)"
         return 0
     fi
-    log "phase 6: iperf3 against $IPERF_SERVER"
+    log "phase 6: iperf3 against $IPERF_SERVER (bound to $IFACE)"
     kmsg "throughput start"
-    iperf3 -c "$IPERF_SERVER" -t 30       > "$OUT/iperf-tcp-up.log"   2>&1
-    iperf3 -c "$IPERF_SERVER" -t 30 -R    > "$OUT/iperf-tcp-down.log" 2>&1
-    iperf3 -c "$IPERF_SERVER" -u -b 40M -t 20    > "$OUT/iperf-udp-up.log"   2>&1
-    iperf3 -c "$IPERF_SERVER" -u -b 40M -t 20 -R > "$OUT/iperf-udp-down.log" 2>&1
+    local bind="--bind-dev $IFACE"
+    if ! iperf3 --help 2>&1 | grep -q bind-dev; then
+        bind="-B $(ip -4 -o addr show dev "$IFACE" | awk '{ split($4, a, "/"); print a[1]; exit }')"
+    fi
+    iperf3 $bind -c "$IPERF_SERVER" -t 30       > "$OUT/iperf-tcp-up.log"   2>&1
+    iperf3 $bind -c "$IPERF_SERVER" -t 30 -R    > "$OUT/iperf-tcp-down.log" 2>&1
+    iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20    > "$OUT/iperf-udp-up.log"   2>&1
+    iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20 -R > "$OUT/iperf-udp-down.log" 2>&1
     kmsg "throughput end"
     grep -h "receiver\|sender" "$OUT"/iperf-*.log | tail -8 | tee -a "$OUT/run.log"
 }
@@ -361,6 +376,13 @@ kmsg "run start commit=$GITHASH"
 
 ensure_driver || { log "FATAL: no wireless interface"; exit 1; }
 log "interface: $IFACE"
+
+# The wired NIC of the test machine may share the subnet with wlan0.
+# Without strict ARP handling, peers resolve the wireless address to
+# the wired MAC and replies bypass the radio entirely, invalidating
+# every measurement.  Applies until reboot.
+sysctl -qw net.ipv4.conf.all.arp_ignore=1 net.ipv4.conf.all.arp_announce=2
+log "arp_ignore=1 arp_announce=2 set (test traffic pinned to $IFACE)"
 
 connect || exit 1
 start_monitors
