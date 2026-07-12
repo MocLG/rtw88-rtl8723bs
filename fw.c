@@ -838,6 +838,33 @@ void rtw_fw_send_ra_info(struct rtw_dev *rtwdev, struct rtw_sta_info *si)
 
 	SET_H2C_CMD_ID_CLASS(h2c_pkt, H2C_CMD_RA_INFO);
 
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
+		/*
+		 * The v41 firmware parses MACID_CFG (0x40) in the vendor
+		 * v5.2.17 byte layout (see rtw_fw_macid_cfg), not the
+		 * bit-packed rtw88 RA_INFO layout below.  The vendor's
+		 * steady-state rate-mask update for this firmware is
+		 * 00 81 09 00 00 0f 00: raid | sgi_en(bit7), then
+		 * bw(bits 1-0) | no_update(bit3), then the 4-byte mask.
+		 * RATEID_IDX numbering is shared with rtw88's rate_id.
+		 */
+		h2c_pkt[1] = si->mac_id & 0x7f;
+		h2c_pkt[2] = (si->rate_id & 0x1f) |
+			     (si->sgi_enable ? BIT(7) : 0);
+		h2c_pkt[3] = ((si->bw_mode ? 3 : 1) & 0x3) |
+			     (reset_ra_mask ? 0 : BIT(3));
+		h2c_pkt[4] = si->ra_mask & 0xff;
+		h2c_pkt[5] = (si->ra_mask >> 8) & 0xff;
+		h2c_pkt[6] = (si->ra_mask >> 16) & 0xff;
+		h2c_pkt[7] = (si->ra_mask >> 24) & 0xff;
+
+		si->init_ra_lv = 0;
+
+		rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
+		return;
+	}
+
 	SET_RA_INFO_MACID(h2c_pkt, si->mac_id);
 	SET_RA_INFO_RATE_ID(h2c_pkt, si->rate_id);
 	SET_RA_INFO_INIT_RA_LVL(h2c_pkt, si->init_ra_lv);
@@ -927,10 +954,14 @@ void rtw_fw_macid_cfg(struct rtw_dev *rtwdev, u8 mac_id, u8 raid, u8 bw,
 		 *
 		 * RAID=1 (CCK 1M initial rate), SGI=1, BW=20MHz,
 		 * rate_mask=0x000ff015 covering all B/G rates.
+		 *
+		 * disra (bit7 of [2]) must stay 0: setting it tells the
+		 * firmware to disable rate adaptation for this mac_id and
+		 * TX stays pinned at the initial rate.
 		 */
 		h2c_pkt[1] = mac_id & 0x7f;
 		h2c_pkt[2] = (raid & 0x1f) | (sgi ? BIT(7) : 0) | 0x60;
-		h2c_pkt[3] = ((bw ? 3 : 1) & 0x3) | BIT(7);
+		h2c_pkt[3] = (bw ? 3 : 1) & 0x3;
 		h2c_pkt[4] = rate_mask & 0xff;
 		h2c_pkt[5] = (rate_mask >> 8) & 0xff;
 		h2c_pkt[6] = (rate_mask >> 16) & 0xff;
