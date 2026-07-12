@@ -2090,6 +2090,35 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 			 rx_hdr->addr1, rx_hdr->addr2, rx_hdr->addr3);
 	}
 
+	/* No data frame has ever been observed on this port's RX path: the
+	 * post-association failure window ends before any is delivered, so
+	 * whether the AP's first data frame (EAPOL M1) dies on air, at the
+	 * PHY rate, or in the WMAC cannot be told apart yet.  Log the first
+	 * few delivered data frames of a lifetime with their RX rate and
+	 * error flags so the next run answers which rates and types make it
+	 * through.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    skb->len >= sizeof(struct ieee80211_hdr_3addr) &&
+	    ieee80211_is_data(((struct ieee80211_hdr *)skb->data)->frame_control)) {
+		static int data_rx_count;
+
+		if (data_rx_count < 24) {
+			struct ieee80211_hdr *rx_hdr =
+				(struct ieee80211_hdr *)skb->data;
+
+			data_rx_count++;
+			rtw_info(rtwdev,
+				 "RX_DEBUG: data_rx n=%d len=%u fc=0x%04x rate=%u crc=%d icv=%d decrypted=%d signal=%d addr1=%pM addr2=%pM\n",
+				 data_rx_count, skb->len,
+				 le16_to_cpu(rx_hdr->frame_control),
+				 pkt_stat->rate, pkt_stat->crc_err,
+				 pkt_stat->icv_err, pkt_stat->decrypted,
+				 rx_status->signal, rx_hdr->addr1,
+				 rx_hdr->addr2);
+		}
+	}
+
 	rtw_sdio_trace_mgmt_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
 	rtw_sdio_trace_eapol_rx(rtwdev, skb, pkt_offset, pkt_stat, rx_status);
 
