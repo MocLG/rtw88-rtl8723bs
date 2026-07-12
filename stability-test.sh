@@ -79,6 +79,27 @@ detect_iface() {
     IFACE="$(iw dev 2>/dev/null | awk '$1 == "Interface" { print $2; exit }')"
 }
 
+load_rtw88() {
+    local m
+    modprobe mac80211 2>/dev/null
+    for m in rtw_core rtw_sdio rtw_8723bs; do
+        lsmod | grep -q "^$m " && continue
+        if [ -f "$REPO_DIR/$m.ko" ]; then
+            insmod "$REPO_DIR/$m.ko" 2>> "$OUT/run.log" || \
+                log "insmod $m.ko failed (see run.log)"
+        else
+            modprobe "$m" 2>> "$OUT/run.log" || \
+                log "modprobe $m failed (no $m.ko in $REPO_DIR either - run make first)"
+        fi
+    done
+}
+
+unload_rtw88() {
+    rmmod rtw_8723bs 2>/dev/null
+    rmmod rtw_sdio 2>/dev/null
+    rmmod rtw_core 2>/dev/null
+}
+
 ensure_driver() {
     # Make sure the vendor reference driver is not holding the device.
     rmmod 8723bs 2>/dev/null
@@ -88,15 +109,17 @@ ensure_driver() {
         return 0
     fi
 
-    log "no wireless interface - loading rtw88 modules"
-    modprobe mac80211 2>/dev/null
-    if [ -f "$REPO_DIR/rtw_core.ko" ]; then
-        insmod "$REPO_DIR/rtw_core.ko" 2>/dev/null
-        insmod "$REPO_DIR/rtw_sdio.ko" 2>/dev/null
-        insmod "$REPO_DIR/rtw_8723bs.ko" 2>/dev/null
-    else
-        modprobe rtw_8723bs 2>/dev/null
+    # A partial stack (core/sdio loaded without the chip module, e.g.
+    # left behind by an interrupted diagnostic run) blocks insmod of a
+    # fresh chip module.  Tear it down and load the full set.
+    if lsmod | grep -q "^rtw_" && ! lsmod | grep -q "^rtw_8723bs "; then
+        log "partial rtw88 stack loaded - reloading the full set"
+        unload_rtw88
+        sleep 1
     fi
+
+    log "no wireless interface - loading rtw88 modules"
+    load_rtw88
     sleep 3
     detect_iface
     [ -n "$IFACE" ]
@@ -237,9 +260,7 @@ phase_reload() {
         fi
         rmmod rtw_sdio rtw_core 2>/dev/null
         sleep 2
-        insmod "$REPO_DIR/rtw_core.ko" && \
-        insmod "$REPO_DIR/rtw_sdio.ko" && \
-        insmod "$REPO_DIR/rtw_8723bs.ko"
+        load_rtw88
         sleep 4
         detect_iface
         if [ -n "$IFACE" ] && connect; then
