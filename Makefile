@@ -296,7 +296,9 @@ dkms:
 	done
 	@rm -rf "$(DKMS_SRC)"
 	@mkdir -p "$(DKMS_SRC)"
-	@git ls-files -z | tar --null -T - -cf - | tar -C "$(DKMS_SRC)" -xf -
+	@# stage git-tracked files, minus the vendor/staging reference trees
+	@git ls-files -z | grep -zvE '^(rtl8723bs-vendor|rtl8723bs-staging)/' \
+		| tar --null -T - -cf - | tar -C "$(DKMS_SRC)" -xf -
 	@sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION="$(DKMS_VER)"/' "$(DKMS_SRC)/dkms.conf"
 	@dkms add     $(DKMS_NAME)/$(DKMS_VER)
 	@dkms build   $(DKMS_NAME)/$(DKMS_VER)
