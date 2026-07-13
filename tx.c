@@ -313,8 +313,8 @@ void rtw_tx_report_handle_8723b(struct rtw_dev *rtwdev, u8 report_type,
 	 * with bit 6 as lifetime-over and bit 7 as retry-over.  The vendor
 	 * driver reads W6 SW_DEFINE back from payload byte 6.
 	 */
-	rtw_info(rtwdev,
-		 "TX_REPORT_DEBUG: 8723b type=0x%02x len=%u payload=%*ph mac_id=0x%02x retry=0x%02x final_rate=0x%02x failed=%d sn=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "TX_REPORT_DEBUG: 8723b type=0x%02x len=%u payload=%*ph mac_id=0x%02x retry=0x%02x final_rate=0x%02x failed=%d sn=%u\n",
 		 report_type, len, dump_len, payload,
 		 len > 1 ? payload[1] : 0xff,
 		 len > 2 ? payload[2] : 0xff,

@@ -146,8 +146,8 @@ static void rtw_sdio_8723bs_trace_real_mlme_resp(struct rtw_dev *rtwdev,
 	if (!rtw_sdio_8723bs_mlme_resp_stype(stype))
 		return;
 
-	rtw_info(rtwdev,
-		 "MGMT_RX_DEBUG: real_mlme_resp stype=%s bssid=%pM addr1=%pM addr2=%pM own=%d\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_RX, "MGMT_RX_DEBUG: real_mlme_resp stype=%s bssid=%pM addr1=%pM addr2=%pM own=%d\n",
 		 rtw_sdio_mgmt_stype_name(stype), hdr->addr3, hdr->addr1,
 		 hdr->addr2, ether_addr_equal(hdr->addr1, rtwdev->efuse.addr));
 }
@@ -173,8 +173,8 @@ static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 
 	if ((fc & IEEE80211_FCTL_STYPE) == IEEE80211_STYPE_AUTH &&
 	    skb->len >= offsetof(struct ieee80211_mgmt, u.auth.variable)) {
-		rtw_info(rtwdev,
-			 "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u auth_alg=%u auth_seq=%u status=%u\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_RX, "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u auth_alg=%u auth_seq=%u status=%u\n",
 			 rtw_sdio_mgmt_stype_name(fc),
 			 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), skb->len,
 			 fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1, hdr->addr2,
@@ -188,8 +188,8 @@ static void rtw_sdio_trace_mgmt_rx(struct rtw_dev *rtwdev,
 		return;
 	}
 
-	rtw_info(rtwdev,
-		 "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_RX, "MGMT_RX_DEBUG: stype=%s scan=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
 		 rtw_sdio_mgmt_stype_name(fc),
 		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), skb->len, fc,
 		 le16_to_cpu(hdr->seq_ctrl), hdr->addr1, hdr->addr2,
@@ -211,8 +211,8 @@ static void rtw_sdio_trace_eapol_rx(struct rtw_dev *rtwdev,
 		return;
 
 	fc = le16_to_cpu(hdr->frame_control);
-	rtw_info(rtwdev,
-		 "EAPOL_DEBUG: rx len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u mac_id=%u cam_id=%u decrypted=%d crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "EAPOL_DEBUG: rx len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u mac_id=%u cam_id=%u decrypted=%d crc=%d icv=%d phy=%d freq=%u signal=%d flags=0x%x pkt_offset=%u drv_info=%u shift=%u\n",
 		 skb->len, fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1,
 		 hdr->addr2, hdr->addr3, pkt_stat->rate, pkt_stat->mac_id,
 		 pkt_stat->cam_id, pkt_stat->decrypted, pkt_stat->crc_err,
@@ -235,8 +235,8 @@ static void rtw_sdio_trace_eapol_tx(struct rtw_dev *rtwdev,
 		return;
 
 	fc = le16_to_cpu(hdr->frame_control);
-	rtw_info(rtwdev,
-		 "EAPOL_DEBUG: tx len=%u queue=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "EAPOL_DEBUG: tx len=%u queue=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u\n",
 		 skb->len, queue, fc, le16_to_cpu(hdr->seq_ctrl), hdr->addr1,
 		 hdr->addr2, hdr->addr3, pkt_info->rate, pkt_info->rate_id,
 		 pkt_info->bw, pkt_info->mac_id, pkt_info->sn,
@@ -270,8 +270,8 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 	 * here.  The write_result trace captures live register state later
 	 * from the sleepable TX workqueue.
 	 */
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: prepared stype=%s fc=0x%04x queue=%u qsel=%u mac_id=%u len=%u skb_len=%u offset=%u pkt_offset=%u rate=%u rate_id=%u bw=%u seq=%u sn=%u report=%d use_rate=%d dis_fb=%d dis_qseq=%d ls=%d fs=%d en_hwseq=%d retry_en=%d retry_lmt=%u rts=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: prepared stype=%s fc=0x%04x queue=%u qsel=%u mac_id=%u len=%u skb_len=%u offset=%u pkt_offset=%u rate=%u rate_id=%u bw=%u seq=%u sn=%u report=%d use_rate=%d dis_fb=%d dis_qseq=%d ls=%d fs=%d en_hwseq=%d retry_en=%d retry_lmt=%u rts=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
 		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, tx_data->queue, pkt_info->qsel,
 		 pkt_info->mac_id, pkt_info->tx_pkt_size, skb->len,
@@ -299,8 +299,8 @@ static void rtw_sdio_trace_mgmt_tx_desc(struct rtw_dev *rtwdev,
 	if (!dump_len)
 		return;
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: payload stype=%s len=%u offset=%u bytes=%*ph\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: payload stype=%s len=%u offset=%u bytes=%*ph\n",
 		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 payload_len, pkt_info->offset, dump_len, payload);
 }
@@ -314,6 +314,11 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 
+	/* this trace reads ~45 registers over SDIO to build its args; skip
+	 * all of it unless TX debugging is actually enabled */
+	if (!rtw_dbg_is_enabled(rtwdev, RTW_DBG_TX))
+		return;
+
 	if (!(tx_data->flags & RTW_SDIO_TX_TRACE_MGMT))
 		return;
 
@@ -321,8 +326,8 @@ static void rtw_sdio_trace_8723bs_tx_state(struct rtw_dev *rtwdev,
 	    rtw_hci_type(rtwdev) != RTW_HCI_TYPE_SDIO)
 		return;
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDMA_CHK=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE1=0x%08x RPWM=0x%02x CPWM=0x%02x CPWM24=0x%02x CPWM25=0x%02x CPWM38=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x HWSEQ=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: tx_state_%s stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu ret=%d sw_free=%d/%d/%d/%d oqt_sw=%d oqt_hw=%u HISR=0x%08x HIMR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x TXPKT_EMPTY=0x%04x MGQ=0x%08x BCNQ=0x%04x CPU_MGQ=0x%08x FWTQ=0x%08x HIQ_NO=0x%02x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x TRXFF=0x%08x BDNY=0x%02x/0x%02x/0x%02x TDMA_CHK=0x%08x THR=0x%04x/0x%04x/0x%04x DWBCN0=0x%08x DWBCN1=0x%08x BCN_CTRL=0x%02x TBTT=0x%08x CR=0x%08x MSR=0x%02x SYS_FUNC=0x%04x SYS_CLKR=0x%04x APSD=0x%02x RF_CTRL=0x%02x RSV=0x%08x AFE1=0x%08x RPWM=0x%02x CPWM=0x%02x CPWM24=0x%02x CPWM25=0x%02x CPWM38=0x%02x HPS=0x%02x HSUS=0x%02x TCR=0x%08x HWSEQ=0x%02x\n",
 		 tag, rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, queue, txaddr, txsize, write_size,
 		 ret, atomic_read(&rtwsdio->free_pg_high),
@@ -400,8 +405,8 @@ static void rtw_sdio_trace_8723bs_write_desc(struct rtw_dev *rtwdev,
 	if (!payload_offset)
 		payload_offset = rtwdev->chip->tx_pkt_desc_sz;
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: write_desc stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu skb_len=%u offset=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: write_desc stype=%s fc=0x%04x queue=%u txaddr=0x%08x txsize=%zu write_size=%zu skb_len=%u offset=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
 		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 tx_data->frame_control, queue, txaddr, txsize, write_size,
 		 skb->len, payload_offset,
@@ -418,8 +423,8 @@ static void rtw_sdio_trace_8723bs_write_desc(struct rtw_dev *rtwdev,
 	payload_len = skb->len - payload_offset;
 	dump_len = min_t(unsigned int, payload_len, 64);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: write_payload stype=%s len=%u offset=%u bytes=%*ph\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: write_payload stype=%s len=%u offset=%u bytes=%*ph\n",
 		 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 		 payload_len, payload_offset, dump_len, payload);
 }
@@ -1189,6 +1194,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	static int scan_tx_port_count;
 	unsigned int orig_len = skb->len;
 	bool trace_mgmt = tx_data->flags & RTW_SDIO_TX_TRACE_MGMT;
+	/* the write_blocked/write_result traces each read many registers over
+	 * SDIO; gate them on the debug mask so they cost nothing when off.
+	 * trace_mgmt itself still drives quiet_after_mgmt_tx (real behaviour). */
+	bool trace_mgmt_log = trace_mgmt &&
+			      rtw_dbg_is_enabled(rtwdev, RTW_DBG_TX);
 	bool quiet_after_mgmt_tx;
 	bool bus_claim;
 	size_t txsize;
@@ -1243,9 +1253,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		if (write_size > orig_len)
 			skb_trim(skb, orig_len);
 
-		if (trace_mgmt)
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
+		if (trace_mgmt_log)
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, skb->len, txsize,
 				 ret, atomic_read(&rtwsdio->tx_oqt_free),
@@ -1259,8 +1269,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 rtw_read16(rtwdev, REG_TXPKT_EMPTY));
 
 		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
-			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_HW_SCAN, "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
 				 queue, skb->len, txsize, ret,
 				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
@@ -1283,9 +1293,9 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		if (write_size > orig_len)
 			skb_trim(skb, orig_len);
 
-		if (trace_mgmt)
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
+		if (trace_mgmt_log)
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: write_blocked stype=%s fc=0x%04x queue=%u len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x TXPKT_EMPTY=0x%04x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, skb->len, txsize,
 				 ret, atomic_read(&rtwsdio->tx_oqt_free),
@@ -1299,8 +1309,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 rtw_read16(rtwdev, REG_TXPKT_EMPTY));
 
 		if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags))
-			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_HW_SCAN, "SCAN_DEBUG: sdio_write_port_blocked queue=%u skb_len=%u txsize=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
 				 queue, skb->len, txsize, ret,
 				 atomic_read(&rtwsdio->tx_oqt_free),
 				 atomic_read(&rtwsdio->free_pg_high),
@@ -1428,8 +1438,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	if (test_bit(RTW_FLAG_SCANNING, rtwdev->flags)) {
 		scan_tx_port_count++;
 		if (scan_tx_port_count <= 20 || scan_tx_port_count % 20 == 0)
-			rtw_info(rtwdev,
-				 "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_HW_SCAN, "SCAN_DEBUG: sdio_write_port count=%d queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d oqt=%d sw_free=%d/%d/%d/%d\n",
 				 scan_tx_port_count, queue, txaddr, skb->len,
 				 txsize, write_size, ret,
 				 atomic_read(&rtwsdio->tx_oqt_free),
@@ -1439,11 +1449,11 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->free_pg_pub));
 	}
 
-	if (trace_mgmt) {
+	if (trace_mgmt_log) {
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d align=%lu txfree=%d/%d/%d/%d oqt=%d quiet=1\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d align=%lu txfree=%d/%d/%d/%d oqt=%d quiet=1\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, txaddr,
 				 skb->len, txsize, write_size, ret,
@@ -1455,8 +1465,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				 atomic_read(&rtwsdio->free_pg_pub),
 				 atomic_read(&rtwsdio->tx_oqt_free));
 		} else {
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x CR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x PAD1=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: write_result stype=%s fc=0x%04x queue=%u txaddr=0x%08x skb_len=%u txsize=%zu write_size=%zu ret=%d txfree=%d/%d/%d/%d oqt=%d HISR=0x%08x TXDMA_STATUS=0x%08x TXPAUSE=0x%02x SDIO_TX_CTRL=0x%08x MACID_DROP=0x%08x MACID_SLEEP=0x%08x EARLY=0x%02x HWSEQ=0x%02x TXPKT_EMPTY=0x%04x RQPN=0x%08x RQPN_NPQ=0x%02x PQ_MAP=0x%04x QUEUE_CTRL=0x%02x RRSR=0x%08x RCR=0x%08x CR=0x%08x MSR=0x%02x BCN=0x%02x FWTQ=0x%08x PAD1=0x%08x BB_SEL=0x%08x SYS=0x%02x RF_CTRL=0x%02x\n",
 				 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 				 tx_data->frame_control, queue, txaddr,
 				 skb->len, txsize, write_size, ret,
@@ -1507,8 +1517,8 @@ static int rtw_sdio_write_port(struct rtw_dev *rtwdev, struct sk_buff *skb,
 		if (++mgmt_tx_count == 3) {
 			u32 hw_free = rtw_read32(rtwdev, REG_SDIO_FREE_TXPG);
 
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: hw_free_txpg_once FREE_TXPG=0x%08x hi=%u mid=%u low=%u pub=%u OQT=%u sw=%d/%d/%d/%d\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: hw_free_txpg_once FREE_TXPG=0x%08x hi=%u mid=%u low=%u pub=%u OQT=%u sw=%d/%d/%d/%d\n",
 				 hw_free, hw_free & 0xff,
 				 (hw_free >> 8) & 0xff,
 				 (hw_free >> 16) & 0xff,
@@ -1985,8 +1995,8 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 
 	if (scan_mgmt) {
 		scan_mgmt_tx_count++;
-		rtw_info(rtwdev,
-			 "SCAN_DEBUG: tx_mgmt_enqueue count=%d probe_req=%d queue=%u len=%u rate=%u sn=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_HW_SCAN, "SCAN_DEBUG: tx_mgmt_enqueue count=%d probe_req=%d queue=%u len=%u rate=%u sn=%u fc=0x%04x addr1=%pM addr2=%pM addr3=%pM\n",
 			 scan_mgmt_tx_count, scan_probe_req, queue, skb->len,
 			 pkt_info->rate, pkt_info->sn, le16_to_cpu(fc),
 			 hdr->addr1, hdr->addr2, hdr->addr3);
@@ -2008,8 +2018,8 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 		/* mac80211 can call .tx with BH/RCU state held; keep this
 		 * trace free of SDIO register reads because they can sleep.
 		 */
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: enqueue stype=%s scan=%d queue=%u len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d txpwr0=%d txpwr1m=%d txpwr6m=%d\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: enqueue stype=%s scan=%d queue=%u len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM rate=%u rate_id=%u bw=%u mac_id=%u sn=%u report=%d req_status=%d no_ack=%d use_rate=%d dis_fb=%d sec=%u ch=%u hal_bw=%u pwr_idx=%d txpwr0=%d txpwr1m=%d txpwr6m=%d\n",
 			 rtw_sdio_mgmt_stype_name(tx_data->frame_control),
 			 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), queue,
 			 skb->len, tx_data->frame_control, tx_data->seq_ctrl,
@@ -2033,8 +2043,8 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 		return ret;
 
 	if (scan_mgmt)
-		rtw_info(rtwdev,
-			 "SCAN_DEBUG: tx_mgmt_prepared probe_req=%d queue=%u qsel=%u offset=%u pkt_offset=%u skb_len=%u\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_HW_SCAN, "SCAN_DEBUG: tx_mgmt_prepared probe_req=%d queue=%u qsel=%u offset=%u pkt_offset=%u skb_len=%u\n",
 			 scan_probe_req, queue, pkt_info->qsel, pkt_info->offset,
 			 pkt_info->pkt_offset, skb->len);
 
@@ -2082,8 +2092,8 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 	    skb->len >= 24 && skb->len < 128) {
 		struct ieee80211_hdr *rx_hdr = (struct ieee80211_hdr *)skb->data;
 		u16 rx_fc = le16_to_cpu(rx_hdr->frame_control);
-		rtw_info(rtwdev,
-			 "RX_DEBUG: auth_window len=%u fc=0x%04x ftype=%u stype=%u addr1=%pM addr2=%pM addr3=%pM\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_RX, "RX_DEBUG: auth_window len=%u fc=0x%04x ftype=%u stype=%u addr1=%pM addr2=%pM addr3=%pM\n",
 			 skb->len, rx_fc,
 			 (rx_fc & IEEE80211_FCTL_FTYPE) >> 2,
 			 (rx_fc & IEEE80211_FCTL_STYPE) >> 4,
@@ -2108,8 +2118,8 @@ static void rtw_sdio_rx_skb(struct rtw_dev *rtwdev, struct sk_buff *skb,
 				(struct ieee80211_hdr *)skb->data;
 
 			data_rx_count++;
-			rtw_info(rtwdev,
-				 "RX_DEBUG: data_rx n=%d len=%u fc=0x%04x rate=%u crc=%d icv=%d decrypted=%d signal=%d addr1=%pM addr2=%pM\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_RX, "RX_DEBUG: data_rx n=%d len=%u fc=0x%04x rate=%u crc=%d icv=%d decrypted=%d signal=%d addr1=%pM addr2=%pM\n",
 				 data_rx_count, skb->len,
 				 le16_to_cpu(rx_hdr->frame_control),
 				 pkt_stat->rate, pkt_stat->crc_err,
@@ -2164,14 +2174,14 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 
 	ret = rtw_sdio_read_port(rtwdev, skb->data, bufsz);
 	if (ret) {
-		pr_info("RX_DEBUG: sdio_read_port failed ret=%d\n", ret);
+		rtw_dbg(rtwdev, RTW_DBG_RX, "RX_DEBUG: sdio_read_port failed ret=%d\n", ret);
 		dev_kfree_skb_any(skb);
 		return;
 	}
 
 	/* Check if buffer is all zeros */
 	if (rx_len > 0 && skb->data[0] == 0 && skb->data[1] == 0 && skb->data[2] == 0 && skb->data[3] == 0) {
-		pr_warn("RX_DEBUG: WARNING - RX buffer appears to be all zeros! rx_len=%u - skipping\n", rx_len);
+		rtw_dbg(rtwdev, RTW_DBG_RX, "RX_DEBUG: WARNING - RX buffer appears to be all zeros! rx_len=%u - skipping\n", rx_len);
 		dev_kfree_skb_any(skb);
 		return;
 	}
@@ -2187,7 +2197,7 @@ static void rtw_sdio_rxfifo_recv(struct rtw_dev *rtwdev, u32 rx_len)
 		if (pkt_offset > rx_len ||
 		    pkt_stat.pkt_len > rx_len - pkt_offset) {
 			rtw_warn(rtwdev,
-				 "RX_DEBUG: drop malformed packet rx_len=%u pkt_len=%u pkt_offset=%u drv_info=%u shift=%u desc=%08x/%08x/%08x/%08x/%08x/%08x\n",
+				 "drop malformed rx packet rx_len=%u pkt_len=%u pkt_offset=%u drv_info=%u shift=%u desc=%08x/%08x/%08x/%08x/%08x/%08x\n",
 				 rx_len, pkt_stat.pkt_len, pkt_offset,
 				 pkt_stat.drv_info_sz, pkt_stat.shift,
 				 le32_to_cpu(((struct rtw_rx_desc *)rx_desc)->w0),
@@ -2282,8 +2292,8 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 	if (trigger != C2H_EVT_FW_CLOSE) {
 		if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 		    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-			rtw_info(rtwdev,
-				 "C2H_REG_DEBUG: unexpected trigger=0x%02x\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_FW, "C2H_REG_DEBUG: unexpected trigger=0x%02x\n",
 				 trigger);
 		goto clear_evt;
 	}
@@ -2303,8 +2313,8 @@ static void rtw_sdio_c2h_cmd_isr(struct rtw_dev *rtwdev)
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		rtw_info(rtwdev,
-			 "C2H_REG_DEBUG: id=0x%02x seq=%u plen=%u payload=%*ph\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_FW, "C2H_REG_DEBUG: id=0x%02x seq=%u plen=%u payload=%*ph\n",
 			 id, seq, plen, min_t(int, plen, 8), skb->data + 2);
 
 	*((u32 *)skb->cb) = 0;
@@ -2496,8 +2506,8 @@ static void rtw_sdio_indicate_tx_status(struct rtw_dev *rtwdev,
 	skb_pull(skb, tx_pkt_offset);
 
 	if (trace_mgmt)
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d tx_report=%d tx_offset=%u skb_len=%u\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: status stype=%s fc=0x%04x sn=%u qsel=%u rate=%u req_status=%d no_ack=%d tx_report=%d tx_offset=%u skb_len=%u\n",
 			 rtw_sdio_mgmt_stype_name(frame_control),
 			 frame_control, tx_data->sn, tx_data->qsel,
 			 tx_data->rate,

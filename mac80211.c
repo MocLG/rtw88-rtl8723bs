@@ -71,8 +71,8 @@ static bool rtw8723bs_mgd_prepare_skip_fresh_rfk(struct rtw_dev *rtwdev,
 
 	rtw_coex_connect_notify(rtwdev, COEX_ASSOCIATE_START);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: mgd_prepare_tx skip_fresh_rfk ch=%u bw=%u pri_idx=%u need_rfk=%d RXIGI_A=0x%08x RRSR2=0x%02x SLOT=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: mgd_prepare_tx skip_fresh_rfk ch=%u bw=%u pri_idx=%u need_rfk=%d RXIGI_A=0x%08x RRSR2=0x%02x SLOT=0x%02x\n",
 		 hal->current_channel, hal->current_band_width,
 		 hal->current_primary_channel_index, rtwdev->need_rfk,
 		 rtw_read32(rtwdev, REG_RXIGI_A),
@@ -119,8 +119,8 @@ static void rtw8723bs_auth_rx_filter(struct rtw_dev *rtwdev,
 
 	rtw_write32(rtwdev, REG_RCR, rtwdev->hal.rcr);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s_rx %s RCR 0x%08x->0x%08x hal=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s_rx %s RCR 0x%08x->0x%08x hal=0x%08x\n",
 		 where, accept_all ? "join_target_only" : "target_only", before,
 		 rtw_read32(rtwdev, REG_RCR), rtwdev->hal.rcr);
 }
@@ -135,8 +135,8 @@ static void rtw8723bs_config_sec_cfg(struct rtw_dev *rtwdev,
 
 	rtw_write16(rtwdev, RTW_SEC_CONFIG, sec);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s sec_cfg SEC 0x%04x->0x%04x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s sec_cfg SEC 0x%04x->0x%04x\n",
 		 where, before,
 		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
 }
@@ -157,8 +157,8 @@ static void rtw8723bs_config_default_key_search(struct rtw_dev *rtwdev,
 
 	rtw_write16(rtwdev, RTW_SEC_CONFIG, sec);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s dk_cfg enable=%d SEC 0x%04x->0x%04x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s dk_cfg enable=%d SEC 0x%04x->0x%04x\n",
 		 where, enable, before,
 		 rtw_read16(rtwdev, RTW_SEC_CONFIG));
 }
@@ -170,8 +170,8 @@ static void rtw8723bs_enable_tsf_update(struct rtw_dev *rtwdev,
 
 	rtw_write8_clr(rtwdev, REG_BCN_CTRL, BIT_DIS_TSF_UDT);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s tsf_update BCN_CTRL 0x%02x->0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s tsf_update BCN_CTRL 0x%02x->0x%02x\n",
 		 where, before, rtw_read8(rtwdev, REG_BCN_CTRL));
 }
 
@@ -188,8 +188,8 @@ static void rtw8723bs_set_ack_preamble(struct rtw_dev *rtwdev,
 
 	rtw_write8(rtwdev, REG_RRSR + 2, after);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s ack_preamble short=%d RRSR2 0x%02x->0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s ack_preamble short=%d RRSR2 0x%02x->0x%02x\n",
 		 where, short_preamble, before, rtw_read8(rtwdev, REG_RRSR + 2));
 }
 
@@ -203,8 +203,8 @@ static void rtw8723bs_set_slot_time(struct rtw_dev *rtwdev,
 
 	rtw_write8(rtwdev, REG_SLOT, slot_time);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s slot_time short=%d SLOT 0x%02x->0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s slot_time short=%d SLOT 0x%02x->0x%02x\n",
 		 where, short_slot, before, rtw_read8(rtwdev, REG_SLOT));
 }
 
@@ -277,8 +277,8 @@ static void rtw8723bs_reset_response_rates(struct rtw_dev *rtwdev,
 	 */
 	rtw_write32(rtwdev, REG_RRSR, 0xffff1);
 	rtwdev->dm_info.rrsr_val_init = 0xffff1;
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s reset_rrsr RRSR 0x%08x->0x%08x init=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s reset_rrsr RRSR 0x%08x->0x%08x init=0x%08x\n",
 		 where, before, rtw_read32(rtwdev, REG_RRSR),
 		 rtwdev->dm_info.rrsr_val_init);
 }
@@ -329,8 +329,8 @@ static void rtw8723bs_apply_basic_rates(struct rtw_dev *rtwdev,
 	}
 
 	if (!valid) {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: %s basic_rate skip source=%s valid=0 RRSR=0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: %s basic_rate skip source=%s valid=0 RRSR=0x%08x\n",
 			 where, source, rtw_read32(rtwdev, REG_RRSR));
 		goto out;
 	}
@@ -346,8 +346,8 @@ static void rtw8723bs_apply_basic_rates(struct rtw_dev *rtwdev,
 	rtwdev->dm_info.rrsr_val_init = basic_rates;
 	after = rtw_read32(rtwdev, REG_RRSR);
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s basic_rate source=%s valid=1 basic=0x%04x masked=0x%04x RRSR 0x%08x->0x%08x init=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s basic_rate source=%s valid=1 basic=0x%04x masked=0x%04x RRSR 0x%08x->0x%08x init=0x%08x\n",
 		 where, source, before_basic, basic_rates, before, after,
 		 rtwdev->dm_info.rrsr_val_init);
 
@@ -413,8 +413,8 @@ static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 		short_slot = conf->use_short_slot;
 	}
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: %s bss_cap source=%s valid=%d cap=0x%04x conf_short_preamble=%d conf_short_slot=%d\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: %s bss_cap source=%s valid=%d cap=0x%04x conf_short_preamble=%d conf_short_slot=%d\n",
 		 where, source, have_cap, cap, conf->use_short_preamble,
 		 conf->use_short_slot);
 
@@ -425,8 +425,8 @@ static void rtw8723bs_apply_bss_cap(struct rtw_dev *rtwdev,
 	if (set_preamble)
 		rtw8723bs_set_ack_preamble(rtwdev, where, short_preamble);
 	else
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: %s ack_preamble deferred short=%d RRSR2=0x%02x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: %s ack_preamble deferred short=%d RRSR2=0x%02x\n",
 			 where, short_preamble,
 			 rtw_read8(rtwdev, REG_RRSR + 2));
 	rtw8723bs_set_slot_time(rtwdev, where, short_slot);
@@ -567,8 +567,8 @@ void rtw8723bs_auth_sync_rx(struct rtw_dev *rtwdev,
 	if (!matched)
 		return;
 
-	rtw_info(rtwdev,
-		 "MGMT_RX_DEBUG: auth_sync_target stype=%s len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM count=%u rate=%u crc=%d icv=%d freq=%u signal=%d flags=0x%x drv_info=%u shift=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_RX, "MGMT_RX_DEBUG: auth_sync_target stype=%s len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM count=%u rate=%u crc=%d icv=%d freq=%u signal=%d flags=0x%x drv_info=%u shift=%u\n",
 		 stype, len, le16_to_cpu(fc), le16_to_cpu(hdr->seq_ctrl),
 		 hdr->addr1, hdr->addr2, hdr->addr3, seen_count, pkt_stat->rate,
 		 pkt_stat->crc_err, pkt_stat->icv_err, rx_status->freq,
@@ -595,8 +595,8 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 	u16 retry_limit;
 
 	if (!is_valid_ether_addr(bssid)) {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare skip invalid_bssid=%pM\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare skip invalid_bssid=%pM\n",
 			 bssid);
 		return false;
 	}
@@ -693,8 +693,8 @@ static bool rtw8723bs_mgd_prepare_join(struct rtw_dev *rtwdev,
 
 	rtw8723bs_config_sec_cfg(rtwdev, "join_prepare");
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RRSR 0x%08x->0x%08x init=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare bssid=%pM fresh=%d net_type %u->%u MSR 0x%02x->0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RRSR 0x%08x->0x%08x init=0x%08x RXFLTMAP2 0x%04x->0x%04x RETRY 0x%04x->0x%04x SEC 0x%04x->0x%04x\n",
 		 bssid, fresh_join, old_net_type, rtwvif->net_type,
 		 msr_before, rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
@@ -731,8 +731,8 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 		sta_addr = control->sta->addr;
 
 	stype = rtw_ops_tx_mgmt_stype_name(fc);
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: ops_tx stype=%s dropped=%d running=%d scanning=%d idle=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM sta=%pM\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: ops_tx stype=%s dropped=%d running=%d scanning=%d idle=%d len=%u fc=0x%04x seq_ctrl=0x%04x addr1=%pM addr2=%pM addr3=%pM sta=%pM\n",
 		 stype, dropped, test_bit(RTW_FLAG_RUNNING, rtwdev->flags),
 		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags),
 		 !!(rtwdev->hw->conf.flags & IEEE80211_CONF_IDLE), skb->len,
@@ -749,8 +749,8 @@ static void rtw_trace_ops_tx_mgmt(struct rtw_dev *rtwdev,
 
 		for (i = 0; i < dump_len; i++)
 			sprintf(hex + i * 3, "%02x ", skb->data[i]);
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: tx_data stype=%s (%d/%u bytes): %s\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: tx_data stype=%s (%d/%u bytes): %s\n",
 			 stype, dump_len, skb->len, hex);
 	}
 }
@@ -786,8 +786,8 @@ static void rtw8723bs_tx_pre_auth_deauth(struct rtw_dev *rtwdev,
 	memset(info, 0, sizeof(*info));
 	info->control.vif = vif;
 
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM wait_ms=100\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: pre_auth_deauth bssid=%pM wait_ms=100\n",
 		 bssid);
 	rtw_tx(rtwdev, &control, skb);
 	msleep(100);
@@ -837,8 +837,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		bssid = vif->bss_conf.bssid;
 
 	if (!bssid) {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: mgd_prepare_auth_join skip invalid_bssid subtype=0x%04x ap_addr=%pM conf_bssid=%pM\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: mgd_prepare_auth_join skip invalid_bssid subtype=0x%04x ap_addr=%pM conf_bssid=%pM\n",
 			 info->subtype,
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 0, 0)
 			 vif->cfg.ap_addr,
@@ -856,8 +856,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		unsigned int wait_ms = rtw8723bs_auth_sync_wait_ms(vif);
 		bool beacon_seen;
 
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare sync bssid=%pM fresh=%d join_done=%d\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare sync bssid=%pM fresh=%d join_done=%d\n",
 			 bssid, fresh_join, rtwvif->pre_auth_join_done);
 		rtw8723bs_auth_sync_start(rtwdev, bssid);
 		rtw8723bs_tx_pre_auth_deauth(rtwdev, vif, bssid);
@@ -865,18 +865,18 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		/* Wait for a beacon from the target BSSID before auth,
 		 * matching staging/vendor start_clnt_join() behavior.
 		 */
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare wait_for_beacon_sync bssid=%pM wait_ms=%u beacon_int=%u\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare wait_for_beacon_sync bssid=%pM wait_ms=%u beacon_int=%u\n",
 			 bssid, wait_ms, vif->bss_conf.beacon_int);
 		beacon_seen = rtw8723bs_auth_sync_wait(rtwdev, wait_ms);
 		rtw8723bs_auth_sync_stop(rtwdev);
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare beacon_sync_done bssid=%pM seen=%d wait_ms=%u\n",
 			 bssid, beacon_seen, wait_ms);
 		rtwvif->pre_auth_join_done = true;
 	} else {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join fresh=%d join_done=%d\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: join_prepare retry bssid=%pM reuse_join fresh=%d join_done=%d\n",
 			 bssid, fresh_join, rtwvif->pre_auth_join_done);
 	}
 
@@ -884,8 +884,8 @@ static void rtw8723bs_mgd_prepare_auth_join(struct rtw_dev *rtwdev,
 		rtw_coex_8723bs_pre_auth_h2c(rtwdev);
 		rtwvif->pre_auth_h2c_sent = true;
 	} else {
-		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c skip bssid=%pM already_sent=1\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c skip bssid=%pM already_sent=1\n",
 			 bssid);
 	}
 
@@ -1191,8 +1191,8 @@ static void rtw_ops_configure_filter(struct ieee80211_hw *hw,
 	rtw_dbg(rtwdev, RTW_DBG_RX,
 		"config rx filter, changed=0x%08x, new=0x%08x, rcr=0x%08x\n",
 		changed_flags, *new_flags, rtwdev->hal.rcr);
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: configure_filter scanning=%d changed=0x%08x new=0x%08x RCR 0x%08x->0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: configure_filter scanning=%d changed=0x%08x new=0x%08x RCR 0x%08x->0x%08x\n",
 		 test_bit(RTW_FLAG_SCANNING, rtwdev->flags), changed_flags,
 		 *new_flags, rcr_before, rtwdev->hal.rcr);
 
@@ -1299,8 +1299,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			rtw_fw_macid_cfg(rtwdev, rtwvif->mac_id,
 					 1, 0, 1, 0x0ff015);
 			if (!rtwvif->fw_media_connected) {
-				rtw_info(rtwdev,
-					 "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
+				rtw_dbg(rtwdev,
+					 RTW_DBG_TX, "MGMT_TX_DEBUG: assoc media_status connect macid=%u bssid=%pM\n",
 					 rtwvif->mac_id,
 					 rtwvif->bssid);
 				rtw_fw_media_status_report(rtwdev,
@@ -1308,8 +1308,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 							   true);
 				rtwvif->fw_media_connected = true;
 			} else {
-				rtw_info(rtwdev,
-					 "MGMT_TX_DEBUG: assoc media_status already connected macid=%u bssid=%pM\n",
+				rtw_dbg(rtwdev,
+					 RTW_DBG_TX, "MGMT_TX_DEBUG: assoc media_status already connected macid=%u bssid=%pM\n",
 					 rtwvif->mac_id,
 					 rtwvif->bssid);
 			}
@@ -1356,8 +1356,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 							       "disassoc");
 				rtwvif->pre_auth_h2c_sent = false;
 				rtwvif->pre_auth_join_done = false;
-				rtw_info(rtwdev,
-					 "COEX_AUTH_DEBUG: 8723bs pre_auth_state reset reason=disassoc bssid=%pM\n",
+				rtw_dbg(rtwdev,
+					 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs pre_auth_state reset reason=disassoc bssid=%pM\n",
 					 conf->bssid);
 			}
 
@@ -1377,8 +1377,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 		    vif->type == NL80211_IFTYPE_STATION && bssid_changed) {
 			rtwvif->pre_auth_h2c_sent = false;
 			rtwvif->pre_auth_join_done = false;
-			rtw_info(rtwdev,
-				 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d join_done=0\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c reset bssid=%pM cleared=%d join_done=0\n",
 				 conf->bssid, bssid_cleared);
 		}
 		ether_addr_copy(rtwvif->bssid, conf->bssid);
@@ -1394,8 +1394,8 @@ static void rtw_ops_bss_info_changed(struct ieee80211_hw *hw,
 			config |= PORT_SET_NET_TYPE | PORT_SET_AID;
 			rtw_write8(rtwdev, REG_BCN_CTRL,
 				   BIT_DIS_TSF_UDT | BIT_EN_BCN_FUNCTION);
-			rtw_info(rtwdev,
-				 "MGMT_TX_DEBUG: bssid_clear net_type %u->%u BCN_CTRL 0x%02x->0x%02x\n",
+			rtw_dbg(rtwdev,
+				 RTW_DBG_TX, "MGMT_TX_DEBUG: bssid_clear net_type %u->%u BCN_CTRL 0x%02x->0x%02x\n",
 				 old_net_type, rtwvif->net_type, bcn_ctrl_before,
 				 rtw_read8(rtwdev, REG_BCN_CTRL));
 		}
@@ -1755,8 +1755,8 @@ static void rtw_ops_mgd_prepare_tx(struct ieee80211_hw *hw,
 		rtw_err(rtwdev, "failed to leave idle state for mgd tx\n");
 		goto out;
 	}
-	rtw_info(rtwdev,
-		 "MGMT_TX_DEBUG: mgd_prepare_tx idle=%d poweron=%d running=%d\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "MGMT_TX_DEBUG: mgd_prepare_tx idle=%d poweron=%d running=%d\n",
 		 !!(hw->conf.flags & IEEE80211_CONF_IDLE),
 		 test_bit(RTW_FLAG_POWERON, rtwdev->flags),
 		 test_bit(RTW_FLAG_RUNNING, rtwdev->flags));

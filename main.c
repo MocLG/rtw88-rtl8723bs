@@ -97,8 +97,8 @@ static void rtw_scan_set_8723bs_igi(struct rtw_dev *rtwdev)
 	rtw_write32_mask(rtwdev, REG_RXIGI_A, MASKBYTE0,
 			 RTW8723BS_SCAN_IGI);
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs scan IGI 0x%08x->0x%08x target=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: 8723bs scan IGI 0x%08x->0x%08x target=0x%02x\n",
 		 before, rtw_read32(rtwdev, REG_RXIGI_A),
 		 RTW8723BS_SCAN_IGI);
 }
@@ -114,8 +114,8 @@ static void rtw_scan_skip_8723bs_rfk(struct rtw_dev *rtwdev)
 	 * which reapplies the target channel/PTA state without running fresh
 	 * RFK before authentication.
 	 */
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: 8723bs skip pending RFK before scan need_rfk=%d RXIGI_A=0x%08x RXPSEL=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: 8723bs skip pending RFK before scan need_rfk=%d RXIGI_A=0x%08x RXPSEL=0x%08x\n",
 		 rtwdev->need_rfk, rtw_read32(rtwdev, REG_RXIGI_A),
 		 rtw_read32(rtwdev, REG_RXPSEL));
 }
@@ -152,8 +152,8 @@ static void rtw_scan_clear_sdio_hisr_errs(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_write32(rtwdev, REG_SDIO_HISR, clear);
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: %s clear_sdio_hisr_errs clear=0x%08x HISR 0x%08x->0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_RX0_REQ_LEN=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: %s clear_sdio_hisr_errs clear=0x%08x HISR 0x%08x->0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_RX0_REQ_LEN=%u\n",
 		 tag, clear, hisr, rtw_read32(rtwdev, REG_SDIO_HISR),
 		 rtw_read32(rtwdev, REG_RXDMA_STATUS),
 		 rtw_read32(rtwdev, REG_RXPKT_NUM),
@@ -167,14 +167,18 @@ static void rtw_scan_dump_regs(struct rtw_dev *rtwdev, const char *tag)
 	u32 sdio_hisr = 0;
 	u32 sdio_rx_len = 0;
 
+	/* reads ~17 registers per scan channel step to build the trace */
+	if (!rtw_dbg_is_enabled(rtwdev, RTW_DBG_HW_SCAN))
+		return;
+
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO) {
 		sdio_himr = rtw_read32(rtwdev, REG_SDIO_HIMR);
 		sdio_hisr = rtw_read32(rtwdev, REG_SDIO_HISR);
 		sdio_rx_len = rtw_scan_read_sdio_rx_len(rtwdev);
 	}
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: %s ch=%u bw=%u band=%u CR=0x%08x RCR=0x%08x hal_rcr=0x%08x RXFLTMAP=0x%04x/0x%04x/0x%04x RXDMA_MODE=0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_HIMR=0x%08x SDIO_HISR=0x%08x SDIO_RX0_REQ_LEN=%u\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: %s ch=%u bw=%u band=%u CR=0x%08x RCR=0x%08x hal_rcr=0x%08x RXFLTMAP=0x%04x/0x%04x/0x%04x RXDMA_MODE=0x%08x RXDMA_STATUS=0x%08x RXPKT_NUM=0x%08x SDIO_HIMR=0x%08x SDIO_HISR=0x%08x SDIO_RX0_REQ_LEN=%u\n",
 		 tag, hal->current_channel, hal->current_band_width,
 		 hal->current_band_type, rtw_read32(rtwdev, REG_CR),
 		 rtw_read32(rtwdev, REG_RCR), hal->rcr,
@@ -186,8 +190,8 @@ static void rtw_scan_dump_regs(struct rtw_dev *rtwdev, const char *tag)
 		 rtw_read32(rtwdev, REG_RXPKT_NUM), sdio_himr, sdio_hisr,
 		 sdio_rx_len);
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: %s PHY CRC_CCK=0x%08x CCA_OFDM=0x%08x CRC_HT=0x%08x CRC_OFDM=0x%08x FA_OFDM=0x%08x CCA_CCK=0x%08x EDCCA=0x%08x RXIGI_A=0x%08x RXPSEL=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: %s PHY CRC_CCK=0x%08x CCA_OFDM=0x%08x CRC_HT=0x%08x CRC_OFDM=0x%08x FA_OFDM=0x%08x CCA_CCK=0x%08x EDCCA=0x%08x RXIGI_A=0x%08x RXPSEL=0x%08x\n",
 		 tag, rtw_read32(rtwdev, REG_CRC_CCK),
 		 rtw_read32(rtwdev, REG_CCA_OFDM),
 		 rtw_read32(rtwdev, REG_CRC_HT),
@@ -565,8 +569,8 @@ int rtw_sta_add(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 	rtw_update_sta_info(rtwdev, si, true);
 	if (rtw8723bs_defer_sta_media_status(rtwdev, sta, vif)) {
 		rtwvif->fw_media_connected = false;
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: defer media_status connect macid=%u sta=%pM until assoc\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: defer media_status connect macid=%u sta=%pM until assoc\n",
 			 si->mac_id, sta->addr);
 	} else {
 		rtw_fw_media_status_report(rtwdev, si->mac_id, true);
@@ -597,8 +601,8 @@ void rtw_sta_remove(struct rtw_dev *rtwdev, struct ieee80211_sta *sta,
 	if (fw_exist &&
 	    rtw8723bs_station_media_status(rtwdev, sta, vif) &&
 	    !rtwvif->fw_media_connected) {
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: skip media_status disconnect macid=%u sta=%pM not_connected\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: skip media_status disconnect macid=%u sta=%pM not_connected\n",
 			 si->mac_id, sta->addr);
 	} else if (fw_exist) {
 		rtw_fw_media_status_report(rtwdev, si->mac_id, false);
@@ -1170,8 +1174,8 @@ static void rtw8723bs_reapply_pg_txagc(struct rtw_dev *rtwdev, u8 channel)
 	rtwdev->chip->ops->set_tx_power_index(rtwdev);
 	mutex_unlock(&hal->tx_power_mutex);
 
-	rtw_info(rtwdev,
-		 "TXAGC_DEBUG: 8723bs reapply_pg ch=%u scan=%d pwr_idx_1m=0x%02x pwr_idx_6m=0x%02x pwr_idx_54m=0x%02x txagc_1m=0x%02x txagc_6m=0x%02x txagc_54m=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_PHY, "TXAGC_DEBUG: 8723bs reapply_pg ch=%u scan=%d pwr_idx_1m=0x%02x pwr_idx_6m=0x%02x pwr_idx_54m=0x%02x txagc_1m=0x%02x txagc_6m=0x%02x txagc_54m=0x%02x\n",
 		 channel, !!test_bit(RTW_FLAG_SCANNING, rtwdev->flags),
 		 (u8)hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE1M],
 		 (u8)hal->tx_pwr_tbl[RF_PATH_A][DESC_RATE6M],
@@ -1223,8 +1227,8 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 	pta_path = ant_aux ? 0x80 : 0x200;
 
 	if (rtwdev->initial_rfk_done) {
-		rtw_info(rtwdev,
-			 "RFK_DEBUG: 8723bs SDIO skip IPS-leave IQK (already done) RF01=0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_RFK, "RFK_DEBUG: 8723bs SDIO skip IPS-leave IQK (already done) RF01=0x%08x\n",
 			 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK));
 
 		/* Skip the full IQK cycle.  Switch to the PTA antenna path
@@ -1245,8 +1249,8 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 
 	rtw_write32(rtwdev, RTW8723BS_REG_BB_SEL_BTG, pta_path);
 
-	rtw_info(rtwdev,
-		 "RFK_DEBUG: 8723bs SDIO power_on_rfk begin BB_SEL_BTG=0x%08x saved=0x%08x RXIGI_A=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_RFK, "RFK_DEBUG: 8723bs SDIO power_on_rfk begin BB_SEL_BTG=0x%08x saved=0x%08x RXIGI_A=0x%08x\n",
 		 rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG), saved_path,
 		 rtw_read32(rtwdev, REG_RXIGI_A));
 
@@ -1257,8 +1261,8 @@ static void rtw_power_on_8723bs_sdio_rfk(struct rtw_dev *rtwdev)
 
 	rtwdev->initial_rfk_done = true;
 
-	rtw_info(rtwdev,
-		 "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_RFK, "RFK_DEBUG: 8723bs SDIO power_on_rfk done need_rfk=%d BB_SEL_BTG=0x%08x RXIGI_A=0x%08x\n",
 		 rtwdev->need_rfk, rtw_read32(rtwdev, RTW8723BS_REG_BB_SEL_BTG),
 		 rtw_read32(rtwdev, REG_RXIGI_A));
 }
@@ -2100,8 +2104,8 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	/* Drop data frames during scan, matching the vendor site-survey path. */
 	rtw_write16(rtwdev, REG_RXFLTMAP2, 0);
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: core_start hw_scan=%d mac=%pM net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: core_start hw_scan=%d mac=%pM net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
 		 hw_scan, mac_addr, net_type_before, rtwvif->net_type,
 		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,
@@ -2126,8 +2130,8 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 
 	if (!rtwvif) {
-		rtw_info(rtwdev,
-			 "SCAN_DEBUG: core_complete hw_scan=%d without vif RCR=0x%08x RXFLTMAP2=0x%04x backup_valid=%d survey_backup_valid=%d\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_HW_SCAN, "SCAN_DEBUG: core_complete hw_scan=%d without vif RCR=0x%08x RXFLTMAP2=0x%04x backup_valid=%d survey_backup_valid=%d\n",
 			 hw_scan, rtw_read32(rtwdev, REG_RCR),
 			 rtw_read16(rtwdev, REG_RXFLTMAP2),
 			 rtwdev->scan_info.rcr_backup_valid,
@@ -2169,8 +2173,8 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	config |= PORT_SET_MAC_ADDR;
 	rtw_vif_port_config(rtwdev, rtwvif, config);
 
-	rtw_info(rtwdev,
-		 "SCAN_DEBUG: core_complete hw_scan=%d net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_HW_SCAN, "SCAN_DEBUG: core_complete hw_scan=%d net_type %u->%u MSR=0x%02x BCN_CTRL 0x%02x->0x%02x RCR 0x%08x->0x%08x hal=0x%08x RXFLTMAP2 0x%04x->0x%04x\n",
 		 hw_scan, net_type_before, rtwvif->net_type,
 		 rtw_read8(rtwdev, REG_CR + 2), bcn_ctrl_before,
 		 rtw_read8(rtwdev, REG_BCN_CTRL), rcr_before,

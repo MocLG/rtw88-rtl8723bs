@@ -680,8 +680,8 @@ static void rtw_phy_rrsr_update(struct rtw_dev *rtwdev)
 	if (before != rrsr &&
 	    rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		rtw_info(rtwdev,
-			 "MGMT_TX_DEBUG: rrsr_watchdog init=0x%08x mask_min=0x%08x RRSR 0x%08x->0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_TX, "MGMT_TX_DEBUG: rrsr_watchdog init=0x%08x mask_min=0x%08x RRSR 0x%08x->0x%08x\n",
 			 dm_info->rrsr_val_init, dm_info->rrsr_mask_min,
 			 before, rrsr);
 

@@ -358,7 +358,7 @@ void rtw_fw_c2h_cmd_handle(struct rtw_dev *rtwdev, struct sk_buff *skb)
 			 len > 0 ? c2h->payload[0] : 0);
 		break;
 	default:
-		rtw_info(rtwdev, "C2H_DEBUG: unhandled C2H id=0x%02x seq=0x%02x len=%d\n",
+		rtw_dbg(rtwdev, RTW_DBG_FW, "C2H_DEBUG: unhandled C2H id=0x%02x seq=0x%02x len=%d\n",
 			 c2h->id, c2h->seq, len);
 		break;
 	}
@@ -382,8 +382,8 @@ void rtw_fw_c2h_cmd_rx_irqsafe(struct rtw_dev *rtwdev, u32 pkt_offset,
 
 	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
 	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
-		rtw_info(rtwdev,
-			 "C2H_PKT_DEBUG: 8723b id=0x%02x seq=0x%02x len=%u payload=%*ph\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_FW, "C2H_PKT_DEBUG: 8723b id=0x%02x seq=0x%02x len=%u payload=%*ph\n",
 			 c2h->id, c2h->seq, len, min_t(int, len, 8),
 			 c2h->payload);
 
@@ -488,8 +488,8 @@ static void rtw_fw_send_h2c_command(struct rtw_dev *rtwdev,
 {
 	u8 cmd_id = h2c[0] & 0xff;
 
-	rtw_info(rtwdev,
-		 "H2C_DEBUG: send_h2c id=0x%02x raw=%02x %02x %02x %02x %02x %02x %02x %02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_FW, "H2C_DEBUG: send_h2c id=0x%02x raw=%02x %02x %02x %02x %02x %02x %02x %02x\n",
 		 cmd_id, h2c[0], h2c[1], h2c[2], h2c[3],
 		 h2c[4], h2c[5], h2c[6], h2c[7]);
 
@@ -1658,7 +1658,7 @@ static void rtw_add_rsvd_page_probe_req(struct rtw_dev *rtwdev,
 {
 	struct rtw_rsvd_page *rsvd_pkt;
 
-	pr_info("SCAN_DEBUG: Adding probe_req for SSID len=%d\n",
+	rtw_dbg(rtwdev, RTW_DBG_HW_SCAN, "SCAN_DEBUG: Adding probe_req for SSID len=%d\n",
 		ssid ? ssid->ssid_len : 0);
 
 	rsvd_pkt = rtw_alloc_rsvd_page(rtwdev, RSVD_PROBE_REQ, true);
@@ -2439,7 +2439,7 @@ static int _rtw_hw_scan_update_probe_req(struct rtw_dev *rtwdev, u8 num_probes,
 		goto out;
 	}
 
-	pr_info("SCAN_DEBUG: Probe request downloaded to firmware, size=%d\n", buf_offset);
+	rtw_dbg(rtwdev, RTW_DBG_HW_SCAN, "SCAN_DEBUG: Probe request downloaded to firmware, size=%d\n", buf_offset);
 
 	rtwdev->scan_info.probe_pg_size = page_offset;
 out:
@@ -2604,7 +2604,7 @@ void rtw_hw_scan_start(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	struct cfg80211_scan_request *req = &scan_req->req;
 	u8 mac_addr[ETH_ALEN];
 
-	pr_info("SCAN_DEBUG: rtw_hw_scan_start begin, req->n_channels=%d, req->n_ssids=%d\n",
+	rtw_dbg(rtwdev, RTW_DBG_HW_SCAN, "SCAN_DEBUG: rtw_hw_scan_start begin, req->n_channels=%d, req->n_ssids=%d\n",
 		req->n_channels, req->n_ssids);
 
 	rtwdev->scan_info.scanning_vif = vif;
@@ -2623,7 +2623,7 @@ void rtw_hw_scan_start(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 
 	rtw_core_scan_start(rtwdev, rtwvif, mac_addr, true);
 
-	pr_info("SCAN_DEBUG: RXFLTMAP2=0x%04x, RCR=0x%08x after scan start\n",
+	rtw_dbg(rtwdev, RTW_DBG_HW_SCAN, "SCAN_DEBUG: RXFLTMAP2=0x%04x, RCR=0x%08x after scan start\n",
 		rtw_read16(rtwdev, REG_RXFLTMAP2), rtw_read32(rtwdev, REG_RCR));
 }
 
@@ -2641,7 +2641,7 @@ void rtw_hw_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	if (!vif)
 		return;
 
-	pr_info("SCAN_DEBUG: scan_complete, aborted=%d, chan=%d\n", aborted, chan);
+	rtw_dbg(rtwdev, RTW_DBG_HW_SCAN, "SCAN_DEBUG: scan_complete, aborted=%d, chan=%d\n", aborted, chan);
 
 	rtw_core_scan_complete(rtwdev, vif, true);
 

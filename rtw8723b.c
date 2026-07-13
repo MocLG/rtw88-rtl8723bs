@@ -1982,8 +1982,8 @@ static void rtw8723b_sdio_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_write32(rtwdev, REG_PAD_CTRL1, after);
-	rtw_info(rtwdev,
-		 "PAD_DEBUG: 8723bs %s PAD1 0x%08x->0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "PAD_DEBUG: 8723bs %s PAD1 0x%08x->0x%08x\n",
 		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
 }
 
@@ -2002,11 +2002,15 @@ static u32 rtw8723b_iqk_ant_switch_path(struct rtw_dev *rtwdev)
 static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 				u8 channel, u8 bw)
 {
+	/* reads ~30 BB/RF registers per channel set to build the trace */
+	if (!rtw_dbg_is_enabled(rtwdev, RTW_DBG_PHY))
+		return;
+
 	if (!rtw8723b_sdio_needs_rx_path_fix(rtwdev))
 		return;
 
-	rtw_info(rtwdev,
-		 "CHAN_DEBUG: 8723bs %s scan=%d ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x PAD1=0x%08x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_PHY, "CHAN_DEBUG: 8723bs %s scan=%d ch=%u bw=%u SYS_FUNC_EN=0x%02x RF_CTRL=0x%02x PAD1=0x%08x FPGA0_RFMOD=0x%08x FPGA1_RFMOD=0x%08x RXPSEL=0x%08x BB_RX_PATH=0x%08x BB_SEL_BTG=0x%08x OFDM0_XAAGC1=0x%08x\n",
 		 tag, test_bit(RTW_FLAG_SCANNING, rtwdev->flags) ? 1 : 0,
 		 channel, bw, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rtw_read8(rtwdev, REG_RF_CTRL),
@@ -2018,8 +2022,8 @@ static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 		 rtw_read32(rtwdev, REG_BB_SEL_BTG),
 		 rtw_read32(rtwdev, REG_OFDM0_XAAGC1));
 
-	rtw_info(rtwdev,
-		 "CHAN_DEBUG: 8723bs %s BB 0x808=0x%08x 0x80c=0x%08x 0x820=0x%08x 0x824=0x%08x 0x828=0x%08x 0x82c=0x%08x 0x840=0x%08x 0x844=0x%08x 0x850=0x%08x 0x860=0x%08x 0x864=0x%08x 0xa00=0x%08x 0xa04=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_PHY, "CHAN_DEBUG: 8723bs %s BB 0x808=0x%08x 0x80c=0x%08x 0x820=0x%08x 0x824=0x%08x 0x828=0x%08x 0x82c=0x%08x 0x840=0x%08x 0x844=0x%08x 0x850=0x%08x 0x860=0x%08x 0x864=0x%08x 0xa00=0x%08x 0xa04=0x%08x\n",
 		 tag, rtw_read32(rtwdev, 0x808), rtw_read32(rtwdev, 0x80c),
 		 rtw_read32(rtwdev, 0x820), rtw_read32(rtwdev, 0x824),
 		 rtw_read32(rtwdev, 0x828), rtw_read32(rtwdev, 0x82c),
@@ -2028,8 +2032,8 @@ static void rtw8723b_dump_bb_rf(struct rtw_dev *rtwdev, const char *tag,
 		 rtw_read32(rtwdev, 0x864), rtw_read32(rtwdev, 0xa00),
 		 rtw_read32(rtwdev, 0xa04));
 
-	rtw_info(rtwdev,
-		 "CHAN_DEBUG: 8723bs %s RF RF00=0x%08x RF01=0x%08x RF18=0x%08x RFb0=0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_PHY, "CHAN_DEBUG: 8723bs %s RF RF00=0x%08x RF01=0x%08x RF18=0x%08x RFb0=0x%08x\n",
 		 tag, rtw_read_rf(rtwdev, RF_PATH_A, 0x00, RFREG_MASK),
 		 rtw_read_rf(rtwdev, RF_PATH_A, RF_WLINT, RFREG_MASK),
 		 rtw_read_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK),
@@ -2089,8 +2093,8 @@ static void rtw8723b_reassert_rx_path(struct rtw_dev *rtwdev, const char *tag)
 	if (!changed)
 		return;
 
-	rtw_info(rtwdev,
-		 "CHAN_DEBUG: 8723bs %s reassert_rx SYS_FUNC_EN 0x%02x->0x%02x RF_CTRL 0x%02x->0x%02x FPGA0_RFMOD 0x%08x->0x%08x BB_RX_PATH 0x%08x->0x%08x RF01 0x%08x->0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_PHY, "CHAN_DEBUG: 8723bs %s reassert_rx SYS_FUNC_EN 0x%02x->0x%02x RF_CTRL 0x%02x->0x%02x FPGA0_RFMOD 0x%08x->0x%08x BB_RX_PATH 0x%08x->0x%08x RF01 0x%08x->0x%08x\n",
 		 tag, sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rf_ctrl_before, rtw_read8(rtwdev, REG_RF_CTRL),
 		 fpga0_before, rtw_read32(rtwdev, REG_FPGA0_RFMOD),
@@ -3350,8 +3354,8 @@ static void rtw8723b_coex_write8_verify(struct rtw_dev *rtwdev, u32 addr,
 	usleep_range(10, 11);
 	rtw_write8(rtwdev, addr, value);
 
-	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s retry addr=0x%03x target=0x%02x first=0x%02x final=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_RFE_DEBUG: 8723bs %s retry addr=0x%03x target=0x%02x first=0x%02x final=0x%02x\n",
 		 tag, addr, value, readback, rtw_read8(rtwdev, addr));
 }
 
@@ -3359,8 +3363,8 @@ static void rtw8723b_coex_dump_rfe_state(struct rtw_dev *rtwdev,
 					 const char *tag, bool aux,
 					 u8 ant_h2c_type)
 {
-	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x PAD1=0x%08x 0x4c=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_RFE_DEBUG: 8723bs %s aux=%d ant_h2c=%u:%u BB_SEL_BTG=0x%08x PAD1=0x%08x 0x4c=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x 0x67=0x%02x 0x39=0x%02x 0x765=0x%02x 0x76e=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 tag, aux, aux ? 1 : 0, ant_h2c_type,
 		 rtw_read32(rtwdev, REG_BB_SEL_BTG),
 		 rtw_read32(rtwdev, REG_PAD_CTRL1),
@@ -3408,8 +3412,8 @@ static void rtw8723b_coex_cfg_ant_buffer(struct rtw_dev *rtwdev,
 	rtw_write8_mask(rtwdev, REG_BB_ANT_CFG1_8723B, 0x3, 0x3);
 	rtw_write8(rtwdev, REG_BB_ANT_CFG_8723B, 0x77);
 
-	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_RFE_DEBUG: 8723bs %s ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 tag, sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rtw_read8(rtwdev, REG_BT_COEX_CTRL_8723B),
 		 rtw_read8(rtwdev, REG_BB_ANT_CFG_8723B),
@@ -3445,8 +3449,8 @@ static u32 rtw8723b_coex_write_bb_sel_btg(struct rtw_dev *rtwdev, u32 value,
 	usleep_range(10, 11);
 	rtw_write32(rtwdev, REG_BB_SEL_BTG, value);
 
-	rtw_info(rtwdev,
-		 "COEX_RFE_DEBUG: 8723bs %s BB_SEL_BTG retry target=0x%08x first=0x%08x final=0x%08x SYS_FUNC_EN 0x%02x->0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_RFE_DEBUG: 8723bs %s BB_SEL_BTG retry target=0x%08x first=0x%08x final=0x%08x SYS_FUNC_EN 0x%02x->0x%02x\n",
 		 tag, value, readback, rtw_read32(rtwdev, REG_BB_SEL_BTG),
 		 sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN));
 

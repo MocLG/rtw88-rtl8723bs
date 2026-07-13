@@ -1485,8 +1485,8 @@ static u32 rtw_coex_8723bs_write_bb_sel_btg(struct rtw_dev *rtwdev,
 	rtw_write8_set(rtwdev, REG_SYS_FUNC_EN, BIT(0) | BIT(1));
 	rtw_write32(rtwdev, 0x948, value);
 
-	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs %s BB_SEL_BTG retry target=0x%08x first=0x%08x final=0x%08x SYS_FUNC_EN 0x%02x->0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_SCAN_DEBUG: 8723bs %s BB_SEL_BTG retry target=0x%08x first=0x%08x final=0x%08x SYS_FUNC_EN 0x%02x->0x%02x\n",
 		 tag, value, readback, rtw_read32(rtwdev, 0x948),
 		 sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN));
 
@@ -1526,8 +1526,8 @@ static void rtw_coex_8723bs_set_cck_pri(struct rtw_dev *rtwdev, bool high,
 		rtw_coex_set_wl_pri_mask(rtwdev, COEX_WLPRI_RX_CCK, false);
 	}
 
-	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs cck_pri %s high=%d COEX_H 0x%08x->0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs cck_pri %s high=%d COEX_H 0x%08x->0x%08x\n",
 		 tag, high, before, rtw_read32(rtwdev, REG_BT_COEX_TABLE_H));
 }
 
@@ -1551,8 +1551,8 @@ static void rtw_coex_8723bs_restore_pad_ctrl(struct rtw_dev *rtwdev,
 		return;
 
 	rtw_write32(rtwdev, REG_PAD_CTRL1, after);
-	rtw_info(rtwdev,
-		 "PAD_DEBUG: 8723bs coex_%s PAD1 0x%08x->0x%08x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_TX, "PAD_DEBUG: 8723bs coex_%s PAD1 0x%08x->0x%08x\n",
 		 tag, before, rtw_read32(rtwdev, REG_PAD_CTRL1));
 }
 
@@ -1568,15 +1568,15 @@ static void rtw_coex_8723bs_fw_gnt_bt_low(struct rtw_dev *rtwdev,
 	gnt_bt = rtw_read8(rtwdev, 0x765);
 	wlan_act = rtw_read8(rtwdev, 0x76e);
 	if (gnt_bt == 0x00 && wlan_act == 0x0c) {
-		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c skip already_low GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c skip already_low GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
 			 tag, gnt_bt, wlan_act);
 		return;
 	}
 
 	rtw_fw_set_gnt_bt(rtwdev, 0);
-	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c state=0 GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs %s gnt_bt_h2c state=0 GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
 		 tag, rtw_read8(rtwdev, 0x765), rtw_read8(rtwdev, 0x76e));
 }
 
@@ -1606,8 +1606,8 @@ static void rtw_coex_8723bs_force_assoc_pta_ant(struct rtw_dev *rtwdev)
 
 	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "assoc_pta", true);
 
-	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs assoc PTA ant aux=%d bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_coex_8723bs_ant_is_aux(rtwdev), coex_stat->bt_disabled,
 		 efuse->bt_setting, efuse->share_ant, efuse->rfe_option,
 		 ant_target, ant_path, rtw_read32(rtwdev, REG_PAD_CTRL1),
@@ -1633,8 +1633,8 @@ static void rtw_coex_8723bs_reassert_ant_buffer(struct rtw_dev *rtwdev)
 	rtw_write8_mask(rtwdev, REG_8723BS_BB_ANT_CFG1, 0x3, 0x3);
 	rtw_write8(rtwdev, REG_8723BS_BB_ANT_CFG, 0x77);
 
-	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_SCAN_DEBUG: 8723bs scan ant_buf SYS_FUNC_EN 0x%02x->0x%02x 0x39=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 sys_func_before, rtw_read8(rtwdev, REG_SYS_FUNC_EN),
 		 rtw_read8(rtwdev, REG_8723BS_BT_COEX_CTRL),
 		 rtw_read8(rtwdev, REG_8723BS_BB_ANT_CFG),
@@ -1689,8 +1689,8 @@ void rtw_coex_8723bs_scan_workaround(struct rtw_dev *rtwdev)
 
 	rtw_coex_8723bs_restore_pad_ctrl(rtwdev, "scan_pta", true);
 
-	rtw_info(rtwdev,
-		 "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_SCAN_DEBUG: 8723bs scan workaround pstdma=08:00:00:00:00 ant=%s ant_aux=%d table=%s bt_disabled=%d bt_setting=0x%02x share_ant=%d rfe=%u target=0x%08x BB_SEL_BTG=0x%08x PAD1=0x%08x 0x6c0=0x%08x 0x6c4=0x%08x COEX_H=0x%08x LED_CFG=0x%08x SDIO_0x60=0x%02x 0x64=0x%02x GNT_BT=0x%02x BT_CTRL=0x%02x WLAN_ACT=0x%02x 0x930=0x%02x 0x944=0x%02x 0x974=0x%02x\n",
 		 "pta", rtw_coex_8723bs_ant_is_aux(rtwdev),
 		 "2",
 		 coex_stat->bt_disabled, efuse->bt_setting, efuse->share_ant,
@@ -1729,8 +1729,8 @@ void rtw_coex_8723bs_pre_auth_h2c(struct rtw_dev *rtwdev)
 	rtw_coex_8723bs_fw_gnt_bt_low(rtwdev, "pre_auth");
 	rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 
-	rtw_info(rtwdev,
-		 "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=deferred bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x BT_CTRL=0x%02x GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
+	rtw_dbg(rtwdev,
+		 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs pre_auth_h2c bt_mp=deferred bt_info=1 tdma=08x3 BB_SEL_BTG=0x%08x PAD1=0x%08x COEX_H=0x%08x SDIO_TX_CTRL=0x%08x BT_CTRL=0x%02x GNT_BT=0x%02x WLAN_ACT=0x%02x\n",
 		 rtw_read32(rtwdev, 0x948),
 		 rtw_read32(rtwdev, REG_PAD_CTRL1),
 		 rtw_read32(rtwdev, REG_BT_COEX_TABLE_H),
@@ -3278,8 +3278,8 @@ void rtw_coex_scan_notify(struct rtw_dev *rtwdev, u8 type)
 			coex_stat->wl_hi_pri_task2 = false;
 		}
 
-		rtw_info(rtwdev,
-			 "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_COEX, "COEX_SCAN_DEBUG: 8723bs bt-disabled scan_notify type=%u keep scan_pta_state BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
 			 type, rtw_read32(rtwdev, 0x948),
 			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
@@ -3363,8 +3363,8 @@ void rtw_coex_connect_notify(struct rtw_dev *rtwdev, u8 type)
 			rtw_coex_8723bs_force_assoc_pta_ant(rtwdev);
 		}
 
-		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs bt-disabled connect_notify type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs bt-disabled connect_notify type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
 			 type, rtw_read32(rtwdev, 0x948),
 			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
@@ -3426,8 +3426,8 @@ void rtw_coex_media_status_notify(struct rtw_dev *rtwdev, u8 type)
 		return;
 
 	if (rtw_coex_8723bs_bt_disabled(rtwdev)) {
-		rtw_info(rtwdev,
-			 "COEX_AUTH_DEBUG: 8723bs bt-disabled media_status type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
+		rtw_dbg(rtwdev,
+			 RTW_DBG_COEX, "COEX_AUTH_DEBUG: 8723bs bt-disabled media_status type=%u skip run_coex BB_SEL_BTG=0x%08x PAD1=0x%08x\n",
 			 type, rtw_read32(rtwdev, 0x948),
 			 rtw_read32(rtwdev, REG_PAD_CTRL1));
 		return;
