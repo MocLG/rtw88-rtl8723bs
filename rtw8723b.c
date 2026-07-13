@@ -3674,12 +3674,11 @@ static void rtw8723b_coex_set_wl_rx_gain(struct rtw_dev *rtwdev, bool low_gain)
 static void rtw8723b_cfg_ldo25(struct rtw_dev *rtwdev, bool enable)
 {
 	/*
-	 * Intentionally empty on 8723bs.  efuse.c calls this to toggle the
-	 * 2.5V efuse LDO; the vendor instead does that inside its efuse power
-	 * switch (Hal_EfusePowerSwitch writes EFUSE_TEST+3).  We currently
-	 * omit that write in both places and efuse reads still work at the
-	 * default LDO, so no separate op is wired.  Revisit here (or in
-	 * rtw8723b_efuse_grant) if efuse reads ever look marginal.
+	 * Intentionally empty on 8723bs.  The 2.5V efuse LDO (EFUSE_TEST+3) is
+	 * only enabled by the vendor's Hal_EfusePowerSwitch when *writing* the
+	 * efuse (guarded by bWrite == TRUE).  rtw88 only ever reads the efuse,
+	 * and the vendor skips the LDO write on the read path too, so there is
+	 * nothing to do here.
 	 */
 }
 
