@@ -23,6 +23,19 @@
 #define RTW_SDIO_INDIRECT_RW_RETRIES			50
 #define RTW_SDIO_OQT_TIMEOUT_MS				1000
 
+/* Back-pressure watermarks (in frames) for the per-AC software TX FIFO.
+ * The FIFO is otherwise unbounded, and mac80211's fq_codel/AQL cannot see
+ * the backlog because rtw88 uses firmware rate control and does not report
+ * airtime, so it hands over every frame -> the FIFO bloats and the uplink
+ * suffers congestion collapse (huge latency, throughput drops as offered
+ * load rises).  Mirror the PCI ring's stop/wake back-pressure: stop the
+ * mac80211 queue at the high watermark and resume it once drained below
+ * the low one.  ieee80211_stop_queue() makes the next ieee80211_tx_dequeue()
+ * return NULL, so it also halts an in-progress drain burst.
+ */
+#define RTW_SDIO_TX_FIFO_HIWATER			32
+#define RTW_SDIO_TX_FIFO_LOWATER			16
+
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
 	return !!(addr & RTW_SDIO_BUS_MSK);
@@ -2055,6 +2068,17 @@ static int rtw_sdio_tx_write(struct rtw_dev *rtwdev,
 
 	skb_queue_tail(&rtwsdio->tx_queue[queue], skb);
 
+	/* Back-pressure on the data ACs (BK/BE/VI/VO): once the FIFO fills past
+	 * the high watermark, stop the corresponding mac80211 queue so it stops
+	 * handing us frames, bounding the queueing latency.  Resumed from the TX
+	 * drain path once the FIFO drains below the low watermark.
+	 */
+	if (queue < RTW_TX_QUEUE_BCN && !rtwsdio->queue_stopped[queue] &&
+	    skb_queue_len(&rtwsdio->tx_queue[queue]) >= RTW_SDIO_TX_FIFO_HIWATER) {
+		rtwsdio->queue_stopped[queue] = true;
+		ieee80211_stop_queue(rtwdev->hw, skb_get_queue_mapping(skb));
+	}
+
 	return 0;
 }
 
@@ -2553,6 +2577,7 @@ static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 {
 	struct rtw_sdio *rtwsdio = (struct rtw_sdio *)rtwdev->priv;
 	struct sk_buff *skb;
+	u16 q_map;
 	int ret;
 
 	*processed = false;
@@ -2562,6 +2587,7 @@ static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 		return 0;
 
 	*processed = true;
+	q_map = skb_get_queue_mapping(skb);
 
 	ret = rtw_sdio_write_port(rtwdev, skb, queue);
 	if (ret) {
@@ -2570,6 +2596,15 @@ static int rtw_sdio_process_tx_queue(struct rtw_dev *rtwdev,
 	}
 
 	rtw_sdio_indicate_tx_status(rtwdev, skb);
+
+	/* Resume a queue stopped for back-pressure once the FIFO has drained
+	 * below the low watermark (mirrors the PCI TX-reclaim wake path).
+	 */
+	if (queue < RTW_TX_QUEUE_BCN && rtwsdio->queue_stopped[queue] &&
+	    skb_queue_len(&rtwsdio->tx_queue[queue]) <= RTW_SDIO_TX_FIFO_LOWATER) {
+		rtwsdio->queue_stopped[queue] = false;
+		ieee80211_wake_queue(rtwdev->hw, q_map);
+	}
 
 	return 0;
 }
@@ -2625,8 +2660,10 @@ static int rtw_sdio_init_tx(struct rtw_dev *rtwdev)
 		return -ENOMEM;
 	}
 
-	for (i = 0; i < RTK_MAX_TX_QUEUE_NUM; i++)
+	for (i = 0; i < RTK_MAX_TX_QUEUE_NUM; i++) {
 		skb_queue_head_init(&rtwsdio->tx_queue[i]);
+		rtwsdio->queue_stopped[i] = false;
+	}
 	rtwsdio->tx_handler_data = kmalloc(sizeof(*rtwsdio->tx_handler_data),
 					   GFP_KERNEL);
 	if (!rtwsdio->tx_handler_data)

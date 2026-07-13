@@ -189,6 +189,9 @@ struct rtw_sdio {
 	struct rtw_sdio_work_data *tx_handler_data;
 	struct sk_buff_head tx_queue[RTK_MAX_TX_QUEUE_NUM];
 
+	/* per-queue mac80211 stop state for the software TX FIFO back-pressure */
+	bool queue_stopped[RTK_MAX_TX_QUEUE_NUM];
+
 	/* Software-managed free TX page counters for 8051-based chips.
 	 * Used as a fallback when the HW REG_SDIO_FREE_TXPG register
 	 * does not reflect the true page allocation after power cycling.
