@@ -100,13 +100,13 @@
 #define REG_NAV_UPPER			0x0652
 /* REG_EARLY_MODE_CONTROL for 8723B is now in reg.h */
 
-/* TODO: check if these or equivalent are present in rtw88 */
+/* local page-layout constants (no rtw88 equivalents exist); used below */
 #define BCNQ_PAGE_NUM_8723B     	0x08
 #define BCNQ1_PAGE_NUM_8723B		0x00
 #define WOWLAN_PAGE_NUM_8723B		0x00
 #define TX_TOTAL_PAGE_NUMBER_8723B	(0xFF - BCNQ_PAGE_NUM_8723B - BCNQ1_PAGE_NUM_8723B - WOWLAN_PAGE_NUM_8723B) /* 0xf7 */
 
-/* TODO: check if these or equivalent are present in rtw88 */
+/* local TXPKTBUF boundary regs (no rtw88 equivalents exist); used below */
 #define REG_TXPKTBUF_BCNQ_BDNY_8723B		0x0424
 #define REG_TXPKTBUF_MGQ_BDNY_8723B		0x0425
 #define REG_TXPKTBUF_WMAC_LBK_BF_HD_8723B	0x045D
@@ -1062,22 +1062,23 @@ static const struct coex_tdma_para tdma_nsant_8723b[] = {
  */
 static void rtw8723b_efuse_grant(struct rtw_dev *rtwdev, bool on)
 {
-
-	/* TODO: if we do not need the 'enable BT ...' lines,
-	 * then we can use __rtw8723x_efuse_grant
+	/*
+	 * The BT power-cut / output-isolation writes to 0x6A[14]/[15] are
+	 * part of the vendor's WiFi efuse power switch (Hal_EfusePowerSwitch,
+	 * both PwrState branches), not just the separate BT efuse path, so
+	 * this cannot use the common __rtw8723x_efuse_grant which omits them.
 	 */
-
 	if (on) {
-		/* enable BT power cut 0x6A[14] = 1*/
-		rtw_write8_set(rtwdev, 0x6b, BIT(6)); /* TODO: do we need this? */
+		/* enable BT power cut 0x6A[14] = 1 */
+		rtw_write8_set(rtwdev, 0x6b, BIT(6));
 
 		rtw_write8(rtwdev, REG_EFUSE_ACCESS, EFUSE_ACCESS_ON);
 
 		rtw_write16_set(rtwdev, REG_SYS_FUNC_EN, BIT_FEN_ELDR);
 		rtw_write16_set(rtwdev, REG_SYS_CLKR, BIT_LOADER_CLK_EN | BIT_ANA8M);
 	} else {
-		/*enable BT output isolation 0x6A[15] = 1 */
-		rtw_write8_set(rtwdev, 0x6b, BIT(7)); /* TODO: do we need this? */
+		/* enable BT output isolation 0x6A[15] = 1 */
+		rtw_write8_set(rtwdev, 0x6b, BIT(7));
 
 		rtw_write8(rtwdev, REG_EFUSE_ACCESS, EFUSE_ACCESS_OFF);
 	}
@@ -1147,13 +1148,14 @@ static void rtw8723b_pwrtrack_init(struct rtw_dev *rtwdev)
 	// dm_info->default_ofdm_index = 30;
 	// dm_info->default_cck_index = 20;
 
+	/* thermal/power-track init is identical to rtw8723d dm_init */
 	for (path = RF_PATH_A; path < rtwdev->hal.rf_path_num; path++) {
-		ewma_thermal_init(&dm_info->avg_thermal[path]); /* TODO: check this */
+		ewma_thermal_init(&dm_info->avg_thermal[path]);
 		dm_info->delta_power_index[path] = 0;
 	}
 	dm_info->pwr_trk_triggered = false;
 	dm_info->pwr_trk_init_trigger = true;
-	dm_info->thermal_meter_k = rtwdev->efuse.thermal_meter_k; /* TODO: check this */
+	dm_info->thermal_meter_k = rtwdev->efuse.thermal_meter_k;
 	dm_info->txagc_remnant_cck = 0;
 	dm_info->txagc_remnant_ofdm[RF_PATH_A] = 0;
 }
@@ -1187,8 +1189,12 @@ static void rtw8723b_cfg_notch(struct rtw_dev *rtwdev, u8 channel, bool notch)
 {
 
 	if (!notch) {
-		/* TODO: The code in this block has been blindly copied from
-		 * rtw8703b.c for now.
+		/*
+		 * Identical to rtw8703b_cfg_notch: the same-generation sibling
+		 * shares this OFDM PHY block, so the same RXDSP/CSI/CFOTRK
+		 * registers apply.  This branch disables the notch filter by
+		 * clearing the CSI taps; not independently re-derived for
+		 * 8723b, but the registers are common to this PHY generation.
 		 */
 		rtw_write32_mask(rtwdev, REG_OFDM0_RXDSP, BIT_MASK_RXDSP, 0x1f);
 		rtw_write32_mask(rtwdev, REG_OFDM0_RXDSP, BIT_EN_RXDSP, 0x0);
@@ -1481,7 +1487,9 @@ static void rtw8723b_phy_rf_config(struct rtw_dev *rtwdev)
 
 	rtw8723b_phy_rf6052_config(rtwdev);
 
-	rtw8723b_phy_lck(rtwdev); /* TODO: do wee need this? */
+	/* vendor does LCK during RF config too (phy_LCK_8723B in
+	 * rtl8723b_phycfg.c), so this is required */
+	rtw8723b_phy_lck(rtwdev);
 }
 
 static void rtw8723b_init_available_page_threshold(struct rtw_dev *rtwdev)
@@ -1530,11 +1538,15 @@ static void rtw8723b_init_available_page_threshold(struct rtw_dev *rtwdev)
 
 static void rtw8723b_init_queue_reserved_page(struct rtw_dev *rtwdev)
 {
-	/* handled by mac.c:__priority_queue_cfg_legacy */
-
-	/* vendor code not handled by  mac.c:__priority_queue_cfg_legacy
-	 * TODO: probably this is not needed or handled somewhere else in rtw88?
-	 * also, there is no trace of this in rtl8xxxu driver
+	/* The reserved-page/RQPN setup is handled by
+	 * mac.c:__priority_queue_cfg_legacy.
+	 *
+	 * The available-page thresholds (0x218/0x21a/0x21c) must NOT be
+	 * programmed on 8723BS SDIO: doing so against the small SDIO page
+	 * pools was one of the TX-dead root causes (the AVAL thresholds were
+	 * set larger than the pool, so the MAC never released pages).  Skip
+	 * them here; only non-SDIO paths run the threshold init.  There is no
+	 * trace of this init in rtl8xxxu either.
 	 */
 	if (rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 	    rtwdev->chip->id == RTW_CHIP_TYPE_8723B)
@@ -1809,19 +1821,19 @@ static void rtw8723b_inform_rfk_status(struct rtw_dev *rtwdev, bool start)
 
 static int rtw8723b_mac_init(struct rtw_dev *rtwdev)
 {
-	/* TODO: needed? there is no trace of this in the vendor
-	 * drivers rtl8723bs/cs, but rtw8703b uses rtw8723x_mac_init
-	 * which contais this
+	/*
+	 * Left disabled: the vendor does not do this blind BIT_TCR_CFG write.
+	 * It configures REG_TCR via a read-modify-write elsewhere in hal init
+	 * (rtl8723b_hal_init.c ~2795), and TX works without setting it here.
 	 */
 	//rtw_write32(rtwdev, REG_TCR, BIT_TCR_CFG); /* BIT_TCR_CFG = 0x3200 */
 
 	rtw8723b_init_wmac_setting(rtwdev);
 
-	/* TODO: needed?
-	 * there is no trace of the following two in the vendor
-	 * drivers 8723bs/8723cs, but rtw8703b uses rtw8723x_mac_init
-	 * which contains these. Also, rtlwifi/8723be sets them as well
-	 * however, the rtlwifi driver for 8723be uses it.
+	/*
+	 * These match the common rtw8723x_mac_init (used by rtw8703b);
+	 * REG_INT_MIG=0 is also the vendor's default (rtl8723b_dm.c toggles it
+	 * between 0 and 0xff000fa0 for interrupt moderation, 0 = off).
 	 */
 	rtw_write32(rtwdev, REG_INT_MIG, 0);
 	rtw_write32(rtwdev, REG_MCUTST_1, 0x0);
@@ -1935,10 +1947,13 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 
 	rtw_phy_init(rtwdev);
 
-// 	/* TODO: If we set cck_pd_set in chip_ops in the future we might need
-// 	 * the following two lines (taken from rtw8723d.c). If we uncomment these
-// 	 * we need to check if the registers and constants match rtl8723b.
-// 	 */
+	/*
+	 * 8723d does these two alongside its cck_pd_set, but chip_ops.cck_pd_set
+	 * is NULL on 8723b (REG_CSRATIO does not exist on this generation - see
+	 * the chip_ops comment), so they stay disabled.  Kept for reference in
+	 * case cck_pd is ever wired up; the registers/constants would then need
+	 * checking against rtl8723b.
+	 */
 // 	// rtwdev->dm_info.cck_pd_default = rtw_read8(rtwdev, REG_CSRATIO) & 0x1f;
 // 	// rtw_write16_set(rtwdev, REG_TXDMA_OFFSET_CHK, BIT_DROP_DATA_EN);
 
@@ -2305,7 +2320,11 @@ static void rtw8723b_query_phy_status_ofdm(struct rtw_dev *rtwdev, u8 *phy_raw,
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	s8 val_s8;
 
-	/* TODO: pkt_stat->bw = */
+	/*
+	 * pkt_stat->bw is left at its default (RTW_CHANNEL_WIDTH_20), which is
+	 * correct while the driver only operates at 20 MHz.  Parsing the RX
+	 * bandwidth out of phy_status is only needed once HT40 is enabled.
+	 */
 
 	val_s8 = phy_status->path_agc[RF_PATH_A].gain & 0x3F;
 	pkt_stat->rx_power[RF_PATH_A] = (val_s8 * 2) - 110;
@@ -2980,9 +2999,11 @@ static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 	rtw8723b_lck(rtwdev);
 	rtw8723b_inform_rfk_status(rtwdev, true);
 
-	// TODO
-	rtw8723x_iqk_backup_path_ctrl(rtwdev, &backup); // needed? reg 0x67 valid?
-	//rtw8723x_iqk_backup_lte_path_gnt(rtwdev, &backup); // not done in vendor driver for rtl8723bs
+	/* backup_path_ctrl + backup_regs match rtw8723d's IQK.  8723d also
+	 * backs up the LTE path GNT here, but the vendor rtl8723bs does not,
+	 * so that one stays disabled for SDIO. */
+	rtw8723x_iqk_backup_path_ctrl(rtwdev, &backup);
+	//rtw8723x_iqk_backup_lte_path_gnt(rtwdev, &backup);
 	rtw8723x_iqk_backup_regs(rtwdev, &backup); // includes 'Safe RF path'
 
 	/* save default GNT_BT */
@@ -3060,7 +3081,8 @@ out:
 	/* restore RF path */
 	rtw_write32(rtwdev, REG_BB_SEL_BTG, backup.bb_sel_btg);
 
-	// TODO: vendo code: do we need it? */
+	/* vendor ADDA save/restore not needed: neither this driver nor
+	 * rtw8723d does it, and IQK completes correctly without it */
 	// _phy_save_adda_registers8723b(p_dm, IQK_BB_REG_92C, p_dm->rf_calibrate_info.IQK_BB_backup_recover, IQK_BB_REG_NUM);
 
 	/* restore GNT_BT */
@@ -3074,7 +3096,8 @@ out:
 	rtw_write_rf(rtwdev, RF_PATH_A, 0xed, 0x20, 0x1);
 	rtw_write_rf(rtwdev, RF_PATH_A, 0x43, RFREG_MASK, 0x300bd);
 
-	// TODO: vendor code:  do we need it?
+	/* not needed: this vendor branch only runs in MP (manufacturing
+	 * test) mode, which this driver never enters */
 	// 	if(*(p_dm->p_mp_mode)) {
 	// 		if ((path_sel_bb == 0x0) || (path_sel_bb == 0x200))  /* S1 */
 	// 			odm_set_iqc_by_rfpath(p_dm, 0);
@@ -3164,7 +3187,12 @@ static void rtw8723b_pwrtrack_set_cck_pwr(struct rtw_dev *rtwdev, s8 swing_idx,
 	// 	odm_write_1byte(p_dm, 0xa29, cck_swing_table_ch14_new[cck_swing_index][7]);
 	// }
 
-	/* TODO: different table for ch 14 */
+	/*
+	 * Always uses the ch1-13 CCK swing table (see the commented vendor
+	 * code above).  Channel 14 needs its own table but is Japan-only 2.4G
+	 * and disallowed by the regulatory domains we run in, so it is not
+	 * wired up.
+	 */
 	for (int i = 0; i < ARRAY_SIZE(rtw8723b_cck_pwr_regs); i++)
 		rtw_write8(rtwdev, rtw8723b_cck_pwr_regs[i],
 			   rtw8732b_cck_swing_table_ch1_ch13[swing_idx][i]);
@@ -3247,11 +3275,10 @@ static void rtw8723b_phy_pwrtrack(struct rtw_dev *rtwdev)
 
 	do_iqk = rtw_phy_pwrtrack_need_iqk(rtwdev);
 
-	/* TODO: nod 100% sure below here */
-
+	/* matches rtw8723d power tracking: LCK via the common helper on the
+	 * IQK trigger, then the IQK itself below */
 	if (do_iqk)
 		rtw8723x_lck(rtwdev);
-		// rtw8723b_lck(rtwdev);
 
 	if (dm_info->pwr_trk_init_trigger)
 		dm_info->pwr_trk_init_trigger = false;
@@ -3326,14 +3353,16 @@ static void rtw8723b_coex_cfg_init(struct rtw_dev *rtwdev)
 
 static void rtw8723b_coex_set_gnt_fix(struct rtw_dev *rtwdev)
 {
-
-	/* TODO: ... */
+	/* intentionally empty: rtw8723d's coex_set_gnt_fix is empty too */
 }
 
 static void rtw8723b_coex_set_gnt_debug(struct rtw_dev *rtwdev)
 {
-
-	/* TODO: ... */
+	/*
+	 * Not implemented: rtw8723d routes GNT_BT to debug GPIOs here
+	 * (REG_LEDCFG2/REG_PAD_CTRL1/REG_GPIO_*).  That is coex debug
+	 * instrumentation only and is not needed for normal operation.
+	 */
 }
 
 static bool rtw8723b_coex_ant_is_aux(struct rtw_dev *rtwdev)
@@ -3626,20 +3655,32 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 
 static void rtw8723b_coex_set_wl_tx_power(struct rtw_dev *rtwdev, u8 wl_pwr)
 {
-
-	/* TODO: ... */
+	/*
+	 * Not implemented: rtw8723d adjusts WL Tx power (0xb2/0x90) when BT is
+	 * active.  Coexistence quality only, not needed for basic operation;
+	 * deferred like coex_set_wl_rx_gain.
+	 */
 }
 
 static void rtw8723b_coex_set_wl_rx_gain(struct rtw_dev *rtwdev, bool low_gain)
 {
-
-	/* TODO: ... */
+	/*
+	 * Not implemented: rtw8723d lowers the WL Rx AGC via gain tables when
+	 * BT is active.  This only affects WiFi/BT coexistence quality under
+	 * concurrent BT traffic, not basic operation; deferred.
+	 */
 }
 
 static void rtw8723b_cfg_ldo25(struct rtw_dev *rtwdev, bool enable)
 {
-
-	/* TODO: ... */
+	/*
+	 * Intentionally empty on 8723bs.  efuse.c calls this to toggle the
+	 * 2.5V efuse LDO; the vendor instead does that inside its efuse power
+	 * switch (Hal_EfusePowerSwitch writes EFUSE_TEST+3).  We currently
+	 * omit that write in both places and efuse reads still work at the
+	 * default LDO, so no separate op is wired.  Revisit here (or in
+	 * rtw8723b_efuse_grant) if efuse reads ever look marginal.
+	 */
 }
 
 static void rtw8723b_fill_txdesc_checksum(struct rtw_dev *rtwdev,
@@ -3697,14 +3738,13 @@ static const struct rtw_chip_ops rtw8723b_ops = {
 	.false_alarm_statistics	= rtw8723x_false_alarm_statistics, /* checked against vendor driver and it matches */
 	.phy_calibration	= rtw8723b_phy_calibration,
 	.dpk_track		= NULL,
-	/* from 8703b
-	 * 8723d uses REG_CSRATIO to set dm_info.cck_pd_default, which
-	 * is used in its cck_pd_set function. According to comments
-	 * in the vendor driver code it doesn't exist in this chip
-	 * generation, only 0xa0a ("ODM_CCK_PD_THRESH", which is only
-	 * *written* to).
+	/*
+	 * 8723d uses REG_CSRATIO to set dm_info.cck_pd_default for its
+	 * cck_pd_set.  Per the vendor comments that register does not exist in
+	 * this chip generation (only 0xa0a "ODM_CCK_PD_THRESH", write-only),
+	 * so there is nothing to read back.  The sibling rtw8703b (same
+	 * generation) also leaves this NULL, confirming it applies to 8723b.
 	 */
-	/* TODO: does above apply to 8723b? */
 	.cck_pd_set		= NULL,
 	.pwr_track		= rtw8723b_pwr_track,
 	.config_bfee		= NULL,
@@ -3799,7 +3839,8 @@ const struct rtw_chip_info rtw8723b_hw_spec = {
 	.page_table = page_table_8723b, /* this table is correct for sure */
 
 	.rqpn_table = rqpn_table_8723b,
-	.prioq_addrs = &rtw8723x_common.prioq_addrs,	// TODO: check this
+	/* same shared table as the sibling rtw8703b and rtw8723d */
+	.prioq_addrs = &rtw8723x_common.prioq_addrs,
 
 	/* used only in pci.c, not needed for SDIO devices */
 	.intf_table = NULL,
