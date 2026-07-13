@@ -33,8 +33,8 @@
  * the low one.  ieee80211_stop_queue() makes the next ieee80211_tx_dequeue()
  * return NULL, so it also halts an in-progress drain burst.
  */
-#define RTW_SDIO_TX_FIFO_HIWATER			32
-#define RTW_SDIO_TX_FIFO_LOWATER			16
+#define RTW_SDIO_TX_FIFO_HIWATER			16
+#define RTW_SDIO_TX_FIFO_LOWATER			8
 
 static bool rtw_sdio_is_bus_addr(u32 addr)
 {
