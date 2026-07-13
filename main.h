@@ -929,6 +929,9 @@ struct rtw_sta_info {
 	bool vht_enable;
 	u8 init_ra_lv;
 	u64 ra_mask;
+	/* last ra_mask pushed to 8723b firmware with no_update=0; lets the
+	 * SDIO RA path re-apply the mask only when it actually changes */
+	u64 ra_mask_last;
 
 	DECLARE_BITMAP(tid_ba, IEEE80211_NUM_TIDS);
 

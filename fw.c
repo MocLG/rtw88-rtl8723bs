@@ -848,17 +848,33 @@ void rtw_fw_send_ra_info(struct rtw_dev *rtwdev, struct rtw_sta_info *si)
 		 * 00 81 09 00 00 0f 00: raid | sgi_en(bit7), then
 		 * bw(bits 1-0) | no_update(bit3), then the 4-byte mask.
 		 * RATEID_IDX numbering is shared with rtw88's rate_id.
+		 *
+		 * no_update(bit3)=1 tells the firmware to keep its existing
+		 * rate mask and only refresh the RA state, so a mask that
+		 * changes under no_update is silently dropped.  mac80211
+		 * only re-runs the reset path (rc_work) on a bandwidth
+		 * change, so on a stationary link the RSSI-trimmed
+		 * high-rate mask computed every watchdog would never take
+		 * effect and the firmware RA would stay pinned to the broad
+		 * association-time mask (CCK/MCS0 floor).  Force no_update=0
+		 * whenever the mask actually changes so the trim is applied,
+		 * and keep no_update=1 for identical refreshes so the
+		 * firmware retains the rate it has learned.
 		 */
+		bool changed = si->ra_mask != si->ra_mask_last;
+		bool apply = reset_ra_mask || changed;
+
 		h2c_pkt[1] = si->mac_id & 0x7f;
 		h2c_pkt[2] = (si->rate_id & 0x1f) |
 			     (si->sgi_enable ? BIT(7) : 0);
 		h2c_pkt[3] = ((si->bw_mode ? 3 : 1) & 0x3) |
-			     (reset_ra_mask ? 0 : BIT(3));
+			     (apply ? 0 : BIT(3));
 		h2c_pkt[4] = si->ra_mask & 0xff;
 		h2c_pkt[5] = (si->ra_mask >> 8) & 0xff;
 		h2c_pkt[6] = (si->ra_mask >> 16) & 0xff;
 		h2c_pkt[7] = (si->ra_mask >> 24) & 0xff;
 
+		si->ra_mask_last = si->ra_mask;
 		si->init_ra_lv = 0;
 
 		rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
