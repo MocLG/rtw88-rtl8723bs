@@ -288,13 +288,37 @@ phase_reload() {
     kmsg "reload stress end"
 }
 
+# dump kernel task state to a file so a stuck scan can be root-caused
+# after the fact (blocked tasks in D state + all task backtraces)
+dump_kernel_tasks() {
+    local tag="$1"
+    echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+    {
+        echo "=== $tag $(date) ==="
+        echo "--- iw kernel stacks ---"
+        for p in $(pidof iw); do echo "-- pid $p"; cat "/proc/$p/stack" 2>/dev/null; done
+        echo "--- sysrq-w (blocked tasks) ---"
+        echo w > /proc/sysrq-trigger 2>/dev/null || true
+        sleep 1
+        dmesg | tail -120
+    } >> "$OUT/scan-hang-tasks.txt" 2>&1
+}
+
 phase_scan_under_traffic() {
     log "phase 5: $SCANS scans while traffic is flowing"
     kmsg "scan-under-traffic start"
     ping -I "$IFACE" -i 0.2 "$GW" > "$OUT/ping-during-scan.log" 2>&1 &
     local ping_pid=$! i ok=0
     for i in $(seq 1 "$SCANS"); do
-        iw dev "$IFACE" scan > /dev/null 2>&1
+        # a connected software scan can wedge above the driver for many
+        # minutes; bound it so the harness never blocks and grab the
+        # blocked-task state the moment it does for later diagnosis
+        timeout 45 iw dev "$IFACE" scan > /dev/null 2>&1
+        if [ $? -eq 124 ]; then
+            log "  scan $i: SCAN TIMEOUT (>45s) - capturing task state"
+            kmsg "scan $i timed out"
+            dump_kernel_tasks "scan $i timeout"
+        fi
         sleep 3
         if is_connected; then
             ok=$((ok + 1))
