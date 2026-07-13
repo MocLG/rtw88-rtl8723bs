@@ -641,14 +641,12 @@ out:
 	    si->ra_report.desc_rate >= DESC_RATEMCS0 &&
 	    si->ra_report.desc_rate < DESC_RATE_MAX) {
 		pkt_info->rate = si->ra_report.desc_rate;
-		/* Back off one MCS step for headroom: with fallback disabled a
-		 * briefly-stale (too high) reported rate would otherwise fail
-		 * repeatedly and stall TCP. Floor at MCS0 so it stays in HT.
-		 */
-		if (pkt_info->rate > DESC_RATEMCS0)
-			pkt_info->rate--;
 		pkt_info->use_rate = true;
-		pkt_info->dis_rate_fallback = true;
+		/* Leave rate fallback enabled (dis_rate_fallback stays 0 from the
+		 * zeroed pkt_info): the applied rate is only the initial one, so a
+		 * transiently-stale value - e.g. right after a power-save wake -
+		 * can still step down and recover instead of failing repeatedly.
+		 */
 	}
 
 	if (skb->protocol == cpu_to_be16(ETH_P_PAE)) {
