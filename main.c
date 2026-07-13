@@ -472,6 +472,15 @@ static void rtw_watch_dog_work(struct work_struct *work)
 	 * get that vif and check if device is having traffic more than the
 	 * threshold.
 	 */
+	/* On 8723BS, LPS costs far more throughput than the SDIO power saving
+	 * is worth: the firmware's per-packet wake latency throttles bursty
+	 * traffic hard (uplink TCP ~3x lower, huge latency spikes), so keep the
+	 * chip awake while associated. Other chips keep the normal behaviour.
+	 */
+	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO)
+		ps_active = true;
+
 	if (rtwdev->ps_enabled && data.rtwvif && !ps_active &&
 	    !rtwdev->beacon_loss && !rtwdev->ap_active)
 		rtw_enter_lps(rtwdev, data.rtwvif->port);
