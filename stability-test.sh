@@ -393,6 +393,25 @@ phase_idle_ps() {
     kmsg "idle-ps end"
 }
 
+# Capture mac80211's per-station aggregation (block-ack) status from
+# debugfs.  The raw agg_status file lists each TID's TX/RX BA agreement;
+# it is the definitive answer to "are BlockAck sessions being set up".
+capture_ba_status() {
+    local f found=0 out="$OUT/ba-agg-status.txt"
+    for f in /sys/kernel/debug/ieee80211/*/netdev:"$IFACE"/stations/*/agg_status; do
+        [ -r "$f" ] || continue
+        found=1
+        { echo "== $f =="; cat "$f"; echo; } >> "$out" 2>/dev/null
+    done
+    if [ "$found" = 0 ]; then
+        log "  block-ack: agg_status unavailable (need CONFIG_MAC80211_DEBUGFS + debugfs mounted)"
+        echo "unavailable" > "$OUT/ba-status.txt"
+        return
+    fi
+    log "  block-ack: agg_status captured (raw in ba-agg-status.txt)"
+    echo "captured (see ba-agg-status.txt)" > "$OUT/ba-status.txt"
+}
+
 phase_throughput() {
     if [ -z "$IPERF_SERVER" ]; then
         log "phase 6: skipped (no iperf3 server given)"
@@ -436,6 +455,10 @@ phase_throughput() {
     log "udp uplink offer: ${udp_up}M (80% of ${tcp_up:-?} Mbit/s TCP up)"
     iperf3 $bind -c "$IPERF_SERVER" -u -b "${udp_up}M" -t 20    > "$OUT/iperf-udp-up.log"   2>&1
     iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20 -R > "$OUT/iperf-udp-down.log" 2>&1
+    # capture block-ack state while the sessions are still warm.  mac80211
+    # exposes per-station TX/RX aggregation in debugfs; the raw file is the
+    # authoritative record of which TIDs have an AMPDU BA agreement.
+    capture_ba_status
     kmsg "throughput end"
     local wlan_rx wlan_tx
     wlan_rx=$(( $(cat "/sys/class/net/$IFACE/statistics/rx_bytes") - wlan_rx0 ))
@@ -476,6 +499,7 @@ summarize() {
         echo "reloads OK:     $(cat "$OUT/reload-ok.count" 2>/dev/null || echo skipped)/$RELOADS"
         echo "scans OK:       $(cat "$OUT/scan-ok.count" 2>/dev/null || echo skipped)/$SCANS"
         echo "idle power-save: $(cat "$OUT/idle-ps.txt" 2>/dev/null || echo skipped)"
+        echo "block-ack:       $(cat "$OUT/ba-status.txt" 2>/dev/null || echo skipped)"
         echo
         echo "--- link quality (last sample) ---"
         tail -1 "$STA_LOG" 2>/dev/null
