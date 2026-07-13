@@ -480,8 +480,7 @@ static void rtw_watch_dog_work(struct work_struct *work)
 	 * sustained idle and stays awake through an active session. Other chips
 	 * keep the normal behaviour.
 	 */
-	if (rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
-	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
+	if (rtw_is_8723bs_sdio(rtwdev) &&
 	    (stats->tx_throughput || stats->rx_throughput))
 		ps_active = true;
 
