@@ -288,19 +288,30 @@ phase_reload() {
     kmsg "reload stress end"
 }
 
-# dump kernel task state to a file so a stuck scan can be root-caused
-# after the fact (blocked tasks in D state + all task backtraces)
-dump_kernel_tasks() {
-    local tag="$1"
+# snapshot the state of a scan that is stuck.  The scanning iw waits in
+# interruptible sleep (not D state), so sysrq-w alone won't show it - the
+# live /proc/<pid>/stack of the still-running iw is what pins the wait.
+# $1 tag, $2 pid of the still-alive iw
+dump_scan_hang() {
+    local tag="$1" pid="$2"
     echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
     {
         echo "=== $tag $(date) ==="
-        echo "--- iw kernel stacks ---"
-        for p in $(pidof iw); do echo "-- pid $p"; cat "/proc/$p/stack" 2>/dev/null; done
-        echo "--- sysrq-w (blocked tasks) ---"
+        echo "--- live iw ($pid) kernel stack ---"
+        cat "/proc/$pid/stack" 2>/dev/null
+        echo "  wchan: $(cat "/proc/$pid/wchan" 2>/dev/null)"
+        echo "--- rtw / mac80211 worker stacks ---"
+        for t in $(ps -eo pid=,comm= | awk '$2 ~ /rtw|kworker|mac80211/ { print $1 }'); do
+            echo "-- $t $(cat /proc/$t/comm 2>/dev/null)"
+            cat "/proc/$t/stack" 2>/dev/null
+        done
+        echo "--- link + scan state ---"
+        iw dev "$IFACE" link 2>&1
+        echo "--- sysrq-t (all tasks) then sysrq-w (blocked) ---"
+        echo t > /proc/sysrq-trigger 2>/dev/null || true
         echo w > /proc/sysrq-trigger 2>/dev/null || true
         sleep 1
-        dmesg | tail -120
+        dmesg | tail -400
     } >> "$OUT/scan-hang-tasks.txt" 2>&1
 }
 
@@ -311,13 +322,21 @@ phase_scan_under_traffic() {
     local ping_pid=$! i ok=0
     for i in $(seq 1 "$SCANS"); do
         # a connected software scan can wedge above the driver for many
-        # minutes; bound it so the harness never blocks and grab the
-        # blocked-task state the moment it does for later diagnosis
-        timeout 45 iw dev "$IFACE" scan > /dev/null 2>&1
-        if [ $? -eq 124 ]; then
+        # minutes; run it in the background so we can grab the LIVE stack
+        # of the stuck iw before killing it (timeout would SIGKILL it
+        # first, leaving nothing to inspect)
+        iw dev "$IFACE" scan > /dev/null 2>&1 &
+        local scan_pid=$! waited=0
+        while kill -0 "$scan_pid" 2>/dev/null && [ "$waited" -lt 45 ]; do
+            sleep 1
+            waited=$((waited + 1))
+        done
+        if kill -0 "$scan_pid" 2>/dev/null; then
             log "  scan $i: SCAN TIMEOUT (>45s) - capturing task state"
             kmsg "scan $i timed out"
-            dump_kernel_tasks "scan $i timeout"
+            dump_scan_hang "scan $i timeout" "$scan_pid"
+            kill "$scan_pid" 2>/dev/null
+            wait "$scan_pid" 2>/dev/null
         fi
         sleep 3
         if is_connected; then
