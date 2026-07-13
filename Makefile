@@ -283,7 +283,10 @@ sign-install: all sign install
 # previously registered rtw88 tree, then add/build/installs - so a rebuild is
 # a single step with no manual `dkms remove`.
 DKMS_NAME := rtw88
-DKMS_VER  := $(shell git describe --always --dirty --abbrev=8 2>/dev/null || echo 0.6)
+# -c safe.directory='*' so version detection also works under sudo, where
+# git would otherwise refuse a user-owned repo ("dubious ownership").
+GIT := git -c safe.directory='*'
+DKMS_VER  := $(shell $(GIT) describe --always --dirty --abbrev=8 2>/dev/null || echo 0.6)
 DKMS_SRC  := /usr/src/$(DKMS_NAME)-$(DKMS_VER)
 
 .PHONY: dkms dkms-uninstall
@@ -297,7 +300,7 @@ dkms:
 	@rm -rf "$(DKMS_SRC)"
 	@mkdir -p "$(DKMS_SRC)"
 	@# stage git-tracked files, minus the vendor/staging reference trees
-	@git ls-files -z | grep -zvE '^(rtl8723bs-vendor|rtl8723bs-staging)/' \
+	@$(GIT) ls-files -z | grep -zvE '^(rtl8723bs-vendor|rtl8723bs-staging)/' \
 		| tar --null -T - -cf - | tar -C "$(DKMS_SRC)" -xf -
 	@sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION="$(DKMS_VER)"/' "$(DKMS_SRC)/dkms.conf"
 	@dkms add     $(DKMS_NAME)/$(DKMS_VER)
