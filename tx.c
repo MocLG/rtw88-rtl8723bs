@@ -627,7 +627,7 @@ out:
 	pkt_info->stbc = stbc;
 	pkt_info->ldpc = ldpc;
 
-	/* On 8723B the firmware runs rate adaptation and reports a sensible
+	/* On 8723BS the firmware runs rate adaptation and reports a sensible
 	 * rate over C2H, but it does not actually key that rate on the data
 	 * path: the hardware transmits at the CCK floor regardless of the mask,
 	 * so uplink is stuck at ~1.8 Mbit even though the C2H report and the
@@ -637,9 +637,16 @@ out:
 	 * to the normal path so genuinely poor links still drop down.
 	 */
 	if (sta && rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    rtw_hci_type(rtwdev) == RTW_HCI_TYPE_SDIO &&
 	    si->ra_report.desc_rate >= DESC_RATEMCS0 &&
 	    si->ra_report.desc_rate < DESC_RATE_MAX) {
 		pkt_info->rate = si->ra_report.desc_rate;
+		/* Back off one MCS step for headroom: with fallback disabled a
+		 * briefly-stale (too high) reported rate would otherwise fail
+		 * repeatedly and stall TCP. Floor at MCS0 so it stays in HT.
+		 */
+		if (pkt_info->rate > DESC_RATEMCS0)
+			pkt_info->rate--;
 		pkt_info->use_rate = true;
 		pkt_info->dis_rate_fallback = true;
 	}
