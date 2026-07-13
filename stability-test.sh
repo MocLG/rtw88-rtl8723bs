@@ -37,6 +37,7 @@ RECONNECTS="${RECONNECTS:-15}"
 LINKCYCLES="${LINKCYCLES:-5}"
 RELOADS="${RELOADS:-3}"
 SCANS="${SCANS:-5}"
+IDLE_PS_SECS="${IDLE_PS_SECS:-25}"
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
 GITHASH="$(git -C "$REPO_DIR" rev-parse --short=8 HEAD 2>/dev/null || echo nogit)"
@@ -352,6 +353,46 @@ phase_scan_under_traffic() {
     kmsg "scan-under-traffic end"
 }
 
+# Verify leisure power-save actually engages on a genuinely idle link and
+# that the link wakes cleanly.  The soak pings every 0.2s, which keeps the
+# chip awake, so LPS is never exercised there.  LPS enter/leave shows up
+# as H2C 0x20 (SET_PWR_MODE): mode byte 01 = enter LPS, 00 = wake.  The
+# driver traces are gated behind the FW debug mask now, so enable it for
+# the window and restore it after.
+phase_idle_ps() {
+    local dbgfile=/sys/module/rtw_core/parameters/debug_mask
+    local saved="" fw_bit=0x10 before enters leaves first_rtt loss
+    log "phase 7: idle power-save check (${IDLE_PS_SECS}s no traffic)"
+    kmsg "idle-ps start"
+    # LPS enter/leave is only visible with the FW debug mask; enable it for
+    # the window and restore afterwards.
+    if [ -w "$dbgfile" ]; then
+        saved=$(cat "$dbgfile")
+        echo $(( saved | fw_bit )) > "$dbgfile"
+    else
+        log "  (debug_mask not writable - LPS H2C won't be visible)"
+    fi
+    # sit fully idle; the monitors only do local queries, no OTA traffic
+    before=$(dmesg | wc -l)
+    sleep "$IDLE_PS_SECS"
+    # LPS enter = H2C 0x20 mode byte 01, wake = mode 00, in the idle window
+    enters=$(dmesg | tail -n "+$((before + 1))" | grep -c "send_h2c id=0x20 raw=20 01")
+    leaves=$(dmesg | tail -n "+$((before + 1))" | grep -c "send_h2c id=0x20 raw=20 00")
+    log "  LPS enter(20 01)=$enters wake(20 00)=$leaves during idle"
+    if [ "$enters" -gt 0 ]; then
+        log "  LPS ENGAGED (firmware entered leisure power-save while idle)"
+    else
+        log "  LPS did NOT engage - check 'iw dev $IFACE get power_save' is on"
+    fi
+    # wake latency: first packet after idle should still get through cleanly
+    first_rtt=$(ping -I "$IFACE" -c1 -W3 "$GW" 2>/dev/null | awk -F'time=' '/time=/{print $2; exit}')
+    loss=$(ping -I "$IFACE" -c10 -i0.3 -q "$GW" 2>/dev/null | awk '/packet loss/{print $6}')
+    log "  wake: first-packet rtt=${first_rtt:-NO REPLY}, 10-pkt loss=${loss:-?}"
+    echo "enter=$enters wake=$leaves first_rtt=${first_rtt:-none} loss=${loss:-?}" > "$OUT/idle-ps.txt"
+    [ -n "$saved" ] && echo "$saved" > "$dbgfile"
+    kmsg "idle-ps end"
+}
+
 phase_throughput() {
     if [ -z "$IPERF_SERVER" ]; then
         log "phase 6: skipped (no iperf3 server given)"
@@ -434,6 +475,7 @@ summarize() {
         echo "linkcycles OK:  $(cat "$OUT/linkcycle-ok.count" 2>/dev/null || echo skipped)/$LINKCYCLES"
         echo "reloads OK:     $(cat "$OUT/reload-ok.count" 2>/dev/null || echo skipped)/$RELOADS"
         echo "scans OK:       $(cat "$OUT/scan-ok.count" 2>/dev/null || echo skipped)/$SCANS"
+        echo "idle power-save: $(cat "$OUT/idle-ps.txt" 2>/dev/null || echo skipped)"
         echo
         echo "--- link quality (last sample) ---"
         tail -1 "$STA_LOG" 2>/dev/null
@@ -482,9 +524,10 @@ phase_linkcycle
 phase_reload
 phase_scan_under_traffic
 
-# make sure we are connected again before throughput and final verdict
+# make sure we are connected again before the idle/throughput measurements
 is_connected || connect || true
 
+phase_idle_ps
 phase_throughput
 
 kmsg "run end"
