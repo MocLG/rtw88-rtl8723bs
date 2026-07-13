@@ -1739,15 +1739,7 @@ void rtw_update_sta_info(struct rtw_dev *rtwdev, struct rtw_sta_info *si,
 
 	rate_id = get_rate_id(wireless_set, bw_mode, tx_num);
 
-	/* The RSSI-based trim drops the low HT/OFDM rungs at high RSSI. On the
-	 * 8723B firmware that leaves no rate between MCS4 and the CCK floor, so
-	 * its per-frame retry fallback jumps straight from MCS4 to CCK 5.5: the
-	 * C2H RA report keeps claiming MCS4/5 while the air is actually CCK, and
-	 * uplink collapses to ~1.8 Mbit even though forcing an MCS rate reaches
-	 * ~9 Mbit. Keep the full ladder so the firmware can fall back within HT.
-	 */
-	if (rtwdev->chip->id != RTW_CHIP_TYPE_8723B)
-		ra_mask &= rtw_rate_mask_rssi(si, wireless_set);
+	ra_mask &= rtw_rate_mask_rssi(si, wireless_set);
 	ra_mask = rtw_rate_mask_recover(ra_mask, ra_mask_bak);
 	ra_mask = rtw_rate_mask_cfg(rtwdev, si, ra_mask, is_vht_enable);
 

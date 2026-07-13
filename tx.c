@@ -627,6 +627,23 @@ out:
 	pkt_info->stbc = stbc;
 	pkt_info->ldpc = ldpc;
 
+	/* On 8723B the firmware runs rate adaptation and reports a sensible
+	 * rate over C2H, but it does not actually key that rate on the data
+	 * path: the hardware transmits at the CCK floor regardless of the mask,
+	 * so uplink is stuck at ~1.8 Mbit even though the C2H report and the
+	 * station dump both claim MCS4/5. Forcing a rate through the descriptor
+	 * IS honoured (fixed-rate reaches ~9 Mbit over the same link), so apply
+	 * the firmware's own reported HT rate that way. Legacy reports are left
+	 * to the normal path so genuinely poor links still drop down.
+	 */
+	if (sta && rtwdev->chip->id == RTW_CHIP_TYPE_8723B &&
+	    si->ra_report.desc_rate >= DESC_RATEMCS0 &&
+	    si->ra_report.desc_rate < DESC_RATE_MAX) {
+		pkt_info->rate = si->ra_report.desc_rate;
+		pkt_info->use_rate = true;
+		pkt_info->dis_rate_fallback = true;
+	}
+
 	if (skb->protocol == cpu_to_be16(ETH_P_PAE)) {
 		rtw_tx_pkt_info_update_rate(rtwdev, pkt_info, skb, true);
 
