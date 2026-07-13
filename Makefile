@@ -277,3 +277,34 @@ endif
 	done
 
 sign-install: all sign install
+
+# ---- DKMS: dynamic version from git, one command to (re)install ----
+# `make dkms` stages the current tree under a git-derived version, drops any
+# previously registered rtw88 tree, then add/build/installs - so a rebuild is
+# a single step with no manual `dkms remove`.
+DKMS_NAME := rtw88
+DKMS_VER  := $(shell git describe --always --dirty --abbrev=8 2>/dev/null || echo 0.6)
+DKMS_SRC  := /usr/src/$(DKMS_NAME)-$(DKMS_VER)
+
+.PHONY: dkms dkms-uninstall
+
+dkms:
+	@command -v dkms >/dev/null 2>&1 || { echo "dkms is not installed"; exit 1; }
+	@for v in $$(dkms status 2>/dev/null | sed -n 's,^$(DKMS_NAME)[,/][[:space:]]*\([^,:]*\).*,\1,p' | sort -u); do \
+		echo "  removing old dkms $(DKMS_NAME)/$$v"; \
+		dkms remove $(DKMS_NAME)/$$v --all >/dev/null 2>&1 || true; \
+	done
+	@rm -rf "$(DKMS_SRC)"
+	@mkdir -p "$(DKMS_SRC)"
+	@git ls-files -z | tar --null -T - -cf - | tar -C "$(DKMS_SRC)" -xf -
+	@sed -i 's/^PACKAGE_VERSION=.*/PACKAGE_VERSION="$(DKMS_VER)"/' "$(DKMS_SRC)/dkms.conf"
+	@dkms add     $(DKMS_NAME)/$(DKMS_VER)
+	@dkms build   $(DKMS_NAME)/$(DKMS_VER)
+	@dkms install --force $(DKMS_NAME)/$(DKMS_VER)
+	@echo "dkms: installed $(DKMS_NAME)/$(DKMS_VER)"
+
+dkms-uninstall:
+	@for v in $$(dkms status 2>/dev/null | sed -n 's,^$(DKMS_NAME)[,/][[:space:]]*\([^,:]*\).*,\1,p' | sort -u); do \
+		echo "  removing dkms $(DKMS_NAME)/$$v"; \
+		dkms remove $(DKMS_NAME)/$$v --all || true; \
+	done
