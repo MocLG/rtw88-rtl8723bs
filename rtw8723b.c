@@ -1062,7 +1062,6 @@ static const struct coex_tdma_para tdma_nsant_8723b[] = {
  */
 static void rtw8723b_efuse_grant(struct rtw_dev *rtwdev, bool on)
 {
-	printk("%s begin: on=%s", __func__, on == true ? "true" : "false");
 
 	/* TODO: if we do not need the 'enable BT ...' lines,
 	 * then we can use __rtw8723x_efuse_grant
@@ -1082,7 +1081,6 @@ static void rtw8723b_efuse_grant(struct rtw_dev *rtwdev, bool on)
 
 		rtw_write8(rtwdev, REG_EFUSE_ACCESS, EFUSE_ACCESS_OFF);
 	}
-	printk("%s end", __func__);
 }
 
 /* adapted from vendor: halrf_powertracking_ce.c
@@ -1090,7 +1088,6 @@ static void rtw8723b_efuse_grant(struct rtw_dev *rtwdev, bool on)
  */
 static u8 rtw8723b_default_ofdm_index(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	u8 i;
 	u32 val32;
@@ -1119,7 +1116,6 @@ static u8 rtw8723b_default_ofdm_index(struct rtw_dev *rtwdev)
  */
 static u8 rtw8723b_default_cck_index(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	u8 i;
 	u8 swing;
@@ -1142,7 +1138,6 @@ static u8 rtw8723b_default_cck_index(struct rtw_dev *rtwdev)
  */
 static void rtw8723b_pwrtrack_init(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	u8 path;
@@ -1169,7 +1164,6 @@ static void rtw8723b_pwrtrack_init(struct rtw_dev *rtwdev)
 static bool rtw8723b_check_spur_ov_thres(struct rtw_dev *rtwdev,
 					 u32 freq, u32 thres)
 {
-	printk("%s begin", __func__);
 
 	bool ret = false;
 
@@ -1191,7 +1185,6 @@ static bool rtw8723b_check_spur_ov_thres(struct rtw_dev *rtwdev,
  */
 static void rtw8723b_cfg_notch(struct rtw_dev *rtwdev, u8 channel, bool notch)
 {
-	printk("%s begin", __func__);
 
 	if (!notch) {
 		/* TODO: The code in this block has been blindly copied from
@@ -1269,7 +1262,6 @@ static void rtw8723b_cfg_notch(struct rtw_dev *rtwdev, u8 channel, bool notch)
  */
 static void rtw8723b_spur_cal(struct rtw_dev *rtwdev, u8 channel)
 {
-	printk("%s begin", __func__);
 
 	bool notch;
 	u32 freq;
@@ -1415,14 +1407,12 @@ static void rtw8723b_phy_rf6052_config(struct rtw_dev *rtwdev)
 	/* NOTE: this func is ready! */
 
 	struct rtw_hal *hal = &rtwdev->hal;
-	printk("%s: hal->rf_path_num=%d\n", __func__, hal->rf_path_num);
 
 	u8 path;
 	u32 val32, mask;
 	u32 intf_s, intf_oe, hssi_2;
 
 	for (path = RF_PATH_A; path < hal->rf_path_num; path++) {
-		printk("%s(): path=%d\n", __func__, path);
 		switch (path) {
 		case RF_PATH_A:
 			intf_s = REG_FPGA0_XA_RF_SW_CTRL;
@@ -1853,7 +1843,6 @@ static void rtw8723b_phy_set_param(struct rtw_dev *rtwdev)
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	u32 val32;
 
-	printk("%s begin", __func__);
 
 	rtw8723b_post_enable_flow(rtwdev);
 
@@ -2117,7 +2106,6 @@ static void rtw8723b_reassert_rx_path(struct rtw_dev *rtwdev, const char *tag)
  */
 static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2129,10 +2117,6 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 		rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
 
 	// DEBUG
-	printk("channel=0x%x, bw=0x%x\n", channel, bw);
-	printk("initial reg value: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	if (rtwdev->hal.rf_path_num > 1)
-		printk("initial reg value: rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	rf_cfgch_a &= ~RFCFGCH_CHANNEL_MASK;
 	if (rtwdev->hal.rf_path_num > 1)
@@ -2160,9 +2144,6 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 		rf_cfgch_b = rf_cfgch_a;
 	}
 
-	printk("before writing reg: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	if (rtwdev->hal.rf_path_num > 1)
-		printk("before writing reg : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	rtw_write_rf(rtwdev, RF_PATH_A, RF_CFGCH, RFREG_MASK, rf_cfgch_a);
 	if (rtwdev->hal.rf_path_num > 1)
@@ -2172,14 +2153,10 @@ static void rtw8723b_set_channel_rf(struct rtw_dev *rtwdev, u8 channel, u8 bw)
 	if (rtwdev->hal.rf_path_num > 1)
 		rf_cfgch_b = rtw_read_rf(rtwdev, RF_PATH_B, RF_CFGCH, RFREG_MASK);
 
-	printk("reg after readback: rf_cfgch_a= 0x%x\n", rf_cfgch_a);
-	if (rtwdev->hal.rf_path_num > 1)
-		printk("reg after readback : rf_cfgch_b= 0x%x\n", rf_cfgch_b);
 
 	/* NOTE: not called in vendor driver */
 	// rtw8723b_spur_cal(rtwdev, channel);
 
-	printk("%s end", __func__);
 
 }
 
@@ -2193,7 +2170,6 @@ static void rtw8723b_set_channel_bb(struct rtw_dev *rtwdev, u8 bw,
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
 
 	switch (bw) {
 	case RTW_CHANNEL_WIDTH_20:
@@ -2222,7 +2198,6 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
 
 	rtw8723b_dump_bb_rf(rtwdev, "before_set_channel", channel, bw);
 
@@ -2264,7 +2239,6 @@ static void rtw8723b_set_channel(struct rtw_dev *rtwdev, u8 channel,
 
 	rtw8723b_dump_bb_rf(rtwdev, "after_set_channel", channel, bw);
 
-	printk("%s end", __func__);
 }
 
 /* adapted from vendor file hal/phydm/rtl8723b/phydm_rtl8723b.c
@@ -2379,7 +2353,6 @@ static void rtw8723b_set_iqk_matrix_by_result(struct rtw_dev *rtwdev,
 {
 	/* NOTE: this func should be ready! */
 
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	s32 ele_A, ele_D, ele_C, ele_A_ext;
@@ -2444,7 +2417,6 @@ static void rtw8723b_set_iqk_matrix(struct rtw_dev *rtwdev, s8 ofdm_index,
 {
 	/* NOTE: this func should be ready! */
 
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	u32 ofdm_swing;
@@ -2480,7 +2452,6 @@ static void rtw8723b_set_iqk_matrix(struct rtw_dev *rtwdev, s8 ofdm_index,
 
 static u8 rtw8723b_iqk_check_tx_failed(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2511,7 +2482,6 @@ static u8 rtw8723b_iqk_check_tx_failed(struct rtw_dev *rtwdev)
 
 static u8 rtw8723b_iqk_check_rx_failed(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2546,7 +2516,6 @@ static u8 rtw8723b_iqk_check_rx_failed(struct rtw_dev *rtwdev)
  */
 static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2624,7 +2593,6 @@ static u8 rtw8723b_iqk_tx_path_a(struct rtw_dev *rtwdev)
  */
 static u8 rtw8723b_iqk_rx_path_a(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2780,7 +2748,6 @@ void rtw8723b_iqk_fill_a_matrix(struct rtw_dev *rtwdev, const s32 result[])
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
 
 	s32 tx1_a, tx1_a_ext;
 	s32 tx1_c, tx1_c_ext;
@@ -2834,7 +2801,6 @@ void rtw8723b_iqk_fill_b_matrix(struct rtw_dev *rtwdev, const s32 result[])
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
 
 	s32 tx0_a, tx0_a_ext;
 	s32 tx0_c, tx0_c_ext;
@@ -2881,7 +2847,6 @@ static
 void rtw8723b_iqk_config_mac(struct rtw_dev *rtwdev,
 			     const struct rtw8723x_iqk_backup_regs *backup)
 {
-	printk("%s begin", __func__);
 
 	/* NOTE: this func is ready! */
 
@@ -2907,7 +2872,6 @@ void rtw8723b_iqk_one_round(struct rtw_dev *rtwdev, s32 result[][IQK_NR], u8 t,
 {
 	/* NOTE: this func is ready! */
 
-	printk("%s begin", __func__);
 
 	u32 i;
 	u8 a_ok;
@@ -2990,7 +2954,6 @@ void rtw8723b_iqk_one_round(struct rtw_dev *rtwdev, s32 result[][IQK_NR], u8 t,
  */
 static void rtw8723b_phy_calibration(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	struct rtw8723x_iqk_backup_regs backup;
@@ -3152,7 +3115,6 @@ out:
 static void rtw8723b_pwrtrack_set_ofdm_pwr(struct rtw_dev *rtwdev, s8 swing_idx,
 					   s8 txagc_idx)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 
@@ -3168,7 +3130,6 @@ static void rtw8723b_pwrtrack_set_ofdm_pwr(struct rtw_dev *rtwdev, s8 swing_idx,
 static void rtw8723b_pwrtrack_set_cck_pwr(struct rtw_dev *rtwdev, s8 swing_idx,
 					  s8 txagc_idx)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 
@@ -3210,7 +3171,6 @@ static void rtw8723b_pwrtrack_set_cck_pwr(struct rtw_dev *rtwdev, s8 swing_idx,
  */
 static void rtw8723b_pwrtrack_set(struct rtw_dev *rtwdev, u8 path)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	struct rtw_hal *hal = &rtwdev->hal;
@@ -3254,7 +3214,6 @@ static void rtw8723b_pwrtrack_set(struct rtw_dev *rtwdev, u8 path)
  */
 static void rtw8723b_phy_pwrtrack(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
 	struct rtw_swing_table swing_table;
@@ -3324,7 +3283,6 @@ iqk:
 
 static void rtw8723b_pwr_track(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	struct rtw_efuse *efuse = &rtwdev->efuse;
 	struct rtw_dm_info *dm_info = &rtwdev->dm_info;
@@ -3350,7 +3308,6 @@ static void rtw8723b_pwr_track(struct rtw_dev *rtwdev)
  */
 static void rtw8723b_coex_cfg_init(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	/* enable TBTT nterrupt */
 	rtw_write8_mask(rtwdev, 0x550, 0x8, 0x1);
@@ -3365,14 +3322,12 @@ static void rtw8723b_coex_cfg_init(struct rtw_dev *rtwdev)
 
 static void rtw8723b_coex_set_gnt_fix(struct rtw_dev *rtwdev)
 {
-	// printk("%s begin", __func__);
 
 	/* TODO: ... */
 }
 
 static void rtw8723b_coex_set_gnt_debug(struct rtw_dev *rtwdev)
 {
-	// printk("%s begin", __func__);
 
 	/* TODO: ... */
 }
@@ -3667,21 +3622,18 @@ static void rtw8723b_coex_set_rfe_type(struct rtw_dev *rtwdev)
 
 static void rtw8723b_coex_set_wl_tx_power(struct rtw_dev *rtwdev, u8 wl_pwr)
 {
-	// printk("%s begin", __func__);
 
 	/* TODO: ... */
 }
 
 static void rtw8723b_coex_set_wl_rx_gain(struct rtw_dev *rtwdev, bool low_gain)
 {
-	// printk("%s begin", __func__);
 
 	/* TODO: ... */
 }
 
 static void rtw8723b_cfg_ldo25(struct rtw_dev *rtwdev, bool enable)
 {
-	// printk("%s begin", __func__);
 
 	/* TODO: ... */
 }

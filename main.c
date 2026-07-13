@@ -1798,7 +1798,6 @@ static enum rtw_lps_deep_mode rtw_update_lps_deep_mode(struct rtw_dev *rtwdev,
 
 int rtw_power_on(struct rtw_dev *rtwdev)
 {
-	printk("%s begin", __func__);
 
 	const struct rtw_chip_info *chip = rtwdev->chip;
 	struct rtw_fw_state *fw = &rtwdev->fw;
@@ -1851,7 +1850,6 @@ int rtw_power_on(struct rtw_dev *rtwdev)
 		goto err_off;
 	}
 
-	printk("before send H2C in rtw_poweron()\n");
 
 	/* send H2C after HCI has started */
 	rtw_fw_send_general_info(rtwdev);
@@ -2042,7 +2040,6 @@ void rtw_core_scan_start(struct rtw_dev *rtwdev, struct rtw_vif *rtwvif,
 	u8 bcn_ctrl_before;
 	int ret = 0;
 
-	printk("%s begin\n", __func__);
 
 	rtw_leave_lps(rtwdev);
 
@@ -2127,7 +2124,6 @@ void rtw_core_scan_complete(struct rtw_dev *rtwdev, struct ieee80211_vif *vif,
 	enum rtw_net_type net_type_before;
 	u8 bcn_ctrl_before;
 
-	printk("%s begin\n", __func__);
 
 	if (!rtwvif) {
 		rtw_info(rtwdev,
@@ -2699,7 +2695,6 @@ static int rtw_dump_hw_feature(struct rtw_dev *rtwdev)
 
 	id = rtw_read8(rtwdev, REG_C2HEVT);
 
-	printk("%s:%s:%d id=0x%x", __func__, __FILE__, __LINE__, id);
 
 	if (id != C2H_HW_FEATURE_REPORT) {
 		rtw_err(rtwdev, "failed to read hw feature report\n");
@@ -2825,7 +2820,6 @@ static int rtw_chip_board_info_setup(struct rtw_dev *rtwdev)
 
 int rtw_chip_info_setup(struct rtw_dev *rtwdev)
 {
-	printk("%s:%s begin", __func__, __FILE__);
 
 	int ret;
 
@@ -2847,11 +2841,9 @@ int rtw_chip_info_setup(struct rtw_dev *rtwdev)
 		goto err_out;
 	}
 
-	printk("%s:%s end success", __func__, __FILE__);
 	return 0;
 
 err_out:
-	printk("%s:%s end error", __func__, __FILE__);
 	return ret;
 }
 EXPORT_SYMBOL(rtw_chip_info_setup);

@@ -433,7 +433,6 @@ EXPORT_SYMBOL(rtw_fw_c2h_cmd_isr);
 static void rtw_fw_send_h2c_command_register(struct rtw_dev *rtwdev,
 					     struct rtw_h2c_register *h2c)
 {
-	printk("%s: begin\n", __func__);
 
 	u32 box_reg, box_ex_reg;
 	u8 box_state, box;
@@ -2356,7 +2355,6 @@ void rtw_fw_adaptivity(struct rtw_dev *rtwdev)
 
 void rtw_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 {
-	printk("%s: begin\n", __func__);
 
 	u8 h2c_pkt[H2C_PKT_SIZE] = {0};
 
@@ -2365,7 +2363,6 @@ void rtw_fw_scan_notify(struct rtw_dev *rtwdev, bool start)
 
 	rtw_fw_send_h2c_command(rtwdev, h2c_pkt);
 
-	printk("%s: end\n", __func__);
 }
 
 static int rtw_append_probe_req_ie(struct rtw_dev *rtwdev, struct sk_buff *skb,
