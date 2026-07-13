@@ -361,7 +361,20 @@ phase_throughput() {
     fi
     iperf3 $bind -c "$IPERF_SERVER" -t 30       > "$OUT/iperf-tcp-up.log"   2>&1
     iperf3 $bind -c "$IPERF_SERVER" -t 30 -R    > "$OUT/iperf-tcp-down.log" 2>&1
-    iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20    > "$OUT/iperf-udp-up.log"   2>&1
+    # Offering more UDP uplink than the radio can drain just empties the
+    # SDIO OQT token pool and measures loss, not achievable rate.  Size
+    # the uplink offer at ~80% of the TCP-up result (min 2M, max 40M);
+    # the downlink drains fine, so leave it at 40M to probe RX headroom.
+    local tcp_up udp_up
+    tcp_up=$(awk '/sender/ { for (i = 1; i <= NF; i++) if ($i ~ /bits\/sec/) {
+                            r = $(i - 1);
+                            if ($i ~ /^G/) r *= 1000; if ($i ~ /^K/) r /= 1000;
+                            print int(r) } }' "$OUT/iperf-tcp-up.log" | tail -1)
+    udp_up=$(( ${tcp_up:-10} * 8 / 10 ))
+    [ "$udp_up" -lt 2 ]  && udp_up=2
+    [ "$udp_up" -gt 40 ] && udp_up=40
+    log "udp uplink offer: ${udp_up}M (80% of ${tcp_up:-?} Mbit/s TCP up)"
+    iperf3 $bind -c "$IPERF_SERVER" -u -b "${udp_up}M" -t 20    > "$OUT/iperf-udp-up.log"   2>&1
     iperf3 $bind -c "$IPERF_SERVER" -u -b 40M -t 20 -R > "$OUT/iperf-udp-down.log" 2>&1
     kmsg "throughput end"
     local wlan_rx wlan_tx
