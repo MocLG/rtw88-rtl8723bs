@@ -531,6 +531,22 @@ kmsg "run start commit=$GITHASH"
 ensure_driver || { log "FATAL: no wireless interface"; exit 1; }
 log "interface: $IFACE"
 
+# The driver is silent by default; the module is (re)loaded above, so its
+# debug_mask param only exists now.  Honour a DBG_MASK env var so a run can
+# be made verbose from the command line, e.g. DBG_MASK=0x10 ./stability-test.sh
+# (0x10=FW/H2C/C2H incl. the C2H 0x0c RA rate reports).  NOTE: enabling FW
+# traces for the whole run adds dmesg volume that slightly depresses the
+# throughput numbers - use it to observe RA, not to quote final speeds.
+if [ -n "${DBG_MASK:-}" ]; then
+    dbgfile=/sys/module/rtw_core/parameters/debug_mask
+    if [ -w "$dbgfile" ]; then
+        echo "$DBG_MASK" > "$dbgfile"
+        log "debug_mask set to $DBG_MASK (from DBG_MASK env)"
+    else
+        log "DBG_MASK given but $dbgfile not writable"
+    fi
+fi
+
 # The wired NIC of the test machine may share the subnet with wlan0, so
 # peers can resolve the wireless address to the wired MAC (ARP flux) and
 # replies bypass the radio.  Strict-ARP sysctls would prevent that but
