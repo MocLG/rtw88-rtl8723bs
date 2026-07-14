@@ -1,20 +1,40 @@
 # rtw88-rtl8723bs
 
-### Optimized Realtek rtw88 drivers with a primary focus on RTL8723B (PCIe) and RTL8723BS (SDIO) support.
+### Realtek `rtw88` driver with working RTL8723BS (SDIO) support.
 
-This repository is a downstream fork of the `rtw88` driver, specifically maintained to bring stable support for the **RTL8723B(S)** chipset series to modern Linux kernels and prepare it for upstreaming.
+This repository is a downstream fork of the `rtw88` driver, maintained to bring
+stable support for the **RTL8723B(S)** chipset to modern Linux kernels and to
+prepare that support for upstreaming into mainline `rtw88`.
 
-🌟 **The Star Chipset: RTL8723B / RTL8723BS**
-While `rtw88` supports many chips, this repo prioritizes the development and debugging of the 8723B series. The SDIO version (8723BS) is notorious for bus timeouts and scanning failures—this project aims to fix those issues through improved power sequencing and refined H2C command handling.
+🌟 **The Star Chipset: RTL8723BS (SDIO)**
+While `rtw88` supports many chips, this repo is focused on the 8723B series. The
+SDIO variant (8723BS) was long notorious for bus timeouts and scanning failures;
+those are now fixed here through corrected power sequencing, a faithful
+reimplementation of the vendor association/join sequence, WiFi/BT coexistence
+antenna handling, and refined H2C command handling. **The driver associates and
+passes traffic end-to-end and holds up over multi-hour soak tests.**
 
+---
 
+## 📡 Status
+
+- **RTL8723BS (SDIO): working & stable.** Scan → auth → associate → sustained
+  throughput, validated on hardware.
+- **Upstreaming in progress.** A cleaned, bisectable patch series adding
+  RTL8723B/RTL8723BS support is being prepared for submission to mainline
+  `rtw88` (wireless-next). This fork remains the place to get it running on
+  today's distro kernels until that lands.
 
 ---
 
 ## 🛠 Supported Chipsets
-- **SDIO**: **RTL8723BS** (Active Development), RTL8723CS, RTL8723DS, RTL8821CS, RTL8822BS, RTL8822CS
-- **PCIe**: **RTL8723BE**, RTL8723DE, RTL8812AE, RTL8814AE, RTL8821AE, RTL8821CE, RTL8822BE, RTL8822CE
-- **USB** : RTL8723DU, RTL8811AU/CU, RTL8812AU/BU/CU, RTL8814AU, RTL8821AU/CU, RTL8822BU/CU
+
+- **Tested & actively developed in this fork:**
+  - **RTL8723BS** (SDIO) — the focus of this repository.
+- **Inherited from upstream `rtw88` (built, but not validated or the focus
+  here):** other rtw88 SDIO/PCIe/USB chips (8723CS/DS, 8821CS, 8822BS/CS,
+  8723DE, 8821CE, 8822BE/CE, and the various USB parts). Use the mainline
+  `rtw88` driver for those unless you specifically need this tree.
 
 ---
 
@@ -24,47 +44,58 @@ While `rtw88` supports many chips, this repo prioritizes the development and deb
 You must install your kernel headers and build tools before compiling.
 
 * **Arch Linux**: `sudo pacman -S base-devel git linux-headers`
-* **Ubuntu / Kali**: `sudo apt update && sudo apt install linux-headers-$(uname -r) build-essential git`
-* **Fedora**: `sudo dnf install kernel-devel git`
-* **Raspberry Pi OS**: `sudo apt install raspberrypi-kernel-headers build-essential git`
+* **Ubuntu / Linux Mint / Kali**: `sudo apt update && sudo apt install linux-headers-$(uname -r) build-essential git dkms`
+* **Fedora**: `sudo dnf install kernel-devel git dkms`
+* **Raspberry Pi OS**: `sudo apt install raspberrypi-kernel-headers build-essential git dkms`
 
-### 2. Installation Using DKMS (Recommended) 🔄
-## Note
-In case you are testing for development process insmoding .ko files is recommended way to load the driver.
-
----
-
-DKMS automatically rebuilds the driver when you update your kernel.
+### 2. Install with DKMS (Recommended) 🔄
+DKMS rebuilds the driver automatically whenever you update your kernel. The
+`dkms` make target stages the tree with a git-derived version and installs it:
 
 ```bash
 git clone https://github.com/MocLG/rtw88-rtl8723bs.git
 cd rtw88-rtl8723bs
-sudo dkms install .
+sudo make dkms
 sudo make install_fw
 sudo cp rtw88.conf /etc/modprobe.d/
 ```
+
+Then load it:
+
+```bash
+sudo modprobe rtw_8723bs
+```
+
+> **Developing / debugging?** For an edit–build–test loop, skip DKMS and load
+> the freshly built modules directly instead:
+> ```bash
+> make -j$(nproc)
+> sudo make install_fw          # first time only
+> sudo insmod rtw_core.ko        # + rtw_8723x.ko, rtw_8723b.ko, rtw_sdio.ko, rtw_8723bs.ko
+> # or, after `sudo make install && sudo depmod -a`:
+> sudo modprobe rtw_8723bs
+> ```
+
 ### 3. Secure Boot 🔐
-If you have Secure Boot enabled, you must enroll the signing key:
+If you have Secure Boot enabled, you must enroll the DKMS signing key:
 ```bash
 sudo mokutil --import /var/lib/dkms/mok.pub
 ```
-### Reboot and select "Enroll MOK" from the blue screen menu.
+Reboot and select **"Enroll MOK"** from the blue-screen menu.
 
 ## 🚨 Reporting Issues
 When reporting a bug, please include:
 
-Output of uname -r (Kernel version)
+- Output of `uname -r` (kernel version)
+- Your hardware platform (e.g., PC, PinePhone, Samsung Note 20)
 
-Your hardware platform (e.g., PC, PinePhone, Samsung Note 20)
+And attach a diagnostic bundle:
 
-And follow these steps:
-
-### Run diagnose.sh
 ```bash
-sudo diagnose.sh
+sudo ./diagnose.sh
 ```
 
-### Send me appropriate diagnostic-(hash).tar
+Then send me the resulting `diagnostic-<hash>.tar`.
 
 ## ⚖️ License & Credits
 Licensed under Dual BSD/GPL-2.0.
