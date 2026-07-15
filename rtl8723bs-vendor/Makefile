@@ -14,6 +14,12 @@ EXTRA_CFLAGS += -Wno-unused-label
 EXTRA_CFLAGS += -Wno-unused-parameter
 EXTRA_CFLAGS += -Wno-unused-function
 EXTRA_CFLAGS += -Wno-unused
+# This vendor reference predates the kernel's global prototype and
+# fallthrough warning policy. Keep compatibility warnings non-fatal while
+# preserving actual compiler errors on current kernels.
+EXTRA_CFLAGS += -Wno-missing-prototypes
+EXTRA_CFLAGS += -Wno-implicit-fallthrough
+EXTRA_CFLAGS += -Wno-empty-body
 #EXTRA_CFLAGS += -Wno-uninitialized
 
 GCC_VER_49 := $(shell echo `$(CC) -dumpversion | cut -f1-2 -d.` \>= 4.9 | bc )
@@ -46,7 +52,7 @@ CONFIG_PCI_HCI = n
 CONFIG_SDIO_HCI = y
 CONFIG_GSPI_HCI = n
 ########################## Features ###########################
-CONFIG_MP_INCLUDED = y
+CONFIG_MP_INCLUDED = n
 CONFIG_POWER_SAVING = n
 CONFIG_USB_AUTOSUSPEND = n
 CONFIG_HW_PWRP_DETECTION = n
@@ -66,7 +72,7 @@ CONFIG_RTW_ADAPTIVITY_MODE = normal
 CONFIG_SIGNAL_SCALE_MAPPING = n
 CONFIG_80211W = n
 CONFIG_REDUCE_TX_CPU_LOADING = n
-CONFIG_BR_EXT = y
+CONFIG_BR_EXT = n
 CONFIG_TDLS = n
 CONFIG_WIFI_MONITOR = n
 CONFIG_MCC_MODE = n

@@ -19,7 +19,24 @@
 #include <linux/spinlock.h>
 #include <linux/compiler.h>
 #include <linux/kernel.h>
+#include <linux/string.h>
 #include <linux/errno.h>
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(7, 2, 0))
+static inline char *rtw_compat_strncpy(char *dst, const char *src, size_t count)
+{
+	size_t i;
+
+	for (i = 0; i < count && src[i]; i++)
+		dst[i] = src[i];
+	for (; i < count; i++)
+		dst[i] = '\0';
+
+	return dst;
+}
+#define strncpy(dst, src, count) rtw_compat_strncpy(dst, src, count)
+#endif
+
 #include <linux/init.h>
 #include <linux/slab.h>
 #include <linux/module.h>

@@ -14,7 +14,7 @@
  *****************************************************************************/
 
 #ifndef	__PHYDM_FEATURES_CE_H__
-#define __PHYDM_FEATURES_CE
+#define __PHYDM_FEATURES_CE_H__
 
 #if (RTL8822B_SUPPORT == 1)
 	/*#define PHYDM_PHYSTAUS_SMP_MODE*/
