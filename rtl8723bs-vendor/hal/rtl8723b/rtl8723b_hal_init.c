@@ -4193,7 +4193,6 @@ static void rtl8723b_fill_default_txdesc(
 #ifdef CONFIG_XMIT_ACK
 		/* CCX-TXRPT ack for xmit mgmt frames. */
 		if (pxmitframe->ack_report || true) {
-			pr_err("%s set spe_rpt\n", __FUNCTION__);
 			SET_TX_DESC_SPE_RPT_8723B(pbuf, 1);
 			SET_TX_DESC_SW_DEFINE_8723B(pbuf, (u8)(GET_PRIMARY_ADAPTER(padapter)->xmitpriv.seq_no));
 		}
@@ -4220,7 +4219,6 @@ static void rtl8723b_fill_default_txdesc(
 #ifdef CONFIG_XMIT_ACK
 		/* CCX-TXRPT ack for xmit mgmt frames. */
 		if (pxmitframe->ack_report || true) {
-			pr_err("%s set spe_rpt\n", __FUNCTION__);
 			SET_TX_DESC_SPE_RPT_8723B(pbuf, 1);
 			SET_TX_DESC_SW_DEFINE_8723B(pbuf, (u8)(GET_PRIMARY_ADAPTER(padapter)->xmitpriv.seq_no));
 		}
@@ -4279,30 +4277,6 @@ static void rtl8723b_fill_default_txdesc(
 	if (!pattrib->qos_en)
 		SET_TX_DESC_HWSEQ_EN_8723B(pbuf, 1);
 
-	/* Dump full TX descriptor for management frames AFTER all fields filled */
-	if (pxmitframe->frame_tag == MGNT_FRAMETAG) {
-		u32 *desc = (u32 *)pbuf;
-		__le16 fc_le = *(__le16 *)(pbuf + TXDESC_SIZE);
-		u16 fc = le16_to_cpu(fc_le);
-		u8 w0_rate = (u8)(le32_to_cpu(desc[4]) & 0x7f);
-		u8 w0_rate_id = (u8)((le32_to_cpu(desc[1]) >> 16) & 0x1f);
-		u32 w4 = le32_to_cpu(desc[4]);
-		u8 w0_hwseq = (le32_to_cpu(desc[8]) & BIT(15)) ? 1 : 0;
-		u8 w0_bmc = (le32_to_cpu(desc[0]) & BIT(24)) ? 1 : 0;
-		u8 w0_spe = (le32_to_cpu(desc[2]) & BIT(19)) ? 1 : 0;
-		u8 w0_userate = (le32_to_cpu(desc[3]) & BIT(8)) ? 1 : 0;
-		u8 w0_disfb = (le32_to_cpu(desc[3]) & BIT(10)) ? 1 : 0;
-		u8 w0_rtlmt = (u8)((w4 >> 18) & 0x3f);
-		u8 w0_rtlmt_en = (w4 & BIT(17)) ? 1 : 0;
-		pr_err("vendor_txdesc: fc=0x%04x rate=%u rate_id=%u bmc=%u spe=%u use_rate=%u dis_fb=%u hwseq=%u rtlmt_en=%u rtlmt=%u desc=%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x/%08x\n",
-			fc, w0_rate, w0_rate_id, w0_bmc, w0_spe,
-			w0_userate, w0_disfb, w0_hwseq, w0_rtlmt_en, w0_rtlmt,
-			le32_to_cpu(desc[0]), le32_to_cpu(desc[1]),
-			le32_to_cpu(desc[2]), le32_to_cpu(desc[3]),
-			le32_to_cpu(desc[4]), le32_to_cpu(desc[5]),
-			le32_to_cpu(desc[6]), le32_to_cpu(desc[7]),
-			le32_to_cpu(desc[8]), le32_to_cpu(desc[9]));
-	}
 }
 
 /*
