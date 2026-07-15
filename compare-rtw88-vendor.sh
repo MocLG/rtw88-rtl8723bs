@@ -13,6 +13,8 @@ SERVER="192.168.88.4"
 DURATION=30
 INTERVAL=0.2
 RUNS=3
+OOKLA_RUNS=1
+RUN_OOKLA=1
 KVER=$(uname -r)
 KSRC=""
 RTW_TREE=""
@@ -35,7 +37,9 @@ Options:
   --server IP             Wired iperf3 server (default: $SERVER)
   --duration SEC          Seconds per run (default: $DURATION)
   --interval SEC          iperf reporting interval (default: $INTERVAL)
-  --runs N                Runs per driver (default: $RUNS)
+  --runs N                iperf runs per driver (default: $RUNS)
+  --ookla-runs N          Ookla Speedtest runs per driver (default: $OOKLA_RUNS)
+  --no-ookla              Skip Ookla Speedtest
   --kernel-release REL    Kernel release to build for (default: uname -r)
   --kernel-src DIR        Kernel build/source directory
   --rtw-tree DIR          In-tree rtw kernel source (contains drivers/net/...)
@@ -57,6 +61,8 @@ while [ $# -gt 0 ]; do
     --duration) DURATION=$2; shift 2 ;;
     --interval) INTERVAL=$2; shift 2 ;;
     --runs) RUNS=$2; shift 2 ;;
+    --ookla-runs) OOKLA_RUNS=$2; shift 2 ;;
+    --no-ookla) RUN_OOKLA=0; shift ;;
     --kernel-release) KVER=$2; shift 2 ;;
     --kernel-src) KSRC=$2; shift 2 ;;
     --rtw-tree) RTW_TREE=$2; shift 2 ;;
@@ -112,6 +118,13 @@ if [ "$BUILD_ONLY" -eq 0 ]; then
     for cmd in ip iw iperf3 wpa_supplicant wpa_passphrase dhclient insmod rmmod modprobe; do
         need "$cmd"
     done
+    if [ "$RUN_OOKLA" -eq 1 ]; then
+        need speedtest
+        if ! speedtest --help 2>&1 | grep -q -- '--interface'; then
+            echo "speedtest is not the Ookla CLI with --interface support" >&2
+            exit 1
+        fi
+    fi
     if ! iperf3 --help 2>&1 | grep -q -- '--bind-dev'; then
         echo "iperf3 lacks --bind-dev; refusing a potentially Ethernet-routed test" >&2
         exit 1
@@ -290,6 +303,62 @@ count_intervals() {
     ' "$file"
 }
 
+parse_ookla() {
+    local file=$1
+    awk -F: '
+    /^[[:space:]]*Download:/ {
+        value = $2; sub(/^[[:space:]]*/, "", value); split(value, a, /[[:space:]]+/)
+        download = a[1]
+    }
+    /^[[:space:]]*Upload:/ {
+        value = $2; sub(/^[[:space:]]*/, "", value); split(value, a, /[[:space:]]+/)
+        upload = a[1]
+    }
+    /^[[:space:]]*Idle Latency:/ {
+        value = $2; sub(/^[[:space:]]*/, "", value); split(value, a, /[[:space:]]+/)
+        ping = a[1]
+    }
+    END {printf "download_mbps=%s upload_mbps=%s idle_ms=%s\n", download, upload, ping}
+    ' "$file"
+}
+
+run_ookla_tests() {
+    local driver=$1 dir="$OUT/$1" run_id file before after delta eth_before eth_after eth_delta
+
+    [ "$RUN_OOKLA" -eq 1 ] || return 0
+    for run_id in $(seq 1 "$OOKLA_RUNS"); do
+        file="$dir/speedtest-$run_id.log"
+        before=$(cat "/sys/class/net/$IFACE/statistics/tx_bytes")
+        if [ -e /sys/class/net/eth0/statistics/tx_bytes ]; then
+            eth_before=$(cat /sys/class/net/eth0/statistics/tx_bytes)
+        else
+            eth_before=0
+        fi
+        log "$driver Ookla Speedtest run $run_id/$OOKLA_RUNS on $IFACE"
+        if ! speedtest --accept-license --accept-gdpr --interface "$IFACE" \
+             > "$file" 2>&1; then
+            log "$driver Ookla run $run_id failed; see $file"
+        fi
+        after=$(cat "/sys/class/net/$IFACE/statistics/tx_bytes")
+        if [ -e /sys/class/net/eth0/statistics/tx_bytes ]; then
+            eth_after=$(cat /sys/class/net/eth0/statistics/tx_bytes)
+        else
+            eth_after=$eth_before
+        fi
+        delta=$((after - before))
+        eth_delta=$((eth_after - eth_before))
+        {
+            parse_ookla "$file"
+            echo "wlan_tx_bytes=$delta eth_tx_bytes=$eth_delta"
+        } > "$dir/speedtest-$run_id.metrics"
+        if [ "$delta" -lt 1048576 ]; then
+            log "$driver Ookla run $run_id did not carry enough WiFi bytes ($delta)"
+            return 1
+        fi
+        sleep "$COOLDOWN"
+    done
+}
+
 run_driver_tests() {
     local driver=$1 dir="$OUT/$1" run_id file before after delta eth_before eth_after eth_delta
     mkdir -p "$dir"
@@ -329,11 +398,12 @@ run_driver_tests() {
         station_snapshot > "$dir/station-after-$run_id.log"
         sleep "$COOLDOWN"
     done
+    run_ookla_tests "$driver"
     dmesg > "$dir/dmesg-after.log"
 }
 
 summarize_driver() {
-    local driver=$1 dir="$OUT/$1" rates retrs zeros sub1 median
+    local driver=$1 dir="$OUT/$1" rates retrs zeros sub1 median ookla
     rates=$(awk -F'[ =]' '/mbps=/{print $2}' "$dir"/run-*.metrics 2>/dev/null | sort -n)
     retrs=$(awk -F'[ =]' '/mbps=/{s += $4} END {print s + 0}' "$dir"/run-*.metrics 2>/dev/null)
     zeros=$(awk -F'[ =]' '/zero=/{s += $2} END {print s + 0}' "$dir"/run-*.metrics)
@@ -342,7 +412,12 @@ summarize_driver() {
     printf '%s median_mbps=%s total_retr=%s zero_intervals=%s sub1_intervals=%s runs=[' \
         "$driver" "$median" "$retrs" "$zeros" "$sub1"
     printf '%s' "$rates" | paste -sd,
-    printf ']\n'
+    printf ']'
+    if [ "$RUN_OOKLA" -eq 1 ]; then
+        ookla=$(awk '/download_mbps=/{print}' "$dir"/speedtest-*.metrics 2>/dev/null | paste -sd';')
+        printf ' ookla=[%s]' "$ookla"
+    fi
+    printf '\n'
 }
 
 restore_rtw88() {
@@ -397,7 +472,7 @@ stop_userspace
 
 {
     echo "RTL8723BS rtw88 vs vendor comparison"
-    echo "kernel=$KVER server=$SERVER duration=$DURATION interval=$INTERVAL runs=$RUNS"
+    echo "kernel=$KVER server=$SERVER duration=$DURATION interval=$INTERVAL runs=$RUNS ookla_runs=$OOKLA_RUNS"
     summarize_driver rtw88
     summarize_driver vendor
 } | tee "$OUT/SUMMARY.txt"
