@@ -26,6 +26,7 @@ WPA_PID=""
 WPA_CONF=""
 RESTORING=0
 TESTING_STARTED=0
+ROUTE_TABLE=200
 
 usage() {
     cat <<EOF
@@ -48,8 +49,9 @@ Options:
   -h, --help              Show this help
 
 The normal test requires root. It never installs modules or reboots. The
-Ethernet default route is left intact; only a /32 route to the iperf server is
-placed on WiFi. rtw88 is restored and reconnected on exit.
+Ethernet's main-table default route is left intact. Source-based policy routing
+sends traffic bound to the WiFi address through WiFi, and a /32 server route
+makes the LAN iperf target unambiguous. rtw88 is restored on exit.
 EOF
 }
 
@@ -194,7 +196,17 @@ unload_wireless() {
     sleep 2
 }
 
+clear_wifi_routes() {
+    if [ -n "${WIP:-}" ]; then
+        while ip rule del from "$WIP" table "$ROUTE_TABLE" 2>/dev/null; do :; done
+    fi
+    ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+    ip route del "$SERVER/32" 2>/dev/null || true
+    ip route flush cache 2>/dev/null || true
+}
+
 stop_userspace() {
+    clear_wifi_routes
     if [ -s "$WPA_PID" ]; then
         kill "$(cat "$WPA_PID")" 2>/dev/null || true
         rm -f "$WPA_PID"
@@ -249,16 +261,47 @@ connect_wifi() {
     WIP=$(ip -4 -o addr show dev "$IFACE" | awk '{split($4,a,"/"); print a[1]; exit}')
     [ -n "$WIP" ] || { log "$IFACE did not receive IPv4"; return 1; }
 
-    # DHCP may add a WiFi default. Keep Ethernet/default untouched.
+    local gw subnet route internet_route
+
+    # Save the DHCP gateway before removing its main-table default route.
+    gw=$(ip route show default dev "$IFACE" | awk '{print $3; exit}')
+    if [ -z "$gw" ]; then
+        gw=$(awk '/option routers/ {gsub(/[;,]/, "", $3); r=$3} END {print r}' \
+             "$OUT/dhclient-${CURRENT_DRIVER}.leases")
+    fi
+    [ -n "$gw" ] || { log "could not determine WiFi gateway"; return 1; }
+    subnet=$(ip -4 -o route show dev "$IFACE" scope link | awk '{print $1; exit}')
+    [ -n "$subnet" ] || subnet="${WIP%.*}.0/24"
+
+    # Keep Ethernet's main default authoritative. Traffic explicitly bound to
+    # the WiFi source address uses a private table with a WiFi default, which
+    # is required by Ookla before it knows any destination addresses.
     ip route del default dev "$IFACE" 2>/dev/null || true
+    while ip rule del from "$WIP" table "$ROUTE_TABLE" 2>/dev/null; do :; done
+    ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+    ip route add "$subnet" dev "$IFACE" src "$WIP" table "$ROUTE_TABLE"
+    ip route add default via "$gw" dev "$IFACE" table "$ROUTE_TABLE"
+    ip rule add from "$WIP" table "$ROUTE_TABLE"
+
+    # Pin the local iperf server even if applications do not select the WiFi
+    # source before route lookup (both NICs are on the same LAN on xtouch).
     ip route replace "$SERVER/32" dev "$IFACE" src "$WIP"
     ip route flush cache
 
-    local route
     route=$(ip route get "$SERVER" from "$WIP")
-    printf '%s\n' "$route" > "$OUT/route-${CURRENT_DRIVER}.txt"
+    internet_route=$(ip route get 1.1.1.1 from "$WIP")
+    {
+        echo "server: $route"
+        echo "internet: $internet_route"
+        echo "table $ROUTE_TABLE:"
+        ip route show table "$ROUTE_TABLE"
+    } > "$OUT/route-${CURRENT_DRIVER}.txt"
     printf '%s\n' "$route" | grep -q "dev $IFACE" || {
         log "route to $SERVER is not on $IFACE: $route"
+        return 1
+    }
+    printf '%s\n' "$internet_route" | grep -q "dev $IFACE" || {
+        log "WiFi-bound Internet route is not on $IFACE: $internet_route"
         return 1
     }
     iw dev "$IFACE" link > "$OUT/link-${CURRENT_DRIVER}.txt"
