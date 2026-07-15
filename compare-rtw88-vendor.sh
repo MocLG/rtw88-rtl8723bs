@@ -187,6 +187,11 @@ build_drivers() {
 }
 
 unload_wireless() {
+    # A prior comparison intentionally leaves rtw88 connected. Discover that
+    # interface before stopping userspace; IFACE is empty at script startup,
+    # so otherwise the old wpa_supplicant survives and the new instance cannot
+    # take control of wlan0.
+    detect_iface 2>/dev/null || true
     stop_userspace
     local m
     for m in rtw88_8723bs rtw88_8723b rtw88_8723x rtw88_sdio rtw88_core \
@@ -211,7 +216,10 @@ stop_userspace() {
         kill "$(cat "$WPA_PID")" 2>/dev/null || true
         rm -f "$WPA_PID"
     fi
-    [ -n "$IFACE" ] && pkill -f "wpa_supplicant.*-i[[:space:]]*$IFACE" 2>/dev/null || true
+    if [ -n "$IFACE" ]; then
+        pkill -f "wpa_supplicant.*-i[[:space:]]*$IFACE" 2>/dev/null || true
+        pkill -f "wpa_supplicant.*-i$IFACE" 2>/dev/null || true
+    fi
 }
 
 load_rtw88() {
@@ -245,8 +253,12 @@ connect_wifi() {
         wpa_passphrase "$SSID" "$PSK"
     } > "$WPA_CONF"
     chmod 600 "$WPA_CONF"
-    wpa_supplicant -B -P "$WPA_PID" -i "$IFACE" -c "$WPA_CONF" \
-        -f "$OUT/wpa-${CURRENT_DRIVER}.log"
+    if ! wpa_supplicant -B -P "$WPA_PID" -i "$IFACE" -c "$WPA_CONF" \
+         -f "$OUT/wpa-${CURRENT_DRIVER}.log"; then
+        log "$CURRENT_DRIVER wpa_supplicant failed to start"
+        tail -30 "$OUT/wpa-${CURRENT_DRIVER}.log" | tee -a "$LOG"
+        return 1
+    fi
 
     local i
     for i in $(seq 1 40); do
