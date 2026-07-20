@@ -81,6 +81,11 @@ if [ -z "$BT_MAC" ]; then
 fi
 BT_NAME=$(bluetoothctl info "$BT_MAC" 2>/dev/null | awk -F': ' '/Name:/ {print $2; exit}')
 
+# The audio stack is a per-user service. When running as root over ssh
+# there is no login session, so point at root's runtime dir explicitly.
+: "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
 # audio stack: prefer pipewire (gives us an underrun counter)
 AUDIO_STACK="none"
 if command -v pw-play >/dev/null && command -v pw-dump >/dev/null; then
@@ -92,6 +97,24 @@ fi
     echo "no pipewire (pw-play) or pulseaudio (paplay) found" >&2
     exit 1
 }
+
+# Fail early and clearly if the server is not reachable, rather than
+# producing a run with silent playback.
+if ! pactl info >/dev/null 2>&1; then
+    cat >&2 <<EOF
+no audio server reachable (XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR).
+
+Debian's pipewire units carry ConditionUser=!root, so as root start them
+by hand first:
+
+    export XDG_RUNTIME_DIR=/run/user/0
+    pipewire & sleep 1
+    wireplumber & sleep 1
+    pipewire-pulse & sleep 2
+    pactl info
+EOF
+    exit 1
+fi
 
 mountpoint -q /sys/kernel/debug || mount -t debugfs none /sys/kernel/debug 2>/dev/null
 COEX=$(find /sys/kernel/debug/ieee80211 -name coex_info 2>/dev/null | head -1)
