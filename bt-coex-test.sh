@@ -230,12 +230,22 @@ dmesg > "$OUT/dmesg.txt" 2>/dev/null || true
 
 # --------------------------------------------------------------- summary
 
-BASE_V=$(echo "$BASE" | awk '{print $1}')
-WITH_V=$(echo "$WITH" | awk '{print $1}')
+# iperf3 reports Kbits/Mbits/Gbits depending on rate, so normalise to
+# Mbit/s before comparing, otherwise 87.4 Kbits looks larger than 42.4 Mbits.
+to_mbit() {
+    awk -v v="$1" -v u="$2" 'BEGIN {
+        if (u ~ /^K/) v /= 1000;
+        else if (u ~ /^G/) v *= 1000;
+        printf "%.4f", v
+    }'
+}
+BASE_V=$(to_mbit "$(echo "$BASE" | awk '{print $1}')" "$(echo "$BASE" | awk '{print $2}')")
+WITH_V=$(to_mbit "$(echo "$WITH" | awk '{print $1}')" "$(echo "$WITH" | awk '{print $2}')")
 DROP="n/a"
 if [ -n "$BASE_V" ] && [ -n "$WITH_V" ]; then
     DROP=$(awk -v a="$BASE_V" -v b="$WITH_V" \
-        'BEGIN {if (a > 0) printf "%.1f%%", (a-b)/a*100; else print "n/a"}')
+        'BEGIN {if (a > 0) printf "%.1f%% (%.2f -> %.2f Mbit/s)", (a-b)/a*100, a, b;
+                else print "n/a"}')
 fi
 
 {
