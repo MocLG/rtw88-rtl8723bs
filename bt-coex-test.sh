@@ -55,6 +55,9 @@ for c in iw iperf3 bluetoothctl awk grep date; do need "$c"; done
 
 say() { echo "[$(date +%H:%M:%S)] $*"; }
 
+# Leave no playback loop behind if the run is interrupted.
+trap 'stop_audio; kill "${SAMPLER:-}" 2>/dev/null; exit 130' INT TERM
+
 # ---------------------------------------------------------------- preflight
 
 if [ -z "$IFACE" ]; then
@@ -164,13 +167,24 @@ run_iperf() {  # $1 = label
     awk '/receiver/ {print $7, $8}' "$OUT/iperf-$1.log" | tail -1
 }
 
+# The loop is backgrounded with its own stdout redirected: without that it
+# would inherit the caller's command-substitution pipe and keep it open,
+# so $(play_audio) would never return.
 play_audio() {
     if [ "$AUDIO_STACK" = "pipewire" ]; then
-        while :; do pw-play "$AUDIO" >/dev/null 2>&1 || break; done &
+        while :; do pw-play "$AUDIO" || break; done >/dev/null 2>&1 &
     else
-        while :; do paplay "$AUDIO" >/dev/null 2>&1 || break; done &
+        while :; do paplay "$AUDIO" || break; done >/dev/null 2>&1 &
     fi
     echo $!
+}
+
+stop_audio() {
+    [ -n "${PLAY_PID:-}" ] || return 0
+    kill "$PLAY_PID" 2>/dev/null
+    pkill -P "$PLAY_PID" 2>/dev/null
+    pkill -f "pw-play $AUDIO" 2>/dev/null
+    pkill -f "paplay $AUDIO" 2>/dev/null
 }
 
 # ------------------------------------------------------------------- run
@@ -205,7 +219,7 @@ SAMPLER=$!
 
 WITH=$(run_iperf with-bt)
 
-kill "$PLAY_PID" 2>/dev/null; pkill -P "$PLAY_PID" 2>/dev/null
+stop_audio
 kill "$SAMPLER" 2>/dev/null
 wait 2>/dev/null
 UR_AFTER=$(underruns)
