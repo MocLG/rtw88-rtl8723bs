@@ -12,7 +12,7 @@
 > This tree is **frozen**. It receives no fixes, updates or support, and
 > issues and pull requests about the code in *this repository* (the
 > external DKMS build) will not be handled. It stays online only as a
-> historical archive and its code is outdated and I not synced to mainline.
+> historical archive and its code is outdated and not synced to mainline.
 >
 > **Issues are still monitored here, but only for the mainline driver**
 > (Linux 7.4 or newer). See the "Reporting Issues" section below.
